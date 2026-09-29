@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
+import ipaddress
 from pathlib import Path
+import socket
 import sys
 from typing import Sequence
+from urllib.parse import urlsplit, urlunsplit
+
+import yaml
 
 from job_radar.config import ConfigError, load_profile, load_sources
 from job_radar.fetching import FetchPolicy, ProfileInUseError, bootstrap_auth
@@ -15,6 +21,7 @@ from job_radar.preferences import (
     apply_preferences,
     load_preferences,
 )
+from job_radar.selector_suggestion import suggest_from_page
 
 
 def _project_root() -> Path:
@@ -54,6 +61,12 @@ def _parser() -> argparse.ArgumentParser:
         "auth", help="Abrir login manual e preservar a sessao local de um portal."
     )
     auth.add_argument("source", metavar="SOURCE")
+    suggest = commands.add_parser(
+        "suggest-selectors",
+        help="Sugerir seletores sem alterar a configuracao.",
+    )
+    suggest.add_argument("target", metavar="SOURCE_OR_URL")
+    suggest.add_argument("--text", required=True, help="Titulo visivel de uma vaga.")
     return parser
 
 
@@ -170,12 +183,164 @@ def _auth(args: argparse.Namespace) -> int:
     return 0
 
 
+def _origin(value: str) -> str | None:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    scheme = parsed.scheme.casefold()
+    host = (parsed.hostname or "").casefold()
+    if not scheme or not host:
+        return None
+    netloc = f"[{host}]" if ":" in host else host
+    if port is not None and not (scheme == "https" and port == 443):
+        netloc = f"{netloc}:{port}"
+    return urlunsplit((scheme, netloc, "", "", ""))
+
+
+def _resolved_addresses(hostname: str) -> tuple[str, ...]:
+    addresses = {
+        str(item[4][0])
+        for item in socket.getaddrinfo(
+            hostname,
+            443,
+            type=socket.SOCK_STREAM,
+        )
+    }
+    return tuple(sorted(addresses))
+
+
+def _is_global_address(value: str) -> bool:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return (
+        address.is_global
+        and not address.is_link_local
+        and not address.is_loopback
+        and not address.is_multicast
+        and not address.is_private
+        and not address.is_reserved
+        and not address.is_unspecified
+    )
+
+
+def _validate_raw_target(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("URL invalida") from exc
+    if parsed.scheme.casefold() != "https" or not parsed.netloc or not parsed.hostname:
+        raise ValueError("URL deve usar HTTPS")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URL com credenciais nao e permitida")
+    hostname = parsed.hostname.casefold()
+    if hostname == "localhost" or hostname.endswith(".localhost") or "%" in hostname:
+        raise ValueError("Host local nao e permitido")
+    try:
+        literal = ipaddress.ip_address(hostname)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if not _is_global_address(str(literal)):
+            raise ValueError("Endereco nao global nao e permitido")
+    else:
+        try:
+            addresses = _resolved_addresses(hostname)
+        except OSError as exc:
+            raise ValueError("Nao foi possivel resolver o host") from exc
+        if not addresses or any(not _is_global_address(item) for item in addresses):
+            raise ValueError("DNS resolveu endereco nao global")
+    return value
+
+
+def _suggest_target(
+    target: str,
+    sources: Sequence[object],
+) -> tuple[str, object, bool]:
+    configured = next(
+        (source for source in sources if getattr(source, "code", None) == target),
+        None,
+    )
+    if configured is not None:
+        source = replace(configured, adaptive=False)
+        return str(getattr(source, "start_url")), source, False
+
+    raw_url = _validate_raw_target(target)
+    raw_origin = _origin(raw_url)
+    configured = next(
+        (
+            source
+            for source in sources
+            if _origin(str(getattr(source, "start_url", ""))) == raw_origin
+        ),
+        None,
+    )
+    if configured is None:
+        raise ValueError("URL deve pertencer a uma fonte configurada")
+    source = replace(configured, start_url=raw_url, adaptive=False)
+    return raw_url, source, True
+
+
+def _suggest_selectors(args: argparse.Namespace) -> int:
+    project = _project_root()
+    try:
+        sources = load_sources(project / "config" / "sources.yaml")
+        target_url, source, raw_url = _suggest_target(args.target, sources)
+    except (ConfigError, ValueError) as exc:
+        print(f"SUGGEST_ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    with FetchPolicy() as fetcher:
+        fetched = fetcher.fetch(target_url, source)
+    if fetched.status is not CollectionStatus.SUCCESS or fetched.response is None:
+        print(
+            f"SUGGEST_ERROR: coleta terminou em {fetched.status.value}",
+            file=sys.stderr,
+        )
+        return 2
+    if raw_url and _origin(str(getattr(fetched.response, "url", ""))) != _origin(
+        target_url
+    ):
+        print("SUGGEST_ERROR: resposta mudou de origem", file=sys.stderr)
+        return 2
+
+    try:
+        suggestion = suggest_from_page(fetched.response, args.text)
+    except (AttributeError, TypeError, ValueError):
+        print("SUGGEST_ERROR: pagina nao pode ser analisada", file=sys.stderr)
+        return 2
+    if suggestion is None:
+        print("SUGGEST_ERROR: texto visivel nao encontrado", file=sys.stderr)
+        return 2
+
+    payload = {
+        "selectors": {
+            "card": suggestion.card,
+            "title": suggestion.title,
+            "url": suggestion.url,
+        },
+        "cards_found": suggestion.cards_found,
+        "validation": {
+            "title": f"{suggestion.title_matches}/{suggestion.cards_found}",
+            "url": f"{suggestion.url_matches}/{suggestion.cards_found}",
+        },
+    }
+    print(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False).rstrip())
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "collect":
         return _collect(args)
     if args.command == "auth":
         return _auth(args)
+    if args.command == "suggest-selectors":
+        return _suggest_selectors(args)
     return _validate(args.path)
 
 

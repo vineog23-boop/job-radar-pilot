@@ -152,6 +152,30 @@ máximo `PARTIAL`, registra o warning `SELECTOR_RELOCATED:card` no relatório e
 marca as vagas com `EXTRACTION:ADAPTIVE`. A CLI exibe o warning em uma linha
 separada, sem alterar a linha de progresso consumida pela interface.
 
+## Sugerir seletores sem alterar a configuração
+
+O diagnóstico abaixo busca uma página uma única vez e imprime YAML para revisão
+humana. Ele não edita `config/sources.yaml` nem consulta ou atualiza o SQLite
+adaptativo:
+
+```powershell
+.\scripts\run-job-radar.ps1 suggest-selectors programathor --text "Desenvolvedor Java Junior"
+```
+
+Também é aceita uma URL HTTPS da mesma origem de uma fonte configurada. Nesse
+caso, o comando preserva o tipo e a política de coleta da fonte, mas usa a URL
+somente durante o diagnóstico:
+
+```powershell
+.\scripts\run-job-radar.ps1 suggest-selectors "https://programathor.com.br/jobs-java?q=backend" --text "Desenvolvedor Java Junior"
+```
+
+URLs com credenciais, HTTP, `localhost`, IPs privados, loopback ou link-local
+são recusadas antes da coleta. O host de uma URL crua precisa resolver somente
+endereços globais, e mudanças de origem na resposta também invalidam o
+diagnóstico. A saída informa `card`, `title`, `url`, cards encontrados e a
+validação dos campos; revise o YAML antes de aplicá-lo manualmente.
+
 ## Preferências de busca
 
 Use **Configurar busca** na interface. Os valores ficam em

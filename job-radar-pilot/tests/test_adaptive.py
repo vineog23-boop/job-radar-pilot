@@ -389,6 +389,60 @@ def test_select_cards_deduplicates_different_wrappers_for_same_node(
     assert len(selection.cards) == 1
 
 
+def test_select_cards_expands_only_valid_structural_siblings(
+    tmp_path: Path,
+) -> None:
+    page = Adaptor(
+        """
+        <main>
+          <ul class="jobs">
+            <li class="vaga x1"><a href="/1"><h3>Java Junior</h3></a></li>
+            <li class="vaga x2"><a href="/2"><h3>Estagio Java</h3></a></li>
+            <li class="vaga x3"><a href="/3"><h3>Backend Junior</h3></a></li>
+            <li class="vaga promo"><span>Conteudo editorial</span></li>
+          </ul>
+          <ul class="recommendations">
+            <li class="vaga x4"><a href="/4"><h3>Recomendacao externa</h3></a></li>
+          </ul>
+        </main>
+        """,
+        url=URL,
+    )
+    jobs = tuple(page.css("ul.jobs > li"))
+    external = page.css("ul.recommendations > li")[0]
+
+    class RelocatedCard:
+        def __init__(self, node: object) -> None:
+            self._root = getattr(node, "_root")
+            self.tag = getattr(node, "tag")
+            self.parent = getattr(node, "parent")
+            self.attrib = getattr(node, "attrib")
+
+        def css(self, selector: str):
+            return jobs[0].css(selector)
+
+        def find_similar(self):
+            return (*jobs[1:], external)
+
+    class SingleCardLocator:
+        def relocate(self, page: object, source_code: str, selector: str):
+            return (RelocatedCard(jobs[0]),)
+
+    selection = select_cards(
+        page,
+        source_code="example",
+        selector="li.missing",
+        locator=SingleCardLocator(),  # type: ignore[arg-type]
+    )
+
+    assert selection.method == "ADAPTIVE"
+    assert len(selection.cards) == 3
+    assert {
+        " ".join(card.css("h3::text").getall()).strip()
+        for card in selection.cards
+    } == {"Java Junior", "Estagio Java", "Backend Junior"}
+
+
 def test_generic_adapter_remembers_only_valid_page_and_recovers_safe_records(
     tmp_path: Path,
 ) -> None:

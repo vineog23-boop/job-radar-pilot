@@ -259,6 +259,46 @@ def _deduplicate_nodes(nodes: Iterable[object]) -> tuple[object, ...]:
     return tuple(unique)
 
 
+def _same_parent(left: object, right: object) -> bool:
+    left_parent = _element(left).getparent()
+    right_parent = _element(right).getparent()
+    if left_parent is None or right_parent is None:
+        return False
+    return _structural_identity(left_parent) == _structural_identity(right_parent)
+
+
+def _has_card_contract(node: object) -> bool:
+    try:
+        has_title = bool(node.css("h1, h2, h3, h4"))  # type: ignore[attr-defined]
+        element = _element(node)
+        has_link = bool(node.css("a[href]")) or (  # type: ignore[attr-defined]
+            str(getattr(element, "tag", "")).casefold() == "a"
+            and bool(str(getattr(element, "attrib", {}).get("href", "")).strip())
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return has_title and has_link
+
+
+def structurally_similar_nodes(
+    node: object,
+    *,
+    require_card_contract: bool = False,
+) -> tuple[object, ...]:
+    tag = str(getattr(_element(node), "tag", "")).casefold()
+    try:
+        candidates = node.find_similar()  # type: ignore[attr-defined]
+    except (AttributeError, TypeError, ValueError):
+        return ()
+    return _deduplicate_nodes(
+        candidate
+        for candidate in candidates
+        if str(getattr(_element(candidate), "tag", "")).casefold() == tag
+        and _same_parent(node, candidate)
+        and (not require_card_contract or _has_card_contract(candidate))
+    )
+
+
 class AdaptiveCardLocator:
     def __init__(self, db_path: Path | None = None) -> None:
         self.db_path = db_path or adaptive_db_path()
@@ -378,5 +418,12 @@ def select_cards(
         return CardSelection(configured, "CONFIGURED")
     relocated = _deduplicate_nodes(locator.relocate(page, source_code, selector))
     if relocated:
-        return CardSelection(relocated, "ADAPTIVE")
+        expanded = structurally_similar_nodes(
+            relocated[0],
+            require_card_contract=True,
+        )
+        return CardSelection(
+            _deduplicate_nodes((*relocated, *expanded)),
+            "ADAPTIVE",
+        )
     return CardSelection((), "NONE")

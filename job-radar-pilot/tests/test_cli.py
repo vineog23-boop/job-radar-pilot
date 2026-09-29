@@ -3,8 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from scrapling.parser import Adaptor
+import yaml
 
 from job_radar import cli
+from job_radar.fetching import FetchResult
 from job_radar.models import CollectionStatus, SourceRunResult
 from job_radar.output import write_outputs
 from job_radar.pipeline import PipelineResult
@@ -51,6 +54,38 @@ class FakeFetchPolicy:
         type(self).exited += 1
 
 
+class FakeSuggestionFetchPolicy:
+    page: object
+    calls: list[tuple[str, object]] = []
+
+    def __enter__(self) -> "FakeSuggestionFetchPolicy":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        return None
+
+    def fetch(self, url: str, source: object) -> FetchResult:
+        type(self).calls.append((url, source))
+        return FetchResult(
+            CollectionStatus.SUCCESS,
+            response=type(self).page,  # type: ignore[arg-type]
+            attempts=1,
+        )
+
+
+def _suggestion_page(url: str = "https://programathor.com.br/jobs-java") -> Adaptor:
+    return Adaptor(
+        """
+        <ul class="jobs">
+          <li class="vaga x1"><a href="/1"><h3>Desenvolvedor Java Junior</h3></a></li>
+          <li class="vaga x2"><a href="/2"><h3>Estagio Java</h3></a></li>
+          <li class="vaga x3"><a href="/3"><h3>Backend Junior</h3></a></li>
+        </ul>
+        """,
+        url=url,
+    )
+
+
 def test_help_lists_commands(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main(["--help"])
@@ -60,6 +95,223 @@ def test_help_lists_commands(capsys: pytest.CaptureFixture[str]) -> None:
     assert "collect" in output
     assert "auth" in output
     assert "validate-output" in output
+    assert "suggest-selectors" in output
+
+
+def test_suggest_selectors_for_configured_source_outputs_yaml_without_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sources_path = cli._project_root() / "config" / "sources.yaml"
+    sources_before = sources_path.read_bytes()
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    FakeSuggestionFetchPolicy.page = _suggestion_page()
+    FakeSuggestionFetchPolicy.calls = []
+    monkeypatch.setattr(cli, "FetchPolicy", FakeSuggestionFetchPolicy)
+
+    exit_code = cli.main(
+        [
+            "suggest-selectors",
+            "programathor",
+            "--text",
+            "Desenvolvedor Java Junior",
+        ]
+    )
+
+    output = yaml.safe_load(capsys.readouterr().out)
+    assert exit_code == 0
+    assert output == {
+        "selectors": {
+            "card": "li.vaga",
+            "title": "h3::all-text",
+            "url": "a::attr(href)",
+        },
+        "cards_found": 3,
+        "validation": {"title": "3/3", "url": "3/3"},
+    }
+    assert len(FakeSuggestionFetchPolicy.calls) == 1
+    fetched_url, source = FakeSuggestionFetchPolicy.calls[0]
+    assert fetched_url == "https://programathor.com.br/jobs-java"
+    assert getattr(source, "code") == "programathor"
+    assert getattr(source, "adaptive") is False
+    assert sources_path.read_bytes() == sources_before
+    assert not (tmp_path / "JobRadar" / "adaptive" / "adaptive.db").exists()
+
+
+def test_suggest_selectors_missing_text_fetches_once_and_writes_nothing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sources_path = cli._project_root() / "config" / "sources.yaml"
+    sources_before = sources_path.read_bytes()
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    FakeSuggestionFetchPolicy.page = _suggestion_page()
+    FakeSuggestionFetchPolicy.calls = []
+    monkeypatch.setattr(cli, "FetchPolicy", FakeSuggestionFetchPolicy)
+
+    exit_code = cli.main(
+        ["suggest-selectors", "programathor", "--text", "Cobol Senior"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert "texto" in captured.err.casefold()
+    assert len(FakeSuggestionFetchPolicy.calls) == 1
+    assert sources_path.read_bytes() == sources_before
+    assert not (tmp_path / "JobRadar" / "adaptive" / "adaptive.db").exists()
+
+
+def test_suggest_selectors_raw_url_uses_matching_configured_source(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    raw_url = "https://programathor.com.br/jobs-java?q=backend"
+    FakeSuggestionFetchPolicy.page = _suggestion_page(raw_url)
+    FakeSuggestionFetchPolicy.calls = []
+    monkeypatch.setattr(cli, "FetchPolicy", FakeSuggestionFetchPolicy)
+    monkeypatch.setattr(
+        cli,
+        "_resolved_addresses",
+        lambda hostname: ("8.8.8.8",),
+        raising=False,
+    )
+
+    exit_code = cli.main(
+        [
+            "suggest-selectors",
+            raw_url,
+            "--text",
+            "Desenvolvedor Java Junior",
+        ]
+    )
+
+    assert exit_code == 0
+    assert yaml.safe_load(capsys.readouterr().out)["cards_found"] == 3
+    assert len(FakeSuggestionFetchPolicy.calls) == 1
+    fetched_url, source = FakeSuggestionFetchPolicy.calls[0]
+    assert fetched_url == raw_url
+    assert getattr(source, "code") == "programathor"
+    assert getattr(source, "start_url") == raw_url
+    assert getattr(source, "adaptive") is False
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        "http://programathor.com.br/jobs-java",
+        "https://user:password@programathor.com.br/jobs-java",
+        "https://localhost/jobs",
+        "https://127.0.0.1/jobs",
+        "https://10.0.0.1/jobs",
+        "https://169.254.1.1/jobs",
+        "https://[::1]/jobs",
+        "https://[fe80::1]/jobs",
+        "https://programathor.com.br:bad/jobs",
+        "not-a-source-or-url",
+    ),
+)
+def test_suggest_selectors_rejects_unsafe_target_before_fetch(
+    target: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "FetchPolicy",
+        lambda: (_ for _ in ()).throw(AssertionError("fetch policy created")),
+    )
+
+    exit_code = cli.main(
+        ["suggest-selectors", target, "--text", "Java Junior"]
+    )
+
+    assert exit_code == 2
+    assert capsys.readouterr().out == ""
+
+
+def test_suggest_selectors_rejects_private_dns_result_before_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "_resolved_addresses",
+        lambda hostname: ("127.0.0.1", "8.8.8.8"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli,
+        "FetchPolicy",
+        lambda: (_ for _ in ()).throw(AssertionError("fetch policy created")),
+    )
+
+    exit_code = cli.main(
+        [
+            "suggest-selectors",
+            "https://programathor.com.br/jobs-java",
+            "--text",
+            "Java Junior",
+        ]
+    )
+
+    assert exit_code == 2
+    assert capsys.readouterr().out == ""
+
+
+def test_suggest_selectors_rejects_unconfigured_raw_origin_before_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "_resolved_addresses",
+        lambda hostname: ("8.8.8.8",),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli,
+        "FetchPolicy",
+        lambda: (_ for _ in ()).throw(AssertionError("fetch policy created")),
+    )
+
+    exit_code = cli.main(
+        [
+            "suggest-selectors",
+            "https://unconfigured.example/jobs",
+            "--text",
+            "Java Junior",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "configurada" in capsys.readouterr().err.casefold()
+
+
+def test_suggest_selectors_rejects_cross_origin_response(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    raw_url = "https://programathor.com.br/jobs-java"
+    FakeSuggestionFetchPolicy.page = _suggestion_page("https://attacker.example/jobs")
+    FakeSuggestionFetchPolicy.calls = []
+    monkeypatch.setattr(cli, "FetchPolicy", FakeSuggestionFetchPolicy)
+    monkeypatch.setattr(
+        cli,
+        "_resolved_addresses",
+        lambda hostname: ("8.8.8.8",),
+        raising=False,
+    )
+
+    exit_code = cli.main(
+        ["suggest-selectors", raw_url, "--text", "Java Junior"]
+    )
+
+    assert exit_code == 2
+    assert len(FakeSuggestionFetchPolicy.calls) == 1
+    assert "origem" in capsys.readouterr().err.casefold()
 
 
 def test_dry_run_validates_all_sources_without_fetching(

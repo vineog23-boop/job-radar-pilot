@@ -1005,3 +1005,47 @@ def test_inferred_workplace_counts_toward_workplace_confirmed() -> None:
 
     assert "WORKPLACE_MATCH:REMOTE" in labels
     assert "FIT:READY" in labels
+
+
+def test_classify_fills_seniority_and_technologies_from_evidence() -> None:
+    record = _record(
+        title="Desenvolvedor Java Júnior",
+        description_summary="Spring Boot e API REST",
+        seniority=None,
+        technologies=(),
+    )
+
+    classified = classify(record, PROFILE)
+
+    assert classified.seniority == "junior"
+    assert classified.technologies == ("api rest", "java", "spring boot")
+
+
+def test_classify_does_not_invent_seniority_or_technologies() -> None:
+    record = _record(
+        title="Analista de Suporte",
+        description_summary="Atendimento",
+        evidence_snippets=(),
+        seniority=None,
+        technologies=(),
+    )
+
+    classified = classify(record, PROFILE)
+
+    assert classified.seniority is None
+    assert classified.technologies == ()
+
+
+def test_classify_keeps_source_seniority_and_merges_technologies() -> None:
+    record = _record(
+        title="Dev Java",
+        description_summary=None,
+        evidence_snippets=(),
+        seniority="Trainee",
+        technologies=("Kotlin",),
+    )
+
+    classified = classify(record, PROFILE)
+
+    assert classified.seniority == "Trainee"
+    assert classified.technologies == ("Kotlin", "java")

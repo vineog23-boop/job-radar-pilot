@@ -206,34 +206,46 @@ class AdaptiveCardLocator:
             """
         )
 
-    def remember(self, page: object, source_code: str, selector: str) -> None:
-        cards = tuple(page.css(selector))  # type: ignore[attr-defined]
-        if not cards:
-            return
+    def remember(
+        self,
+        page: object,
+        source_code: str,
+        selector: str,
+        *,
+        card: object | None = None,
+    ) -> None:
+        if card is None:
+            cards = tuple(page.css(selector))  # type: ignore[attr-defined]
+            if not cards:
+                return
+            card = cards[0]
         key = (_origin(page), source_code, selector)
         with self._lock:
             if key in self._remembered:
                 return
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
             payload = json.dumps(
-                _fingerprint(cards[0]),
+                _fingerprint(card),
                 ensure_ascii=False,
                 sort_keys=True,
                 separators=(",", ":"),
             )
-            with closing(sqlite3.connect(self.db_path)) as connection:
-                self._setup(connection)
-                connection.execute(
-                    """
-                    INSERT INTO adaptive_fingerprints
-                        (origin, source_code, selector, fingerprint)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(origin, source_code, selector)
-                    DO UPDATE SET fingerprint=excluded.fingerprint
-                    """,
-                    (*key, payload),
-                )
-                connection.commit()
+            try:
+                self.db_path.parent.mkdir(parents=True, exist_ok=True)
+                with closing(sqlite3.connect(self.db_path)) as connection:
+                    self._setup(connection)
+                    connection.execute(
+                        """
+                        INSERT INTO adaptive_fingerprints
+                            (origin, source_code, selector, fingerprint)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(origin, source_code, selector)
+                        DO UPDATE SET fingerprint=excluded.fingerprint
+                        """,
+                        (*key, payload),
+                    )
+                    connection.commit()
+            except (sqlite3.DatabaseError, OSError):
+                return
             self._remembered.add(key)
 
     def relocate(
@@ -242,19 +254,25 @@ class AdaptiveCardLocator:
         source_code: str,
         selector: str,
     ) -> tuple[object, ...]:
-        if not self.db_path.is_file():
+        try:
+            if not self.db_path.is_file():
+                return ()
+        except OSError:
             return ()
         key = (_origin(page), source_code, selector)
         with self._lock:
-            with closing(sqlite3.connect(self.db_path)) as connection:
-                self._setup(connection)
-                row = connection.execute(
-                    """
-                    SELECT fingerprint FROM adaptive_fingerprints
-                    WHERE origin = ? AND source_code = ? AND selector = ?
-                    """,
-                    key,
-                ).fetchone()
+            try:
+                with closing(sqlite3.connect(self.db_path)) as connection:
+                    self._setup(connection)
+                    row = connection.execute(
+                        """
+                        SELECT fingerprint FROM adaptive_fingerprints
+                        WHERE origin = ? AND source_code = ? AND selector = ?
+                        """,
+                        key,
+                    ).fetchone()
+            except (sqlite3.DatabaseError, OSError):
+                return ()
         if row is None:
             return ()
         fingerprint = _load_fingerprint(row[0])

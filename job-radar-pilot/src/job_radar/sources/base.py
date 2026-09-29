@@ -121,15 +121,20 @@ class PaginatedAdapter:
         config: SourceConfig,
         selector: str,
         selection: CardSelection,
-        records: tuple[VacancyRecord, ...],
+        valid_card: object | None,
     ) -> None:
         if (
             config.adaptive
             and self._locator is not None
             and selection.method == "CONFIGURED"
-            and records
+            and valid_card is not None
         ):
-            self._locator.remember(page, config.code, selector)
+            self._locator.remember(
+                page,
+                config.code,
+                selector,
+                card=valid_card,
+            )
 
     def parse_page(self, page: object, config: SourceConfig) -> ParsedPage:
         raise NotImplementedError

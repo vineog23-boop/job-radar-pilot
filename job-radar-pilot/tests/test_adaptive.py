@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
-import sqlite3
 from pathlib import Path
+import sqlite3
 
 import pytest
 from scrapling.parser import Adaptor
@@ -106,6 +107,44 @@ def test_invalid_stored_fingerprint_fails_closed_as_layout_changed(
     assert result.status is CollectionStatus.ERROR
     assert result.stop_reason == "LAYOUT_CHANGED"
     assert result.warnings == ()
+
+
+def test_corrupted_sqlite_file_fails_closed_as_layout_changed(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "adaptive.db"
+    corrupt_bytes = b"not-a-sqlite-database"
+    database.write_bytes(corrupt_bytes)
+
+    result = GenericListAdapter(locator=AdaptiveCardLocator(database)).collect(
+        _config(),
+        _Fetcher(_page("adaptive-v2.html")),
+    )
+
+    assert result.status is CollectionStatus.ERROR
+    assert result.stop_reason == "LAYOUT_CHANGED"
+    assert result.warnings == ()
+    assert database.read_bytes() == corrupt_bytes
+
+
+def test_corrupted_sqlite_file_does_not_discard_configured_records(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "adaptive.db"
+    corrupt_bytes = b"not-a-sqlite-database"
+    database.write_bytes(corrupt_bytes)
+
+    result = GenericListAdapter(locator=AdaptiveCardLocator(database)).collect(
+        _config(),
+        _Fetcher(_page("adaptive-v1.html")),
+    )
+
+    assert result.status is CollectionStatus.SUCCESS
+    assert [record.title for record in result.records] == [
+        "Java Júnior",
+        "Estágio Backend",
+    ]
+    assert database.read_bytes() == corrupt_bytes
 
 
 def test_remember_persists_only_sanitized_structure_and_relocates_job_cards(
@@ -270,6 +309,71 @@ def test_configured_cards_without_valid_record_are_not_remembered(
     assert result.stop_reason == "PARSE_ZERO_RECORDS"
     assert selection.method == "NONE"
     assert locator.db_path.exists() is False
+
+
+def test_remember_uses_first_card_that_produced_a_valid_record(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "adaptive.db"
+    locator = AdaptiveCardLocator(database)
+    config = SourceConfig(
+        code="example",
+        kind=SourceKind.GENERIC,
+        start_url=URL,
+        enabled=True,
+        max_pages=1,
+        min_interval_seconds=1,
+        requires_auth=False,
+        selectors={
+            "card": ".jobs-list > aside, .jobs-list > article",
+            "title": ".job-title::all-text",
+            "url": ".job-link::attr(href)",
+        },
+    )
+    original = Adaptor(
+        """
+        <main>
+          <div class="jobs-list">
+            <aside class="editorial-card">
+              <h2 class="blog-title"><a class="blog-link" href="/blog/carreira">Guia de carreira</a></h2>
+            </aside>
+            <article class="job-card">
+              <h2 class="job-title"><a class="job-link" href="/jobs/valid-1">Java Junior</a></h2>
+            </article>
+          </div>
+        </main>
+        """,
+        url=URL,
+    )
+    changed = Adaptor(
+        """
+        <main>
+          <div class="jobs-list">
+            <section class="job-entry"><h3><a href="/jobs/valid-2">Estágio Java</a></h3></section>
+          </div>
+          <aside class="editorial-list">
+            <section class="job-entry"><h3><a href="/blog/carreira">Guia de carreira</a></h3></section>
+          </aside>
+        </main>
+        """,
+        url=URL,
+    )
+    adapter = GenericListAdapter(locator=locator)
+
+    learned = adapter.parse_page(original, config)
+    with closing(sqlite3.connect(database)) as connection:
+        raw_fingerprint = connection.execute(
+            "SELECT fingerprint FROM adaptive_fingerprints"
+        ).fetchone()[0]
+    recovered = adapter.parse_page(changed, config)
+
+    assert [record.title for record in learned.records] == ["Java Junior"]
+    assert json.loads(raw_fingerprint)["element"]["tag"] == "article"
+    assert recovered.card_method == "ADAPTIVE"
+    assert [record.title for record in recovered.records] == ["Estágio Java"]
+    assert [record.canonical_url for record in recovered.records] == [
+        "https://jobs.example.com/jobs/valid-2"
+    ]
 
 
 def test_relocated_card_with_non_http_link_is_not_promoted(

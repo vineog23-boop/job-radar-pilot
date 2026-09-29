@@ -20,8 +20,8 @@ class DynamicAdapter(PaginatedAdapter):
         )
         selection = self.select_cards(page, config, card_selector)
         cards = selection.cards
-        records = tuple(
-            record
+        card_records = tuple(
+            (card, record)
             for card in cards
             if (
                 record := make_record_with_fallback(
@@ -50,7 +50,9 @@ class DynamicAdapter(PaginatedAdapter):
                 )
             )
         )
-        self.remember_cards(page, config, card_selector, selection, records)
+        records = tuple(record for _, record in card_records)
+        valid_card = card_records[0][0] if card_records else None
+        self.remember_cards(page, config, card_selector, selection, valid_card)
         next_url = absolute_url(page, extract_value(page, config.selectors.get("next")))
         return ParsedPage(
             records,

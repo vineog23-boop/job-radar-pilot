@@ -48,8 +48,8 @@ class GupyAdapter(PaginatedAdapter):
                 card_selector = _CURRENT_CARD_SELECTOR
         cards = selection.cards
         current_layout = variant == "current"
-        records = tuple(
-            record
+        card_records = tuple(
+            (card, record)
             for card in cards
             if (
                 record := make_record_with_fallback(
@@ -69,12 +69,14 @@ class GupyAdapter(PaginatedAdapter):
                 )
             )
         )
+        records = tuple(record for _, record in card_records)
+        valid_card = card_records[0][0] if card_records else None
         self.remember_cards(
             page,
             config,
             card_selector,
             selection,
-            records,
+            valid_card,
         )
         next_buttons = page.css("button[aria-label='Próxima página']")  # type: ignore[attr-defined]
         page_buttons = page.css("button[aria-label^='Página ']")  # type: ignore[attr-defined]

@@ -34,7 +34,7 @@ class IndeedAdapter(PaginatedAdapter):
         card_selector = ".job_seen_beacon"
         selection = self.select_cards(page, config, card_selector)
         cards = selection.cards
-        records = []
+        card_records = []
         for card in cards:
             has_current_title = bool(
                 card.css("h3 a span::attr(title)").get()
@@ -73,14 +73,15 @@ class IndeedAdapter(PaginatedAdapter):
                     ),
                 )
             if record:
-                records.append(record)
-        records_tuple = tuple(records)
+                card_records.append((card, record))
+        records_tuple = tuple(record for _, record in card_records)
+        valid_card = card_records[0][0] if card_records else None
         self.remember_cards(
             page,
             config,
             card_selector,
             selection,
-            records_tuple,
+            valid_card,
         )
         next_value = page.css("a[data-testid='pagination-page-next']::attr(href)").get()  # type: ignore[attr-defined]
         next_url = page.urljoin(next_value) if next_value else None  # type: ignore[attr-defined]

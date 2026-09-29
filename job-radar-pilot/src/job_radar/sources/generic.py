@@ -6,8 +6,8 @@ from job_radar.models import SourceConfig
 from job_radar.sources.base import (
     PaginatedAdapter,
     ParsedPage,
+    _is_excluded_card,
     absolute_url,
-    adaptive_card_allowed,
     extract_value,
     make_record_with_fallback,
 )
@@ -16,29 +16,34 @@ from job_radar.sources.base import (
 class GenericListAdapter(PaginatedAdapter):
     def parse_page(self, page: object, config: SourceConfig) -> ParsedPage:
         card_selector = config.selectors["card"]
-        selection = self.select_cards(page, config, card_selector)
-        cards = tuple(
-            card
-            for card in selection.cards
-            if selection.method != "ADAPTIVE" or adaptive_card_allowed(config, card)
+
+        def record_for(card: object, card_method: str):
+            if card_method == "ADAPTIVE" and _is_excluded_card(config, card):
+                return None
+            return make_record_with_fallback(
+                card_method=card_method,
+                config=config,
+                page=page,
+                card=card,
+                id_selector=config.selectors.get("id"),
+                title_selector=config.selectors["title"],
+                url_selector=config.selectors["url"],
+                company_selector=config.selectors.get("company"),
+                location_selector=config.selectors.get("location"),
+                description_selector=config.selectors.get("summary"),
+            )
+
+        selection = self.select_cards(
+            page,
+            config,
+            card_selector,
+            validator=lambda card: record_for(card, "ADAPTIVE") is not None,
         )
+        cards = selection.cards
         card_records = tuple(
             (card, record)
             for card in cards
-            if (
-                record := make_record_with_fallback(
-                    card_method=selection.method,
-                    config=config,
-                    page=page,
-                    card=card,
-                    id_selector=config.selectors.get("id"),
-                    title_selector=config.selectors["title"],
-                    url_selector=config.selectors["url"],
-                    company_selector=config.selectors.get("company"),
-                    location_selector=config.selectors.get("location"),
-                    description_selector=config.selectors.get("summary"),
-                )
-            )
+            if (record := record_for(card, selection.method))
         )
         records = tuple(record for _, record in card_records)
         valid_card = card_records[0][0] if card_records else None

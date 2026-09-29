@@ -32,15 +32,13 @@ def _is_synthetic_jk(value: str) -> bool:
 class IndeedAdapter(PaginatedAdapter):
     def parse_page(self, page: object, config: SourceConfig) -> ParsedPage:
         card_selector = ".job_seen_beacon"
-        selection = self.select_cards(page, config, card_selector)
-        cards = selection.cards
-        card_records = []
-        for card in cards:
+
+        def record_for(card: object, card_method: str):
             has_current_title = bool(
                 card.css("h3 a span::attr(title)").get()
             )
             record = make_record_with_fallback(
-                card_method=selection.method,
+                card_method=card_method,
                 config=config,
                 page=page,
                 card=card,
@@ -72,8 +70,20 @@ class IndeedAdapter(PaginatedAdapter):
                         )
                     ),
                 )
-            if record:
-                card_records.append((card, record))
+            return record
+
+        selection = self.select_cards(
+            page,
+            config,
+            card_selector,
+            validator=lambda card: record_for(card, "ADAPTIVE") is not None,
+        )
+        cards = selection.cards
+        card_records = [
+            (card, record)
+            for card in cards
+            if (record := record_for(card, selection.method))
+        ]
         records_tuple = tuple(record for _, record in card_records)
         valid_card = card_records[0][0] if card_records else None
         self.remember_cards(

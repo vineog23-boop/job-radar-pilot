@@ -314,6 +314,71 @@ def test_suggest_selectors_rejects_cross_origin_response(
     assert "origem" in capsys.readouterr().err.casefold()
 
 
+def test_suggest_selectors_rejects_cross_origin_response_for_configured_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sources_path = cli._project_root() / "config" / "sources.yaml"
+    sources_before = sources_path.read_bytes()
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    FakeSuggestionFetchPolicy.page = _suggestion_page(
+        "https://attacker.example/jobs"
+    )
+    FakeSuggestionFetchPolicy.calls = []
+    monkeypatch.setattr(cli, "FetchPolicy", FakeSuggestionFetchPolicy)
+
+    exit_code = cli.main(
+        [
+            "suggest-selectors",
+            "programathor",
+            "--text",
+            "Desenvolvedor Java Junior",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert "origem" in captured.err.casefold()
+    assert len(FakeSuggestionFetchPolicy.calls) == 1
+    assert sources_path.read_bytes() == sources_before
+    assert not (tmp_path / "JobRadar" / "adaptive" / "adaptive.db").exists()
+
+
+@pytest.mark.parametrize(
+    "raw_url",
+    (
+        "https://app.eureca.me/oportunidades?q=java",
+        "https://portal.gupy.io/job-search?term=java",
+    ),
+)
+def test_suggest_selectors_rejects_browser_backed_raw_url_before_fetch(
+    raw_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    FakeSuggestionFetchPolicy.page = _suggestion_page(raw_url)
+    FakeSuggestionFetchPolicy.calls = []
+    monkeypatch.setattr(cli, "FetchPolicy", FakeSuggestionFetchPolicy)
+    monkeypatch.setattr(
+        cli,
+        "_resolved_addresses",
+        lambda hostname: ("8.8.8.8",),
+        raising=False,
+    )
+
+    exit_code = cli.main(
+        ["suggest-selectors", raw_url, "--text", "Desenvolvedor Java Junior"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert "url crua" in captured.err.casefold()
+    assert FakeSuggestionFetchPolicy.calls == []
+
+
 def test_dry_run_validates_all_sources_without_fetching(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

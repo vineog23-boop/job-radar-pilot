@@ -443,6 +443,65 @@ def test_select_cards_expands_only_valid_structural_siblings(
     } == {"Java Junior", "Estagio Java", "Backend Junior"}
 
 
+def test_select_cards_applies_validator_to_relocated_and_similar_cards() -> None:
+    page = Adaptor(
+        """
+        <ul class="jobs">
+          <li class="vaga"><a href="/1"><h3>Java Junior</h3></a></li>
+          <li class="vaga"><a href="/2"><h3>Estagio Java</h3></a></li>
+          <li class="vaga"><a href="/3"><h3>Backend Junior</h3></a></li>
+          <li class="vaga promo"><a href="/guia"><h3>Guia de carreira</h3></a></li>
+        </ul>
+        """,
+        url=URL,
+    )
+
+    class SingleCardLocator:
+        def relocate(self, page: object, source_code: str, selector: str):
+            return (page.css("li.vaga")[0],)
+
+    def is_vacancy(card: object) -> bool:
+        classes = str(getattr(card, "attrib", {}).get("class", "")).split()
+        return "promo" not in classes
+
+    selection = select_cards(
+        page,
+        source_code="example",
+        selector="li.missing",
+        locator=SingleCardLocator(),  # type: ignore[arg-type]
+        validator=is_vacancy,
+    )
+
+    assert selection.method == "ADAPTIVE"
+    assert len(selection.cards) == 3
+    assert all("promo" not in card.attrib["class"] for card in selection.cards)
+
+
+def test_generic_adapter_rejects_expired_relocated_seed_before_expansion() -> None:
+    page = Adaptor(
+        """
+        <ul class="jobs">
+          <li class="vaga opacity-60p"><a href="/jobs/expired"><h3>Java encerrada</h3></a></li>
+          <li class="vaga"><a href="/jobs/1"><h3>Java Junior</h3></a></li>
+          <li class="vaga"><a href="/jobs/2"><h3>Estagio Java</h3></a></li>
+          <li class="vaga"><a href="/jobs/3"><h3>Backend Junior</h3></a></li>
+        </ul>
+        """,
+        url=URL,
+    )
+
+    class ExpiredSeedLocator:
+        def relocate(self, page: object, source_code: str, selector: str):
+            return (page.css("li.opacity-60p")[0],)
+
+    adapter = GenericListAdapter(locator=ExpiredSeedLocator())  # type: ignore[arg-type]
+    parsed = adapter.parse_page(page, _config(code="programathor"))
+
+    assert parsed.card_method == "NONE"
+    assert parsed.cards_observed == 0
+    assert parsed.records == ()
+
+
 def test_generic_adapter_remembers_only_valid_page_and_recovers_safe_records(
     tmp_path: Path,
 ) -> None:
@@ -456,7 +515,7 @@ def test_generic_adapter_remembers_only_valid_page_and_recovers_safe_records(
     assert recovered.status is CollectionStatus.PARTIAL
     assert recovered.stop_reason == "SELECTOR_RELOCATED"
     assert recovered.warnings == ("SELECTOR_RELOCATED:card",)
-    assert recovered.cards_observed == 3
+    assert recovered.cards_observed == 2
     assert [record.title for record in recovered.records] == [
         "Java Júnior",
         "Estágio Backend",
@@ -594,8 +653,8 @@ def test_relocated_card_with_non_http_link_is_not_promoted(
 
     parsed = adapter.parse_page(changed, _config())
 
-    assert parsed.card_method == "ADAPTIVE"
-    assert parsed.cards_observed == 1
+    assert parsed.card_method == "NONE"
+    assert parsed.cards_observed == 0
     assert parsed.records == ()
 
 
@@ -620,8 +679,8 @@ def test_relocated_card_outside_source_origin_is_not_promoted(
 
     parsed = adapter.parse_page(changed, _config())
 
-    assert parsed.card_method == "ADAPTIVE"
-    assert parsed.cards_observed == 1
+    assert parsed.card_method == "NONE"
+    assert parsed.cards_observed == 0
     assert parsed.records == ()
 
 

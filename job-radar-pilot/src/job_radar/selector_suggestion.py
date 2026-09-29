@@ -59,30 +59,28 @@ def _find_anchor(page: object, text: str) -> object | None:
 
 def _card_group(anchor: object) -> tuple[object, tuple[object, ...]] | None:
     current: object | None = anchor
-    selected: tuple[object, tuple[object, ...]] | None = None
     while current is not None:
         similar = structurally_similar_nodes(
             current,
             require_card_contract=True,
         )
         if len(similar) >= 2:
-            selected = (current, similar)
-        elif selected is not None:
-            break
+            return current, similar
         current = getattr(current, "parent", None)
-    return selected
+    return None
 
 
 def _selector_matches_text(card: object, selector: str) -> bool:
     element_selector = selector.removesuffix("::all-text")
     matches = card.css(element_selector)  # type: ignore[attr-defined]
-    return bool(matches and _normalized(_all_text(matches[0])))
+    return sum(bool(_normalized(_all_text(match))) for match in matches) == 1
 
 
 def _selector_matches_url(card: object, selector: str) -> bool:
     if selector == "::attr(href)":
         return bool(str(getattr(card, "attrib", {}).get("href", "")).strip())
-    return bool(card.css(selector).get())  # type: ignore[attr-defined]
+    values = card.css(selector).getall()  # type: ignore[attr-defined]
+    return sum(bool(str(value).strip()) for value in values) == 1
 
 
 def _title_selector(anchor: object, cards: tuple[object, ...]) -> str | None:
@@ -127,6 +125,16 @@ def _simple_selector(node: object, peers: tuple[object, ...] = ()) -> str:
             _classes(getattr(peer, "_root", peer))
         )
     return tag + "".join(f".{class_name}" for class_name in sorted(common_classes))
+
+
+def _has_mixed_class_modifiers(cards: tuple[object, ...]) -> bool:
+    class_sets = [
+        set(_classes(getattr(card, "_root", card)))
+        for card in cards
+    ]
+    common = set.intersection(*class_sets) if class_sets else set()
+    modifiers = [classes - common for classes in class_sets]
+    return any(not item for item in modifiers) and any(item for item in modifiers)
 
 
 def _selector_is_exact(
@@ -211,6 +219,8 @@ def suggest_from_page(page: object, text: str) -> SelectorSuggestion | None:
         return None
     _, similar = group
     cards = _deduplicate_nodes((group[0], *similar))
+    if _has_mixed_class_modifiers(cards):
+        return None
     title = _title_selector(anchor, cards)
     url = _url_selector(cards)
     card = _card_selector(page, cards)

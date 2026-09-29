@@ -18,37 +18,44 @@ class DynamicAdapter(PaginatedAdapter):
             if configured
             else "article[data-job-id], [data-job-id]"
         )
-        selection = self.select_cards(page, config, card_selector)
+
+        def record_for(card: object, card_method: str):
+            return make_record_with_fallback(
+                card_method=card_method,
+                config=config,
+                page=page,
+                card=card,
+                id_selector=(
+                    config.selectors.get("id")
+                    if configured
+                    else "::attr(data-job-id)"
+                ),
+                title_selector=(config.selectors["title"] if configured else "h2"),
+                url_selector=(
+                    config.selectors["url"] if configured else "a::attr(href)"
+                ),
+                company_selector=(
+                    config.selectors.get("company") if configured else ".company"
+                ),
+                location_selector=(
+                    config.selectors.get("location") if configured else ".location"
+                ),
+                description_selector=(
+                    config.selectors.get("summary") if configured else None
+                ),
+            )
+
+        selection = self.select_cards(
+            page,
+            config,
+            card_selector,
+            validator=lambda card: record_for(card, "ADAPTIVE") is not None,
+        )
         cards = selection.cards
         card_records = tuple(
             (card, record)
             for card in cards
-            if (
-                record := make_record_with_fallback(
-                    card_method=selection.method,
-                    config=config,
-                    page=page,
-                    card=card,
-                    id_selector=(
-                        config.selectors.get("id")
-                        if configured
-                        else "::attr(data-job-id)"
-                    ),
-                    title_selector=(config.selectors["title"] if configured else "h2"),
-                    url_selector=(
-                        config.selectors["url"] if configured else "a::attr(href)"
-                    ),
-                    company_selector=(
-                        config.selectors.get("company") if configured else ".company"
-                    ),
-                    location_selector=(
-                        config.selectors.get("location") if configured else ".location"
-                    ),
-                    description_selector=(
-                        config.selectors.get("summary") if configured else None
-                    ),
-                )
-            )
+            if (record := record_for(card, selection.method))
         )
         records = tuple(record for _, record in card_records)
         valid_card = card_records[0][0] if card_records else None

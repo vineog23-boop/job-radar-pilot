@@ -18,6 +18,31 @@ _CURRENT_CARD_SELECTOR = "#job-listing-results li"
 
 class GupyAdapter(PaginatedAdapter):
     def parse_page(self, page: object, config: SourceConfig) -> ParsedPage:
+        def record_for(
+            card: object,
+            variant: str,
+            card_method: str,
+        ) -> VacancyRecord | None:
+            current_layout = variant == "current"
+            return make_record_with_fallback(
+                card_method=card_method,
+                config=config,
+                page=page,
+                card=card,
+                id_selector=(None if current_layout else "::attr(data-job-id)"),
+                title_selector=("h3" if current_layout else "h2"),
+                url_selector=(
+                    "a[href*='/job/']::attr(href)"
+                    if current_layout
+                    else "a::attr(href)"
+                ),
+                company_selector=(
+                    "p" if current_layout else "[data-testid='company-name']"
+                ),
+                location_selector="[data-testid='job-location']",
+                validated_fallback=True,
+            )
+
         legacy_configured = tuple(page.css(_LEGACY_CARD_SELECTOR))  # type: ignore[attr-defined]
         current_configured = tuple(page.css(_CURRENT_CARD_SELECTOR))  # type: ignore[attr-defined]
         candidates: list[tuple[CardSelection, str, str]] = []
@@ -40,7 +65,15 @@ class GupyAdapter(PaginatedAdapter):
         if not legacy_configured:
             candidates.append(
                 (
-                    self.select_cards(page, config, _LEGACY_CARD_SELECTOR),
+                    self.select_cards(
+                        page,
+                        config,
+                        _LEGACY_CARD_SELECTOR,
+                        validator=lambda card: record_for(
+                            card, "legacy", "ADAPTIVE"
+                        )
+                        is not None,
+                    ),
                     "legacy",
                     _LEGACY_CARD_SELECTOR,
                 )
@@ -52,6 +85,10 @@ class GupyAdapter(PaginatedAdapter):
                         page,
                         config,
                         _CURRENT_CARD_SELECTOR,
+                        validator=lambda card: record_for(
+                            card, "current", "ADAPTIVE"
+                        )
+                        is not None,
                     ),
                     "current",
                     _CURRENT_CARD_SELECTOR,
@@ -65,32 +102,10 @@ class GupyAdapter(PaginatedAdapter):
         for candidate, variant, card_selector in candidates:
             if candidate.cards and first_nonempty is None:
                 first_nonempty = (candidate, card_selector)
-            current_layout = variant == "current"
             candidate_records = tuple(
                 (card, record)
                 for card in candidate.cards
-                if (
-                    record := make_record_with_fallback(
-                        card_method=candidate.method,
-                        config=config,
-                        page=page,
-                        card=card,
-                        id_selector=(
-                            None if current_layout else "::attr(data-job-id)"
-                        ),
-                        title_selector=("h3" if current_layout else "h2"),
-                        url_selector=(
-                            "a[href*='/job/']::attr(href)"
-                            if current_layout
-                            else "a::attr(href)"
-                        ),
-                        company_selector=(
-                            "p" if current_layout else "[data-testid='company-name']"
-                        ),
-                        location_selector="[data-testid='job-location']",
-                        validated_fallback=True,
-                    )
-                )
+                if (record := record_for(card, variant, candidate.method))
             )
             if candidate_records:
                 selection = candidate

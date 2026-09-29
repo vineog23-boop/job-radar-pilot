@@ -13,7 +13,7 @@ import yaml
 
 from job_radar.config import ConfigError, load_profile, load_sources
 from job_radar.fetching import FetchPolicy, ProfileInUseError, bootstrap_auth
-from job_radar.models import CollectionStatus
+from job_radar.models import CollectionStatus, SourceKind
 from job_radar.output import validate_jsonl, write_outputs
 from job_radar.pipeline import JobRadarPipeline
 from job_radar.preferences import (
@@ -281,6 +281,13 @@ def _suggest_target(
     )
     if configured is None:
         raise ValueError("URL deve pertencer a uma fonte configurada")
+    if getattr(configured, "kind", None) not in {
+        SourceKind.GENERIC,
+        SourceKind.INDEED,
+    }:
+        raise ValueError(
+            "URL crua nao e permitida para fonte com transporte de navegador"
+        )
     source = replace(configured, start_url=raw_url, adaptive=False)
     return raw_url, source, True
 
@@ -289,7 +296,7 @@ def _suggest_selectors(args: argparse.Namespace) -> int:
     project = _project_root()
     try:
         sources = load_sources(project / "config" / "sources.yaml")
-        target_url, source, raw_url = _suggest_target(args.target, sources)
+        target_url, source, _raw_url = _suggest_target(args.target, sources)
     except (ConfigError, ValueError) as exc:
         print(f"SUGGEST_ERROR: {exc}", file=sys.stderr)
         return 2
@@ -302,9 +309,7 @@ def _suggest_selectors(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    if raw_url and _origin(str(getattr(fetched.response, "url", ""))) != _origin(
-        target_url
-    ):
+    if _origin(str(getattr(fetched.response, "url", ""))) != _origin(target_url):
         print("SUGGEST_ERROR: resposta mudou de origem", file=sys.stderr)
         return 2
 

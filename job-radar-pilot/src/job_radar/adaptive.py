@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import sqlite3
 from threading import RLock
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
 from scrapling.parser import Adaptor
@@ -284,6 +284,7 @@ def structurally_similar_nodes(
     node: object,
     *,
     require_card_contract: bool = False,
+    validator: Callable[[object], bool] | None = None,
 ) -> tuple[object, ...]:
     tag = str(getattr(_element(node), "tag", "")).casefold()
     try:
@@ -296,6 +297,7 @@ def structurally_similar_nodes(
         if str(getattr(_element(candidate), "tag", "")).casefold() == tag
         and _same_parent(node, candidate)
         and (not require_card_contract or _has_card_contract(candidate))
+        and (validator is None or validator(candidate))
     )
 
 
@@ -412,15 +414,21 @@ def select_cards(
     source_code: str,
     selector: str,
     locator: AdaptiveCardLocator,
+    validator: Callable[[object], bool] | None = None,
 ) -> CardSelection:
     configured = _deduplicate_nodes(page.css(selector))  # type: ignore[attr-defined]
     if configured:
         return CardSelection(configured, "CONFIGURED")
-    relocated = _deduplicate_nodes(locator.relocate(page, source_code, selector))
+    relocated = _deduplicate_nodes(
+        card
+        for card in locator.relocate(page, source_code, selector)
+        if validator is None or validator(card)
+    )
     if relocated:
         expanded = structurally_similar_nodes(
             relocated[0],
             require_card_contract=True,
+            validator=validator,
         )
         return CardSelection(
             _deduplicate_nodes((*relocated, *expanded)),

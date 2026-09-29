@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import re
-from typing import Protocol
+from typing import Callable, Protocol
 from urllib.parse import parse_qs, urlsplit
 
 from job_radar.adaptive import AdaptiveCardLocator, CardSelection, select_cards
@@ -139,6 +139,8 @@ class PaginatedAdapter:
         page: object,
         config: SourceConfig,
         selector: str,
+        *,
+        validator: Callable[[object], bool] | None = None,
     ) -> CardSelection:
         if config.adaptive and self._locator is not None:
             return select_cards(
@@ -146,6 +148,7 @@ class PaginatedAdapter:
                 source_code=config.code,
                 selector=selector,
                 locator=self._locator,
+                validator=validator,
             )
         cards = tuple(page.css(selector))  # type: ignore[attr-defined]
         return CardSelection(cards, "CONFIGURED" if cards else "NONE")
@@ -457,19 +460,23 @@ def make_record_with_fallback(
     return record if _adaptive_url_allowed(config, record.canonical_url) else None
 
 
-def adaptive_card_allowed(config: SourceConfig, card: object) -> bool:
+def _is_excluded_card(config: SourceConfig, card: object) -> bool:
     excluded_class = {
         "programathor": "opacity-60p",
         "companhia-de-estagios": "--expired",
     }.get(config.code)
     if excluded_class is None:
-        return True
+        return False
     current = getattr(card, "_root", card)
     for _ in range(5):
         if current is None:
             break
         classes = str(getattr(current, "attrib", {}).get("class", "")).split()
         if excluded_class in classes:
-            return False
+            return True
         current = current.getparent()
-    return True
+    return False
+
+
+def adaptive_card_allowed(config: SourceConfig, card: object) -> bool:
+    return not _is_excluded_card(config, card)

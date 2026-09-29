@@ -134,3 +134,57 @@ def test_excludes_invalid_sibling_class_from_card_selector() -> None:
     assert suggestion is not None
     assert getattr(suggestion, "card") == "div.vaga:not(.encerrada)"
     assert getattr(suggestion, "cards_found") == 3
+
+
+def test_rejects_cards_with_ambiguous_title_and_url_matches() -> None:
+    page = Adaptor(
+        """
+        <ul class="jobs">
+          <li class="vaga"><a href="/1"><h3>Java Junior</h3></a><a href="/1-alt"><h3>Outra vaga</h3></a></li>
+          <li class="vaga"><a href="/2"><h3>Estagio Java</h3></a><a href="/2-alt"><h3>Outra vaga</h3></a></li>
+          <li class="vaga"><a href="/3"><h3>Backend Junior</h3></a><a href="/3-alt"><h3>Outra vaga</h3></a></li>
+        </ul>
+        """,
+        url="https://jobs.example.com/vagas",
+    )
+
+    assert _suggest_api()(page, "Java Junior") is None
+
+
+def test_prefers_innermost_repeated_job_cards_over_repeated_container() -> None:
+    page = Adaptor(
+        """
+        <main>
+          <ul class="jobs">
+            <li class="vaga"><a href="/1"><h3>Java Junior</h3></a></li>
+            <li class="vaga"><a href="/2"><h3>Estagio Java</h3></a></li>
+            <li class="vaga"><a href="/3"><h3>Backend Junior</h3></a></li>
+          </ul>
+          <ul class="jobs"><article><a href="/guia"><h3>Guia de carreira</h3></a></article></ul>
+          <ul class="jobs"><article><a href="/evento"><h3>Evento de tecnologia</h3></a></article></ul>
+        </main>
+        """,
+        url="https://jobs.example.com/vagas",
+    )
+
+    suggestion = _suggest_api()(page, "Java Junior")
+
+    assert suggestion is not None
+    assert getattr(suggestion, "card") == "li.vaga"
+    assert getattr(suggestion, "cards_found") == 3
+
+
+def test_rejects_pure_suggestion_when_similar_group_has_editorial_outlier() -> None:
+    page = Adaptor(
+        """
+        <ul class="jobs">
+          <li class="vaga"><a href="/1"><h3>Java Junior</h3></a></li>
+          <li class="vaga"><a href="/2"><h3>Estagio Java</h3></a></li>
+          <li class="vaga"><a href="/3"><h3>Backend Junior</h3></a></li>
+          <li class="vaga promo"><a href="/guia"><h3>Guia de carreira</h3></a></li>
+        </ul>
+        """,
+        url="https://jobs.example.com/vagas",
+    )
+
+    assert _suggest_api()(page, "Java Junior") is None

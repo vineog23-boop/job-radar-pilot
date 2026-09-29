@@ -171,6 +171,42 @@ O coletor preserva o HTML integral recebido do Scrapling para o parsing. Os
 marcadores de vazio são avaliados somente no texto visível, portanto conteúdo
 em `script`, `style` ou elementos ocultos não declara `NO_RESULTS`.
 
+## Paginação por fonte
+
+- `next`: seletor do link da próxima página (programathor, casado-dev, seja-trainee).
+- `declared_count`: total declarado pelo portal (99jobs, vagas-com).
+- `single_page: true`: portal verificado com página 2 vazia/inexistente (otrainee, companhia-de-estagios).
+- Ainda sem paginação observável (carregam mais por scroll/botão em JavaScript): estagiotrainee, eureca, ciee, nube, cia-de-talentos e infojobs; ficam `PARTIAL/PAGINATION_UNVERIFIED`.
+
+O fallback adaptativo só é aceito na primeira página, sem marcador de vazio e com
+pelo menos duas vagas válidas (sem link de login/listagem e título com 8+ caracteres).
+Da página 2 em diante, zero cards configurados encerra a listagem.
+
+## Fontes adicionadas em setembro/2026
+
+nerdin, mytechjobs (iMasters), empregos-com, trampos, remotar e coodesh. Avaliadas e **não**
+incluídas: GeekHunter, TalenTI, eu.dev.br, ViUmaVaga, Super Estágios, Futura Estágios e
+Glassdoor (o `robots.txt` bloqueia acesso automatizado); GitHub `backend-br/vagas`
+(`robots.txt` nega `/issues`); Catho (login e proteção anti-bot); Revelo (404);
+Quero Vagas Tech, VagasPraJr e EmpregosTech (domínio não resolve).
+
+## Rolagem, termos de busca e histórico
+
+- `browser: {scroll_to_load: true}`: rola a página até a quantidade de cards estabilizar
+  (eureca, nube, cia-de-talentos). No nube o limite é de 40 rolagens (~1.200 vagas mais
+  recentes de ~3.500), então continua `PARTIAL` por escolha.
+- `query_path: "/vagas-de-{query}"` ou `query_param: q`: fazem qualquer fonte receber a
+  varredura de vários termos (vagas-com e infojobs já usam). O texto vira slug sem acento.
+- Enriquecimento: vagas `CONDITIONAL`/`AMBIGUOUS` com tecnologia compatível têm a página de
+  detalhe lida (HTTP estático, respeitando robots.txt e limites; ignora Indeed e fontes com
+  login) e são reclassificadas; recebem `ENRICHED:DETAIL`. `collect --enrich-limit N`
+  (padrão 40; `0` desliga).
+- Histórico local em `%LOCALAPPDATA%\JobRadar\history.json` (só chave da vaga e data da
+  primeira observação). Da segunda coleta em diante, vagas inéditas ganham `STATUS:NEW` e
+  o selo "Nova" no painel. `collect --no-history` desliga.
+- Agendamento diário no Windows (Agendador de Tarefas):
+  `schtasks /Create /SC DAILY /ST 08:00 /TN "JobRadar" /TR "powershell -NoProfile -File \"<pasta>\buscar-vagas.ps1\" -Workers 3"`
+
 ## Fallback adaptativo de cards
 
 Cada fonte aceita `adaptive: true|false` em `config/sources.yaml`; a ausência da
@@ -265,7 +301,7 @@ essa priorização automaticamente.
 Os testes de extratores usam fixtures locais sanitizadas. Apenas o smoke test
 explicitamente executado acessa uma fonte pública.
 
-Os seletores das 15 fontes habilitadas foram validados ao vivo em setembro de
+Os seletores das 21 fontes habilitadas foram validados ao vivo em setembro de
 2026 e têm testes determinísticos por comportamento. A fonte Vida de Trainee
 fica desabilitada porque o arquivo observado estava parado em 2024. Portais
 externos continuam sujeitos a mudanças de layout, bloqueios e paginação não

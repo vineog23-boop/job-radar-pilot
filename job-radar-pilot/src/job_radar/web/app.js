@@ -148,6 +148,9 @@ function renderTable() {
         fitLabel(fitState(job))
       )
     );
+    if ((job.match_labels ?? []).includes("STATUS:NEW")) {
+      matchCell.appendChild(textElement("span", "match-pill new", "Nova"));
+    }
     row.appendChild(matchCell);
 
     const actionCell = document.createElement("td");

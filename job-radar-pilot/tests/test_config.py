@@ -28,6 +28,12 @@ EXPECTED_SOURCES = {
     "vidadetrainee",
     "seja-trainee",
     "infojobs",
+    "nerdin",
+    "mytechjobs",
+    "empregos-com",
+    "trampos",
+    "remotar",
+    "coodesh",
 }
 
 
@@ -59,10 +65,18 @@ def test_loads_complete_profile_and_sources() -> None:
     assert all(1 <= source.max_pages <= 100 for source in sources)
     assert all(source.min_interval_seconds >= 1 for source in sources)
     assert "linkedin" not in {source.code for source in sources}
-    assert {
-        source.code for source in sources if source.default_country == "BR"
-    } == {"indeed", "casado-dev"}
-    assert all(source.browser == models.BrowserOptions() for source in sources)
+    # Todas as fontes configuradas são portais brasileiros (domínios .br/.com.br
+    # ou versão BR), então o país é evidência da própria fonte.
+    assert all(source.default_country == "BR" for source in sources)
+    scrolling = {source.code for source in sources if source.browser.scroll_to_load}
+    assert scrolling == {
+        "eureca", "nube", "cia-de-talentos", "trampos", "remotar", "coodesh"
+    }
+    assert all(
+        source.browser
+        == models.BrowserOptions(scroll_to_load=source.code in scrolling)
+        for source in sources
+    )
 
 
 def test_priority_sources_target_real_result_surfaces_and_current_selectors() -> None:
@@ -374,3 +388,31 @@ def test_rejects_missing_selectors_before_network(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="selectors"):
         load_sources(config)
+
+
+def test_single_page_defaults_false_and_rejects_non_boolean(tmp_path: Path) -> None:
+    base = (
+        "sources:\n  - code: x\n    kind: generic\n    start_url: https://x.com.br/v\n"
+        "    enabled: true\n    max_pages: 1\n    min_interval_seconds: 1\n"
+        "    requires_auth: false\n"
+        "    selectors: {card: a, title: a, url: '::attr(href)'}\n"
+    )
+    ok = tmp_path / "ok.yaml"
+    ok.write_text(base + "    single_page: true\n", encoding="utf-8")
+    assert models_single(ok) is True
+    default = tmp_path / "default.yaml"
+    default.write_text(base, encoding="utf-8")
+    assert models_single(default) is False
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(base + "    single_page: sim\n", encoding="utf-8")
+    import pytest
+    from job_radar.config import ConfigError, load_sources
+
+    with pytest.raises(ConfigError):
+        load_sources(bad)
+
+
+def models_single(path: Path) -> bool:
+    from job_radar.config import load_sources
+
+    return load_sources(path)[0].single_page

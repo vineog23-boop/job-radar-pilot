@@ -154,6 +154,10 @@ def _scroll_until_stable(
         if stable_rounds >= 2:
             break
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        try:
+            page.mouse.wheel(0, 4000)
+        except Exception:
+            pass
         page.wait_for_timeout(wait_milliseconds)
 
 
@@ -161,8 +165,21 @@ def _scroll_infojobs_until_stable(page: Any) -> None:
     _scroll_until_stable(
         page,
         selector=".js_vacanciesGridFragment > .js_rowCard",
-        max_iterations=12,
+        max_iterations=40,
     )
+
+
+def _make_scroll_action(selector: str) -> Callable[[Any], None]:
+    def action(page: Any) -> None:
+        page.wait_for_timeout(1500)
+        _scroll_until_stable(
+            page,
+            selector=selector,
+            max_iterations=40,
+            wait_milliseconds=1000,
+        )
+
+    return action
 
 
 def _wait_gupy_results(page: Any) -> None:
@@ -607,6 +624,10 @@ class FetchPolicy:
             fetch_options["page_action"] = _wait_gupy_results
         elif source.code == "infojobs":
             fetch_options["page_action"] = _scroll_infojobs_until_stable
+        elif source.browser.scroll_to_load and source.selectors.get("card"):
+            fetch_options["page_action"] = _make_scroll_action(
+                source.selectors["card"]
+            )
         elif source.code == "ciee":
             fetch_options["page_action"] = _load_ciee_until_stable
         return self._open_browser_session(source, profile_dir).fetch(

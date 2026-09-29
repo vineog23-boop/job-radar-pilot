@@ -261,7 +261,7 @@ def classify(
         )
     )
     labels: set[str] = {
-        label for label in record.match_labels if label.startswith("EXTRACTION:")
+        label for label in record.match_labels if label.startswith(("EXTRACTION:", "ENRICHED:"))
     }
 
     if any(

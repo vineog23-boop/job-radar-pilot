@@ -123,12 +123,58 @@ def _clean_source_location(config: SourceConfig, location: str | None) -> str | 
     return cleaned or None
 
 
+_LOGIN_PATH_RE = re.compile(
+    r"/(?:login|entrar|signin|sign-in|signup|cadastro|auth)(?:/|$|\?)",
+    re.IGNORECASE,
+)
+_MIN_ADAPTIVE_TITLE = 8
+_MIN_ADAPTIVE_RECORDS = 2
+
+
+def _adaptive_result_plausible(
+    config: SourceConfig,
+    parsed: ParsedPage,
+    current_url: str,
+    *,
+    first_page: bool,
+    page_text: str,
+    empty_markers: tuple[str, ...],
+) -> bool:
+    """Rejeita relocalizações que provavelmente são falsos positivos.
+
+    Só vale relocalizar na primeira página, sem marcador de resultado vazio,
+    com pelo menos duas vagas cujo link não seja login nem a própria listagem.
+    """
+    if not first_page:
+        return False
+    if any(marker in page_text for marker in empty_markers):
+        return False
+    listing = urlsplit(current_url)
+    valid = 0
+    for record in parsed.records:
+        target = urlsplit(record.canonical_url)
+        if _LOGIN_PATH_RE.search(target.path + "/"):
+            continue
+        if (
+            target.netloc.casefold() == listing.netloc.casefold()
+            and target.path.rstrip("/") == listing.path.rstrip("/")
+        ):
+            continue
+        if len(record.title.strip()) < _MIN_ADAPTIVE_TITLE:
+            continue
+        valid += 1
+    return valid >= _MIN_ADAPTIVE_RECORDS
+
+
 class PaginatedAdapter:
     empty_markers = (
         "nenhuma vaga encontrada",
         "nenhuma oportunidade encontrada",
         "no jobs found",
         "no opportunities found",
+        "nao encontramos resultados",
+        "não encontramos resultados",
+        "nenhuma vaga foi encontrada",
     )
 
     def __init__(self, locator: AdaptiveCardLocator | None = None) -> None:
@@ -229,6 +275,17 @@ class PaginatedAdapter:
                 )
 
             parsed = self.parse_page(fetched.response, config)
+            if parsed.card_method == "ADAPTIVE" and not _adaptive_result_plausible(
+                config,
+                parsed,
+                current_url,
+                first_page=len(visited) == 1,
+                page_text=" ".join(
+                    _visible_response_text(fetched.response).casefold().split()
+                ),
+                empty_markers=self.empty_markers,
+            ):
+                parsed = ParsedPage((), 0, None, card_method="NONE")
             if (
                 parsed.card_method == "ADAPTIVE"
                 and "SELECTOR_RELOCATED:card" not in warnings

@@ -32,6 +32,7 @@ class WorkplaceModel(StrEnum):
 class BrowserOptions:
     disable_resources: bool = False
     blocked_domains: tuple[str, ...] = ()
+    scroll_to_load: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,9 @@ class SourceConfig:
     queries: tuple[str, ...] = ()
     default_country: str | None = None
     adaptive: bool = True
+    single_page: bool = False
+    query_path: str | None = None
+    query_param: str | None = None
     browser: BrowserOptions = field(default_factory=BrowserOptions)
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -10,6 +12,8 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from job_radar.adaptive import AdaptiveCardLocator
 from job_radar.classifier import classify
 from job_radar.fetching import FetchPolicy
+from job_radar.enrich import enrich_records
+from job_radar.history import SeenHistory
 from job_radar.identity import deduplicate
 from job_radar.models import (
     CollectionStatus,
@@ -33,17 +37,43 @@ class PipelineResult:
     duplicate_count: int
 
 
-def _search_urls(source: SourceConfig) -> tuple[str, ...]:
-    supports_queries = source.kind in {SourceKind.GUPY, SourceKind.INDEED} or (
-        source.code == "casado-dev"
+def _supports_queries(source: SourceConfig) -> bool:
+    return (
+        source.kind in {SourceKind.GUPY, SourceKind.INDEED}
+        or source.code == "casado-dev"
+        or source.query_path is not None
+        or source.query_param is not None
     )
+
+
+def _slugify(query: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", query.casefold())
+    ascii_text = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", "-", ascii_text).strip("-")
+
+
+def _search_urls(source: SourceConfig) -> tuple[str, ...]:
+    supports_queries = _supports_queries(source)
     if not source.queries or not supports_queries:
         return (source.start_url,)
 
     parsed = urlsplit(source.start_url)
     urls: list[str] = []
     for query in source.queries:
-        if source.kind is SourceKind.GUPY:
+        if source.query_path is not None:
+            slug = _slugify(query)
+            if not slug:
+                continue
+            url = urlunsplit(
+                (
+                    parsed.scheme,
+                    parsed.netloc,
+                    source.query_path.replace("{query}", slug),
+                    "",
+                    "",
+                )
+            )
+        elif source.kind is SourceKind.GUPY:
             url = urlunsplit(
                 (
                     parsed.scheme,
@@ -54,7 +84,9 @@ def _search_urls(source: SourceConfig) -> tuple[str, ...]:
                 )
             )
         else:
-            query_key = "search" if source.code == "casado-dev" else "q"
+            query_key = source.query_param or (
+                "search" if source.code == "casado-dev" else "q"
+            )
             parameters = [
                 (key, value)
                 for key, value in parse_qsl(parsed.query, keep_blank_values=True)
@@ -139,6 +171,9 @@ class JobRadarPipeline:
         adapter_factory: Callable[[SourceConfig], SourceAdapter] = adapter_for,
         adaptive_locator: AdaptiveCardLocator | None = None,
         now: Callable[[], datetime] | None = None,
+        history: SeenHistory | None = None,
+        enrich_limit: int = 0,
+        enrich_fetcher_factory: Callable[[], FetchPolicy] | None = None,
     ) -> None:
         if workers < 1 or workers > 4:
             raise ValueError("workers deve estar entre 1 e 4")
@@ -148,6 +183,10 @@ class JobRadarPipeline:
             raise ValueError("fetcher compartilhado nao e permitido com workers > 1")
         if workers > 1 and fetcher_factory is None:
             raise ValueError("workers > 1 exige fetcher_factory")
+        self._history = history
+        self._enrich_limit = enrich_limit
+        self._enrich_fetcher_factory = enrich_fetcher_factory or FetchPolicy
+        self.enriched_count = 0
         self._sources = tuple(sources)
         self._profile = profile
         self._fetcher = fetcher
@@ -175,10 +214,7 @@ class JobRadarPipeline:
         adaptive_locator: AdaptiveCardLocator,
     ) -> SourceRunResult:
         query_results: list[SourceRunResult] = []
-        supports_editable_terms = source.kind in {
-            SourceKind.GUPY,
-            SourceKind.INDEED,
-        } or source.code == "casado-dev"
+        supports_editable_terms = _supports_queries(source)
         search_source = (
             replace(source, queries=self._profile.search_terms)
             if self._profile.search_terms and supports_editable_terms
@@ -383,19 +419,31 @@ class JobRadarPipeline:
         default_countries = {
             source.code: source.default_country for source in selected
         }
-        classified = tuple(
-            classify(
+        def classify_one(record: VacancyRecord) -> VacancyRecord:
+            return classify(
                 record,
                 self._profile,
                 default_country=default_countries.get(record.source),
             )
-            for record in raw_records
-        )
+
+        if self._enrich_limit > 0:
+            enriched_records, self.enriched_count = enrich_records(
+                raw_records,
+                classify_one,
+                selected,
+                limit=self._enrich_limit,
+                fetcher_factory=self._enrich_fetcher_factory,
+            )
+            raw_records = list(enriched_records)
+        classified = tuple(classify_one(record) for record in raw_records)
         deduplicated = deduplicate(classified)
+        unique = deduplicated.unique
+        if self._history is not None:
+            unique = self._history.annotate(unique, self._now())
         return PipelineResult(
             started_at=started_at,
             finished_at=self._now().isoformat(),
-            records=deduplicated.unique,
+            records=unique,
             ambiguous=deduplicated.ambiguous,
             source_results=tuple(source_results),
             raw_record_count=len(raw_records),

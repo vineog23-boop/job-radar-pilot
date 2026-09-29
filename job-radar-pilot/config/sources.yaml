@@ -7,6 +7,7 @@ sources:
     min_interval_seconds: 2
     requires_auth: false
     adaptive: true
+    default_country: BR
     queries: [desenvolvedor java junior, backend junior, estagio desenvolvimento, estagio tecnologia, engenheiro de software junior]
   - code: indeed
     kind: indeed
@@ -26,16 +27,20 @@ sources:
     min_interval_seconds: 2
     requires_auth: false
     adaptive: true
+    default_country: BR
     selectors: {card: ".gallery-item-container", title: "a.O16KGI[href*='/post/']::all-text", url: "a.O16KGI[href*='/post/']::attr(href)"}
   - code: eureca
     kind: dynamic
     start_url: https://app.eureca.me/oportunidades
     enabled: true
-    max_pages: 10
+    max_pages: 1
     min_interval_seconds: 3
     requires_auth: false
     adaptive: true
-    selectors: {card: "[data-testid^='opportunities-list-card-']", title: "p.text-base::all-text", url: "a[href^='/vagas/']::attr(href)", company: "div.flex.items-center span::all-text", location: "div.flex.flex-wrap.items-center > div:nth-of-type(3)::all-text", summary: "::all-text"}
+    default_country: BR
+    single_page: true
+    browser: {scroll_to_load: true}
+    selectors: {card: "[data-testid^='opportunities-list-card-']:not([data-testid$='-cta'])", title: "p.text-base::all-text", url: "a[href^='/vagas/']::attr(href)", company: "div.flex.items-center span::all-text", location: "div.flex.flex-wrap.items-center > div:nth-of-type(3)::all-text", summary: "::all-text"}
   - code: programathor
     kind: generic
     start_url: https://programathor.com.br/jobs-java
@@ -44,6 +49,7 @@ sources:
     min_interval_seconds: 2
     requires_auth: false
     adaptive: true
+    default_country: BR
     selectors: {card: ".cell-list:not(.opacity-60p) > a[href^='/jobs/']", title: ".cell-list-content h3::all-text", url: "::attr(href)", company: ".cell-list-content-icon > span:nth-of-type(1)::all-text", location: ".cell-list-content-icon > span:nth-of-type(2)::all-text", summary: "::all-text", next: "ul.pagination li:nth-last-child(2) a.page-link::attr(href)"}
   - code: casado-dev
     kind: generic
@@ -64,25 +70,31 @@ sources:
     min_interval_seconds: 3
     requires_auth: false
     adaptive: true
+    default_country: BR
     selectors: {card: "a.vaga-row[href*='codigoVaga=']", id: ".cod-vaga::all-text", title: "h2.tipo-vaga::all-text", url: "::attr(href)", location: "li.info-local::all-text", summary: "li.info-area::all-text"}
   - code: nube
     kind: dynamic
     start_url: https://www.nube.com.br/estudantes/vagas
     enabled: true
-    max_pages: 5
+    max_pages: 1
     min_interval_seconds: 3
     requires_auth: false
     adaptive: true
+    default_country: BR
+    browser: {scroll_to_load: true}
     selectors: {card: "a.flex.flex-col[href^='/detalhes-vaga/']", title: "p.font-bold.text-sm::all-text", url: "::attr(href)", location: "div.p-3 > p:nth-of-type(2)::all-text", summary: "::all-text"}
   - code: vagas-com
     kind: generic
     start_url: https://www.vagas.com.br/vagas-de-java
     enabled: true
-    max_pages: 1
+    max_pages: 4
     min_interval_seconds: 2
     requires_auth: false
     adaptive: true
-    selectors: {card: ".vaga", title: ".link-detalhes-vaga::all-text", url: ".link-detalhes-vaga::attr(href)", company: ".emprVaga::all-text", location: ".vaga-local::all-text", summary: ".detalhes::all-text"}
+    default_country: BR
+    query_path: "/vagas-de-{query}"
+    queries: [java junior, spring boot, estagio java, backend junior]
+    selectors: {card: ".vaga", title: ".link-detalhes-vaga::all-text", url: ".link-detalhes-vaga::attr(href)", company: ".emprVaga::all-text", location: ".vaga-local::all-text", summary: ".detalhes::all-text", declared_count: "h1::all-text", next: "a#maisVagas::attr(data-url)"}
   - code: 99jobs
     kind: generic
     start_url: https://99jobs.com/collections/seu-proximo-estagio-ta-on
@@ -91,15 +103,19 @@ sources:
     min_interval_seconds: 3
     requires_auth: false
     adaptive: true
+    default_country: BR
     selectors: {card: "#opportunities section.fr_opportunity.opportunity-collections", title: "h3::all-text", url: "a.btn.btn-block.btn-sort[href*='.99jobs.com/vagas/']::attr(href)", summary: "::all-text", declared_count: "#opportunities > p.text-center.qtd::all-text"}
   - code: cia-de-talentos
     kind: dynamic
     start_url: https://vagas.ciadetalentos.com.br/applicant/#/opportunities
     enabled: true
-    max_pages: 10
+    max_pages: 1
     min_interval_seconds: 3
     requires_auth: false
     adaptive: true
+    default_country: BR
+    single_page: true
+    browser: {scroll_to_load: true}
     selectors: {card: ".block-opportunities", title: ".title-process-opportunities::all-text", url: "a.link-details-button::attr(href)", location: "p:nth-of-type(3)::all-text", summary: "::all-text"}
   - code: companhia-de-estagios
     kind: generic
@@ -109,6 +125,8 @@ sources:
     min_interval_seconds: 2
     requires_auth: false
     adaptive: true
+    default_country: BR
+    single_page: true
     selectors: {card: ".vagas__card:not([class~='--expired'])", title: ".vagas__card__title h2::all-text", url: ".vagas__card__link::attr(href)", company: ".vagas__card__brand__image::attr(alt)"}
   - code: otrainee
     kind: generic
@@ -118,6 +136,8 @@ sources:
     min_interval_seconds: 2
     requires_auth: false
     adaptive: true
+    default_country: BR
+    single_page: true
     selectors: {card: "article.category-vagas-abertas", title: ".entry-title a::all-text", url: ".entry-title a::attr(href)", summary: ".entry-content::all-text"}
   - code: vidadetrainee
     kind: generic
@@ -127,16 +147,18 @@ sources:
     min_interval_seconds: 2
     requires_auth: false
     adaptive: true
+    default_country: BR
     selectors: {card: ".container-Qnseki", title: "a[class*='clamp-3']::all-text", url: "a[class*='clamp-3']::attr(href)", summary: "a[class*='clamp-2']::all-text"}
   - code: seja-trainee
     kind: generic
     start_url: https://sejatrainee.com.br/trainee/
     enabled: true
-    max_pages: 1
+    max_pages: 5
     min_interval_seconds: 2
     requires_auth: false
     adaptive: true
-    selectors: {card: "article.jeg_post", title: ".jeg_post_title a::all-text", url: ".jeg_post_title a::attr(href)", summary: ".jeg_post_excerpt::all-text"}
+    default_country: BR
+    selectors: {card: "article.jeg_post", title: ".jeg_post_title a::all-text", url: ".jeg_post_title a::attr(href)", summary: ".jeg_post_excerpt::all-text", next: "link[rel='next']::attr(href)"}
   - code: infojobs
     kind: dynamic
     start_url: https://www.infojobs.com.br/vagas-de-emprego-java.aspx
@@ -145,4 +167,72 @@ sources:
     min_interval_seconds: 3
     requires_auth: false
     adaptive: true
+    default_country: BR
+    query_path: "/vagas-de-emprego-{query}.aspx"
+    queries: [java junior, spring boot, estagio java, backend junior]
     selectors: {card: ".js_vacanciesGridFragment > .js_rowCard", id: ".js_vacancyLoad::attr(data-id)", title: ".js_vacancyTitle::all-text", url: "a[href*='/vaga-de-'][href*='__']::attr(href)", company: ".d-flex.align-items-baseline .text-body a::all-text", location: ".d-flex.align-items-baseline + .mb-8::all-text", summary: "::all-text"}
+  - code: nerdin
+    kind: generic
+    start_url: https://www.nerdin.com.br/vagas
+    enabled: true
+    max_pages: 8
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: true
+    default_country: BR
+    selectors: {card: "div.vaga-card", title: ".vaga-titulo::all-text", url: "::attr(data-href)", company: ".vaga-empresa-nome::all-text", location: ".vaga-local-linha::all-text", summary: "::all-text", next: "ul.pagination li.active + li a.page-link::attr(href)"}
+  - code: mytechjobs
+    kind: generic
+    start_url: https://mytechjobs.com.br/vagas/areas/engenharia-de-software
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: true
+    default_country: BR
+    selectors: {card: "article[class*='jobRow']", title: "h3 a::all-text", url: "h3 a::attr(href)", company: "a[class*='companyLink']::all-text", location: "dl[class*='jobFacts'] dd::all-text", summary: "::all-text"}
+  - code: empregos-com
+    kind: generic
+    start_url: https://www.empregos.com.br/vagas/java
+    enabled: true
+    max_pages: 3
+    min_interval_seconds: 3
+    requires_auth: false
+    adaptive: true
+    default_country: BR
+    selectors: {card: "div.cmp-job-card-area-expand", title: "h2 span::all-text", url: "a[href^='/vaga/']::attr(href)", company: "h3 a::all-text", summary: "::all-text", next: "a.flex.justify-center.items-center[href^='/vagas/java/']::attr(href)"}
+  - code: trampos
+    kind: dynamic
+    start_url: https://trampos.co/oportunidades
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 3
+    requires_auth: false
+    adaptive: true
+    default_country: BR
+    browser: {scroll_to_load: true}
+    selectors: {card: "div.opportunity-box", title: "h4::all-text", url: "a.inner::attr(href)", company: "h5::all-text", location: ".location::all-text", summary: "::all-text"}
+  - code: remotar
+    kind: dynamic
+    start_url: https://remotar.com.br/search/jobs?q=java
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 3
+    requires_auth: false
+    adaptive: true
+    default_country: BR
+    query_param: q
+    queries: [java junior, backend junior, spring boot, estagio desenvolvimento]
+    browser: {scroll_to_load: true}
+    selectors: {card: "div.card-header", title: "a.job-title::all-text", url: "a.job-title::attr(href)", company: "a.company::all-text", summary: "::all-text"}
+  - code: coodesh
+    kind: dynamic
+    start_url: https://coodesh.com/jobs
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 3
+    requires_auth: false
+    adaptive: true
+    default_country: BR
+    browser: {scroll_to_load: true}
+    selectors: {card: "tbody tr", title: "a[href*='/pt/jobs/'] span.chakra-text::all-text", url: "a[href*='/pt/jobs/']::attr(href)", summary: "::all-text"}

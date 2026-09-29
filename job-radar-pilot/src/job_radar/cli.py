@@ -20,6 +20,7 @@ from job_radar.fetching import (
     ProfileInUseError,
     bootstrap_auth,
 )
+from job_radar.history import SeenHistory
 from job_radar.models import CollectionStatus, SourceKind
 from job_radar.output import validate_jsonl, write_outputs
 from job_radar.pipeline import JobRadarPipeline
@@ -66,6 +67,17 @@ def _parser() -> argparse.ArgumentParser:
         choices=range(1, 5),
         default=1,
         help="Fontes coletadas em paralelo (1 a 4; padrao: 1).",
+    )
+    collect.add_argument(
+        "--enrich-limit",
+        type=int,
+        default=40,
+        help="Vagas duvidosas enriquecidas pela pagina de detalhe (0 desliga; padrao: 40).",
+    )
+    collect.add_argument(
+        "--no-history",
+        action="store_true",
+        help="Nao ler nem gravar o historico local de vagas ja vistas.",
     )
     validate = commands.add_parser(
         "validate-output", help="Validar um JSONL contra o schema local."
@@ -132,7 +144,8 @@ def _collect(args: argparse.Namespace) -> int:
                 f"timezone={BROWSER_TIMEZONE}, "
                 f"accept_language={HTTP_ACCEPT_LANGUAGE}, block_ads=false, "
                 f"disable_resources={str(source.browser.disable_resources).lower()}, "
-                f"blocked_domains={blocked_domains}"
+                f"blocked_domains={blocked_domains}, "
+                f"scroll_to_load={str(source.browser.scroll_to_load).lower()}"
             )
         return 0
 
@@ -150,6 +163,7 @@ def _collect(args: argparse.Namespace) -> int:
                 flush=True,
             )
 
+    history = None if getattr(args, "no_history", False) else SeenHistory()
     if args.workers == 1:
         with FetchPolicy() as fetcher:
             pipeline = JobRadarPipeline(
@@ -158,6 +172,8 @@ def _collect(args: argparse.Namespace) -> int:
                 fetcher=fetcher,
                 workers=1,
                 on_source_done=print_source_progress,
+                history=history,
+                enrich_limit=args.enrich_limit,
             )
             result = pipeline.run(args.sources)
     else:
@@ -167,6 +183,8 @@ def _collect(args: argparse.Namespace) -> int:
             fetcher_factory=FetchPolicy,
             workers=args.workers,
             on_source_done=print_source_progress,
+            history=history,
+            enrich_limit=args.enrich_limit,
         )
         result = pipeline.run(args.sources)
     manifest = write_outputs(result, args.output.resolve())

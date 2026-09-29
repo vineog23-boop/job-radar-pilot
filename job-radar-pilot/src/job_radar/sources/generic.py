@@ -68,7 +68,9 @@ class GenericListAdapter(PaginatedAdapter):
             len(cards),
             next_url or None,
             pagination_observable=(
-                "next" in config.selectors or declared_complete
+                "next" in config.selectors
+                or declared_complete
+                or config.single_page
             ),
             card_method=selection.method,
         )

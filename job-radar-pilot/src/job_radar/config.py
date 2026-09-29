@@ -35,10 +35,13 @@ _OPTIONAL_SOURCE_KEYS = {
     "queries",
     "default_country",
     "adaptive",
+    "single_page",
+    "query_path",
+    "query_param",
     "browser",
 }
 _SOURCE_KEYS = _REQUIRED_SOURCE_KEYS | _OPTIONAL_SOURCE_KEYS
-_BROWSER_KEYS = {"disable_resources", "blocked_domains"}
+_BROWSER_KEYS = {"disable_resources", "blocked_domains", "scroll_to_load"}
 _REQUIRED_GENERIC_SELECTORS = {"card", "title", "url"}
 _HOSTNAME_PATTERN = re.compile(
     r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*",
@@ -117,6 +120,12 @@ def _load_browser_options(value: Any, index: int) -> BrowserOptions:
             f"sources[{index}].browser.disable_resources deve ser booleano."
         )
 
+    scroll_to_load = value.get("scroll_to_load", False)
+    if not isinstance(scroll_to_load, bool):
+        raise ConfigError(
+            f"sources[{index}].browser.scroll_to_load deve ser booleano."
+        )
+
     blocked_domains = value.get("blocked_domains", [])
     if not isinstance(blocked_domains, list):
         raise ConfigError(
@@ -146,6 +155,7 @@ def _load_browser_options(value: Any, index: int) -> BrowserOptions:
     return BrowserOptions(
         disable_resources=disable_resources,
         blocked_domains=tuple(normalized_domains),
+        scroll_to_load=scroll_to_load,
     )
 
 
@@ -213,6 +223,29 @@ def _load_source(item: Any, index: int) -> SourceConfig:
     if not isinstance(adaptive, bool):
         raise ConfigError(f"sources[{index}].adaptive deve ser booleano.")
 
+    single_page = item.get("single_page", False)
+    if not isinstance(single_page, bool):
+        raise ConfigError(f"sources[{index}].single_page deve ser booleano.")
+
+    query_path = item.get("query_path")
+    if query_path is not None and (
+        not isinstance(query_path, str)
+        or not query_path.startswith("/")
+        or "{query}" not in query_path
+    ):
+        raise ConfigError(
+            f"sources[{index}].query_path deve iniciar com / e conter {{query}}."
+        )
+    query_param = item.get("query_param")
+    if query_param is not None and (
+        not isinstance(query_param, str) or not query_param.strip()
+    ):
+        raise ConfigError(f"sources[{index}].query_param deve ser um texto.")
+    if query_path is not None and query_param is not None:
+        raise ConfigError(
+            f"sources[{index}] aceita query_path ou query_param, nao ambos."
+        )
+
     browser = _load_browser_options(item.get("browser", {}), index)
 
     return SourceConfig(
@@ -227,6 +260,9 @@ def _load_source(item: Any, index: int) -> SourceConfig:
         queries=tuple(query.strip() for query in queries_raw),
         default_country=default_country,
         adaptive=adaptive,
+        single_page=single_page,
+        query_path=query_path,
+        query_param=query_param.strip() if query_param else None,
         browser=browser,
     )
 

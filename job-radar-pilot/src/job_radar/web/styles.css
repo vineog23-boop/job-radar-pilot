@@ -105,6 +105,7 @@ tbody tr:hover { background: rgba(255,255,255,.025); }
 .job-meta { color: #687489; display: block; margin-top: 5px; font-size: 10px; }
 .source-pill, .match-pill, .status-pill { display: inline-flex; align-items: center; border-radius: 99px; padding: 6px 9px; font-size: 10px; font-weight: 700; }
 .source-pill { background: rgba(103,119,146,.12); color: #9da9bc; }
+.match-pill.new { background: rgba(110,168,254,.16); color: #8fb8ff; margin-left: 6px; }
 .match-pill.ready { background: rgba(79,214,156,.1); color: var(--green); }
 .match-pill.conditional { background: rgba(244,201,93,.1); color: var(--yellow); }
 .match-pill.ambiguous { background: rgba(103,119,146,.16); color: #aab4c3; }

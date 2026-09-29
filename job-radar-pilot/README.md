@@ -51,8 +51,6 @@ os resultados foram salvos. Para limitar a busca a uma fonte:
   saídas.
 - Os rótulos de aderência são sinais determinísticos, não fatos nem decisões de
   candidatura.
-- `FIT:READY` representa somente o ranking local deste projeto: não equivale ao
-  estado canônico `READY` do SQLite e não autoriza iniciar ou enviar candidatura.
 
 `FIT:READY` significa somente **mais compatível no Radar local**. Ele não é o
 estado `READY` canônico do funil/SQLite, não comprova vaga aberta e não autoriza

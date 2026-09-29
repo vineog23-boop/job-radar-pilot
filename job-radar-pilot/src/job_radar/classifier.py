@@ -303,14 +303,27 @@ def classify(
         WorkplaceModel.REMOTE in inferred_workplaces or explicit_remote_location
     )
     if is_remote:
-        normalized_scope = _normalize(record.remote_scope or record.location)
-        if (
-            _contains_term(normalized_scope, "brasil")
-            or _contains_term(normalized_scope, "brazil")
-            or (
-                default_country == "BR"
-                and _brazilian_default_applies_to_remote_scope(normalized_scope)
+        normalized_scopes = tuple(
+            scope
+            for scope in (
+                _normalize(record.remote_scope),
+                normalized_location,
             )
+            if scope
+        )
+        has_explicit_brazil = any(
+            _contains_term(scope, "brasil") or _contains_term(scope, "brazil")
+            for scope in normalized_scopes
+        )
+        all_scopes_support_brazil = all(
+            _contains_term(scope, "brasil")
+            or _contains_term(scope, "brazil")
+            or _brazilian_default_applies_to_remote_scope(scope)
+            for scope in normalized_scopes
+        )
+        if (
+            all_scopes_support_brazil
+            and (has_explicit_brazil or default_country == "BR")
         ):
             labels.add("LOCATION_MATCH:remote_brazil")
         else:

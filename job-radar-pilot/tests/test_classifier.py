@@ -131,6 +131,26 @@ def test_classify_does_not_use_brazilian_default_for_explicit_foreign_country() 
     assert "FIT:READY" not in classified.match_labels
 
 
+@pytest.mark.parametrize("remote_scope", ("Remoto", "Brasil"))
+def test_classify_keeps_conflicting_foreign_location_unclear(
+    remote_scope: str,
+) -> None:
+    classified = classify(
+        _record(
+            title="Java Junior remoto",
+            location="Portugal",
+            workplace_model=WorkplaceModel.REMOTE,
+            remote_scope=remote_scope,
+        ),
+        PROFILE,
+        default_country="BR",
+    )
+
+    assert "LOCATION_MATCH:remote_brazil" not in classified.match_labels
+    assert "LOCATION_UNCLEAR:remote_scope" in classified.match_labels
+    assert "FIT:READY" not in classified.match_labels
+
+
 def test_classify_does_not_use_brazilian_default_for_usa_alias() -> None:
     classified = classify(
         _record(

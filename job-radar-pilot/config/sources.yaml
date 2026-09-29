@@ -191,6 +191,18 @@ sources:
     adaptive: true
     default_country: BR
     selectors: {card: "article[class*='jobRow']", title: "h3 a::all-text", url: "h3 a::attr(href)", company: "a[class*='companyLink']::all-text", location: "dl[class*='jobFacts'] dd::all-text", summary: "::all-text", published: "dl[class*='jobTiming'] dd::all-text"}
+  - code: geekhunter
+    kind: generic
+    start_url: https://www.geekhunter.com/pt/vagas?searchTerm=java
+    enabled: true
+    max_pages: 12
+    min_interval_seconds: 3
+    requires_auth: false
+    adaptive: true
+    default_country: BR
+    query_param: searchTerm
+    queries: [java, spring boot, backend junior, estagio desenvolvimento]
+    selectors: {card: "li[id^='job-']", title: "h3 a::all-text", url: "h3 a::attr(href)", location: "div[role='group'] > div:first-child > div:nth-child(3) > div:nth-child(3) p::all-text", summary: "::all-text", next: "a[href*='page=']::attr(href)", published: "div[role='group'] > div:first-child > div:first-child p::all-text"}
   - code: empregos-com
     kind: generic
     start_url: https://www.empregos.com.br/vagas/java

@@ -205,11 +205,27 @@ Da página 2 em diante, zero cards configurados encerra a listagem.
 
 ## Fontes adicionadas em setembro/2026
 
-nerdin, mytechjobs (iMasters), empregos-com, trampos, remotar e coodesh. Avaliadas e **não**
-incluídas: GeekHunter, TalenTI, eu.dev.br, ViUmaVaga, Super Estágios, Futura Estágios e
-Glassdoor (o `robots.txt` bloqueia acesso automatizado); GitHub `backend-br/vagas`
+nerdin, mytechjobs (iMasters), empregos-com, trampos, remotar, coodesh e **geekhunter**
+(o `robots.txt` do GeekHunter passou a liberar `/pt/vagas`; o filtro `?searchTerm=` recebe
+os termos do perfil e a data vem de "Publicada há N horas"). Avaliadas e **não**
+incluídas: TalenTI, eu.dev.br, ViUmaVaga, Super Estágios, Futura Estágios e Glassdoor
+(o `robots.txt` bloqueia acesso automatizado); GitHub `backend-br/vagas`
 (`robots.txt` nega `/issues`); Catho (login e proteção anti-bot); Revelo (404);
 Quero Vagas Tech, VagasPraJr e EmpregosTech (domínio não resolve).
+
+Avaliadas em 29/09/2026 e **não** incluídas:
+
+- **Netvagas**: a listagem só carrega com JavaScript e o site recusa o navegador
+  automatizado ("Não foi possível exibir esta página"). Contornar isso seria burlar a
+  proteção, então não entra.
+- **Abler** (`candidatos.abler.com.br/vagas`): cards sem link; cada vaga abre por clique em
+  JavaScript, sem URL na listagem.
+- **Quickin** e **Recrutei**: cada empresa tem o próprio quadro
+  (`jobs.quickin.io/<empresa>/jobs`, `jobs.recrutei.com.br/<empresa>`); não há listagem
+  geral. Os quadros são acessíveis, mas exigiriam uma lista de empresas.
+- **APInfo**: só ~8 vagas por lista, sem paginação, busca por formulário e o `robots.txt`
+  bloqueia explicitamente bots de IA.
+- **Wellfound**: sem login só 2 vagas aparecem no HTML e são sêniores/internacionais.
 
 ## Rolagem, termos de busca e histórico
 
@@ -372,7 +388,7 @@ Git) e podem ser apagadas a qualquer momento.
 Os testes de extratores usam fixtures locais sanitizadas. Apenas o smoke test
 explicitamente executado acessa uma fonte pública.
 
-Os seletores das 21 fontes habilitadas foram validados ao vivo em setembro de
+Os seletores das 22 fontes habilitadas foram validados ao vivo em setembro de
 2026 e têm testes determinísticos por comportamento. A fonte Vida de Trainee
 fica desabilitada porque o arquivo observado estava parado em 2024. Portais
 externos continuam sujeitos a mudanças de layout, bloqueios e paginação não

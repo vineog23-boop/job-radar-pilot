@@ -6,7 +6,13 @@ estruturado que outra IA possa ler e filtrar. O projeto usa o Scrapling
 
 ## Uso rapido
 
-Para abrir a interface local no navegador, execute na raiz da pasta:
+**Sem terminal:** dê dois cliques em **`Radar de Vagas.cmd`** na raiz da pasta.
+Na primeira vez ele instala o ambiente sozinho (precisa de Python 3.13 e Git
+instalados) e depois abre o painel no navegador. Para ter um ícone na área de
+trabalho, dê dois cliques uma única vez em **`Criar atalho na area de
+trabalho.cmd`**. Para encerrar o Radar, feche a janela preta que fica aberta.
+
+Pelo PowerShell, o equivalente é:
 
 ```powershell
 .\abrir-interface.ps1

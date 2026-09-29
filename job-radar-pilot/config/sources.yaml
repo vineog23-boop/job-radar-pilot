@@ -1,0 +1,127 @@
+sources:
+  - code: gupy
+    kind: gupy
+    start_url: https://portal.gupy.io/
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 2
+    requires_auth: false
+    queries: [Java, backend, software, tecnologia]
+  - code: indeed
+    kind: indeed
+    start_url: https://br.indeed.com/jobs
+    enabled: true
+    max_pages: 3
+    min_interval_seconds: 3
+    requires_auth: false
+    queries: [Java junior, estagio desenvolvimento, backend junior]
+  - code: estagiotrainee
+    kind: generic
+    start_url: https://www.estagiotrainee.com/vagas-programas-estagio
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 2
+    requires_auth: false
+    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".empresa", location: ".local"}
+  - code: eureca
+    kind: dynamic
+    start_url: https://app.eureca.me/vagas
+    enabled: true
+    max_pages: 10
+    min_interval_seconds: 3
+    requires_auth: false
+    queries: [tecnologia, software, dados]
+  - code: programathor
+    kind: generic
+    start_url: https://programathor.com.br/jobs-java
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 2
+    requires_auth: false
+    selectors: {card: ".cell-list", title: ".cell-list-content h3", url: "a::attr(href)", company: ".company", location: ".location"}
+  - code: casado-dev
+    kind: generic
+    start_url: https://casado.dev/vagas
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 2
+    requires_auth: false
+    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".company", location: ".location"}
+  - code: ciee
+    kind: dynamic
+    start_url: https://portal.ciee.org.br/quero-uma-vaga/
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 3
+    requires_auth: false
+    queries: [tecnologia da informacao, desenvolvimento, programacao]
+  - code: nube
+    kind: dynamic
+    start_url: https://www.nube.com.br/estudantes/vagas
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 3
+    requires_auth: true
+    queries: [tecnologia da informacao, desenvolvimento]
+  - code: vagas-com
+    kind: generic
+    start_url: https://www.vagas.com.br/vagas-de-java
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 2
+    requires_auth: false
+    selectors: {card: ".vaga", title: ".cargo", url: "a::attr(href)", company: ".emprVaga", location: ".vaga-local"}
+  - code: 99jobs
+    kind: dynamic
+    start_url: https://99jobs.com/collections/seu-proximo-estagio-ta-on
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 3
+    requires_auth: false
+  - code: cia-de-talentos
+    kind: dynamic
+    start_url: https://vagas.ciadetalentos.com.br/applicant/#/opportunities
+    enabled: true
+    max_pages: 10
+    min_interval_seconds: 3
+    requires_auth: false
+  - code: companhia-de-estagios
+    kind: generic
+    start_url: https://www.ciadeestagios.com.br/
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 2
+    requires_auth: false
+    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".company", location: ".location"}
+  - code: otrainee
+    kind: generic
+    start_url: https://otrainee.com.br/
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 2
+    requires_auth: false
+    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".company", location: ".location"}
+  - code: vidadetrainee
+    kind: generic
+    start_url: https://www.vidadetrainee.com/
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 2
+    requires_auth: false
+    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".company", location: ".location"}
+  - code: seja-trainee
+    kind: generic
+    start_url: https://sejatrainee.com.br/trainee/
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 2
+    requires_auth: false
+    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".company", location: ".location"}
+  - code: infojobs
+    kind: generic
+    start_url: https://www.infojobs.com.br/vagas-de-emprego-java.aspx
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 3
+    requires_auth: false
+    selectors: {card: ".ij-OfferCard", title: "h2", url: "a::attr(href)", company: ".ij-OfferCardContent-description-title", location: ".ij-OfferCardContent-description-list-item"}

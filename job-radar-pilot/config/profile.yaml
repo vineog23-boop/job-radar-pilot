@@ -1,0 +1,30 @@
+positive_keywords:
+  - java
+  - java 17
+  - java 21
+  - spring boot
+  - backend
+  - api rest
+  - jpa
+  - hibernate
+  - sql
+  - maven
+  - docker
+  - junit
+  - mockito
+  - testes
+seniority_levels:
+  - estagio
+  - junior
+location_scopes:
+  - remoto-brasil
+  - sao-carlos-sp
+  - florianopolis-sc
+  - sao-jose-sc
+  - palhoca-sc
+  - biguacu-sc
+excluded_terms:
+  - senior
+  - especialista
+  - lider tecnico
+  - tech lead

@@ -351,6 +351,13 @@ def _dashboard_handler(
             )
             return preferences_to_dict(preferences)
 
+        def _load_linkedin_plan(self) -> dict[str, object]:
+            from job_radar.manual_search import build_linkedin_search_plan
+            from job_radar.preferences import preferences_from_dict
+
+            preferences = preferences_from_dict(self._load_preferences_payload())
+            return build_linkedin_search_plan(preferences)
+
         def do_GET(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
             request_url = urlsplit(self.path)
             path = request_url.path
@@ -360,6 +367,14 @@ def _dashboard_handler(
             if path == "/api/preferences":
                 try:
                     payload = self._load_preferences_payload()
+                except (OSError, ValueError) as exc:
+                    self._json(500, {"error": str(exc)})
+                    return
+                self._json(200, payload)
+                return
+            if path == "/api/linkedin-searches":
+                try:
+                    payload = self._load_linkedin_plan()
                 except (OSError, ValueError) as exc:
                     self._json(500, {"error": str(exc)})
                     return

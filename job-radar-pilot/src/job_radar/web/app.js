@@ -30,11 +30,17 @@ const elements = {
   workplaceHybrid: document.querySelector("#workplace-hybrid"),
   workplaceOnsite: document.querySelector("#workplace-onsite"),
   downloadReport: document.querySelector("#download-report"),
+  linkedinButton: document.querySelector("#linkedin-button"),
+  linkedinPanel: document.querySelector("#linkedin-panel"),
+  closeLinkedin: document.querySelector("#close-linkedin"),
+  linkedinSearches: document.querySelector("#linkedin-searches"),
+  linkedinFilters: document.querySelector("#linkedin-filters"),
 };
 
 let dashboardState = { jobs: [], report: {}, status: "IDLE", sources: {} };
 let refreshTimer;
 let preferencesLoaded = false;
+let linkedinLoaded = false;
 
 function normalized(value) {
   return String(value ?? "")
@@ -316,6 +322,55 @@ function showPreferences(show) {
   elements.preferencesButton.setAttribute("aria-expanded", String(show));
 }
 
+function showLinkedin(show) {
+  elements.linkedinPanel.hidden = !show;
+  elements.linkedinButton.setAttribute("aria-expanded", String(show));
+}
+
+async function loadLinkedinSearches() {
+  if (linkedinLoaded) return;
+  elements.linkedinButton.disabled = true;
+  elements.linkedinSearches.replaceChildren(
+    textElement("p", "linkedin-loading", "Preparando pesquisas…")
+  );
+  try {
+    const response = await fetch("/api/linkedin-searches", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    const terms = (payload.searches ?? []).map((search) => {
+      const row = document.createElement("div");
+      row.className = "linkedin-term";
+      row.appendChild(textElement("span", "", search.label));
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.textContent = "Copiar";
+      copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(search.label);
+          copy.textContent = "Copiado";
+        } catch (error) {
+          elements.linkedinFilters.textContent = `Copie manualmente: ${search.label}`;
+        }
+      });
+      row.appendChild(copy);
+      return row;
+    });
+    elements.linkedinSearches.replaceChildren(...terms);
+    const filters = payload.filters ?? {};
+    const levels = (filters.seniority_levels ?? []).join(", ") || "qualquer nível";
+    const models = (filters.workplace_models ?? []).join(", ") || "qualquer modelo";
+    const locations = (filters.location_scopes ?? []).join(", ");
+    elements.linkedinFilters.textContent = `Filtros para conferir no LinkedIn: ${levels} · ${models} · ${locations}`;
+    linkedinLoaded = true;
+  } catch (error) {
+    elements.linkedinSearches.replaceChildren(
+      textElement("p", "linkedin-loading", `Não foi possível preparar: ${error.message}`)
+    );
+  } finally {
+    elements.linkedinButton.disabled = false;
+  }
+}
+
 async function loadPreferences() {
   if (preferencesLoaded) return true;
   const controls = [...elements.preferencesForm.querySelectorAll("input, textarea, button")];
@@ -391,6 +446,7 @@ async function savePreferences(event) {
     const saved = await response.json();
     if (!response.ok) throw new Error(saved.error || `HTTP ${response.status}`);
     preferencesLoaded = true;
+    linkedinLoaded = false;
     elements.preferencesStatus.textContent = "Configurações salvas. Clique em Buscar vagas agora quando quiser.";
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível salvar: ${error.message}`;
@@ -407,6 +463,12 @@ elements.preferencesButton.addEventListener("click", async () => {
 });
 elements.closePreferences.addEventListener("click", () => showPreferences(false));
 elements.preferencesForm.addEventListener("submit", savePreferences);
+elements.linkedinButton.addEventListener("click", async () => {
+  const willShow = elements.linkedinPanel.hidden;
+  showLinkedin(willShow);
+  if (willShow) await loadLinkedinSearches();
+});
+elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
 [elements.textFilter, elements.sourceFilter, elements.matchFilter].forEach((filter) => {
   filter.addEventListener("input", renderTable);
   filter.addEventListener("change", renderTable);

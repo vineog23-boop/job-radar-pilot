@@ -41,13 +41,20 @@ os resultados foram salvos. Para limitar a busca a uma fonte:
 
 - Não acessa SQLite, Notion, RADAR, `pipeline-state.json` nem a pasta
   `Vagas Dev`.
-- Não pesquisa LinkedIn autenticado, preenche formulários ou envia candidaturas.
+- Não automatiza nem raspa o LinkedIn, preenche formulários ou envia candidaturas.
+- A interface abre somente a página inicial oficial do LinkedIn após seu clique
+  e mostra os termos para copiar. O Radar não lê a página nem acessa, captura ou
+  armazena cookies/tokens; o navegador pode usar a sessão que já estiver aberta.
 - Não contorna CAPTCHA, 2FA, rate limit, login ou alerta de atividade.
 - Quando uma fonte exige autenticação, ela termina com handoff manual.
 - Não grava cookies, tokens, senhas, perfis do navegador ou HTML integral nas
   saídas.
 - Os rótulos de aderência são sinais determinísticos, não fatos nem decisões de
   candidatura.
+
+`FIT:READY` significa somente **mais compatível no Radar local**. Ele não é o
+estado `READY` canônico do funil/SQLite, não comprova vaga aberta e não autoriza
+preenchimento, clique final ou envio de candidatura.
 
 ## Instalação
 

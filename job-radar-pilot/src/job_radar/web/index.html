@@ -38,8 +38,20 @@
             <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
             <a id="download-report" class="ghost-button action-button" href="/api/export/markdown" download>Baixar relatório</a>
           </div>
+          <button id="linkedin-button" class="linkedin-button" type="button" aria-expanded="false" aria-controls="linkedin-panel">Pesquisar no LinkedIn</button>
           <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
         </div>
+      </section>
+
+      <section id="linkedin-panel" class="linkedin-panel" hidden aria-labelledby="linkedin-title">
+        <div class="section-heading">
+          <div><p class="eyebrow linkedin-eyebrow">LINKEDIN · BUSCA MANUAL</p><h2 id="linkedin-title">Abra as pesquisas oficiais</h2></div>
+          <button id="close-linkedin" class="ghost-button" type="button">Fechar</button>
+        </div>
+        <p class="panel-copy">Abra a página inicial e copie um termo por vez. O Radar não raspa a página, não acessa cookies ou tokens e não inicia candidatura; seu navegador pode usar a sessão que já estiver aberta.</p>
+        <a id="linkedin-home-link" class="linkedin-home-link" href="https://www.linkedin.com/" target="_blank" rel="noopener noreferrer">Abrir LinkedIn</a>
+        <div id="linkedin-searches" class="linkedin-searches" aria-live="polite"></div>
+        <p id="linkedin-filters" class="linkedin-filters"></p>
       </section>
 
       <section id="preferences-panel" class="preferences-panel" hidden aria-labelledby="preferences-title">

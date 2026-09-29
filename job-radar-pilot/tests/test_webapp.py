@@ -477,6 +477,58 @@ def test_preferences_api_rejects_body_over_16kb(tmp_path) -> None:
     assert status == 400
 
 
+def test_linkedin_api_returns_manual_plan_without_starting_collection(tmp_path) -> None:
+    from job_radar.webapp import SearchController, create_server
+
+    searches: list[list[str] | None] = []
+
+    def runner(output_dir, sources, on_line):
+        searches.append(sources)
+        return 0
+
+    static_dir = tmp_path / "web"
+    static_dir.mkdir()
+    preferences_path = tmp_path / "search-preferences.json"
+    preferences_path.write_text(
+        json.dumps(
+            {
+                "search_terms": ["java junior", "estagio backend"],
+                "seniority_levels": ["estagio", "junior"],
+                "workplace_models": ["REMOTE"],
+                "location_scopes": ["remoto-brasil", "florianopolis-sc"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    server = create_server(
+        "127.0.0.1",
+        0,
+        SearchController(tmp_path / "output", runner=runner),
+        static_dir,
+        preferences_path=preferences_path,
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        with urlopen(
+            f"http://127.0.0.1:{server.server_port}/api/linkedin-searches",
+            timeout=2,
+        ) as response:
+            payload = json.loads(response.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert payload["access_mode"] == "MANUAL_FOREGROUND"
+    assert payload["network_access"] is False
+    assert len(payload["searches"]) == 2
+    assert payload["home_url"] == "https://www.linkedin.com/"
+    assert all(set(item) == {"label"} for item in payload["searches"])
+    assert searches == []
+
+
 def test_project_dashboard_exposes_expected_controls(tmp_path) -> None:
     from job_radar.webapp import SearchController, create_server
 
@@ -506,6 +558,9 @@ def test_project_dashboard_exposes_expected_controls(tmp_path) -> None:
         "search-button",
         "preferences-button",
         "preferences-panel",
+        "linkedin-button",
+        "linkedin-panel",
+        "linkedin-searches",
         "download-report",
         "text-filter",
         "source-filter",
@@ -515,6 +570,69 @@ def test_project_dashboard_exposes_expected_controls(tmp_path) -> None:
         "jobs-table-body",
         "live-status",
     }.issubset(parser.ids)
+
+
+def test_dashboard_lists_manual_linkedin_searches_without_starting_collection(
+    tmp_path,
+) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from job_radar.webapp import SearchController, create_server
+
+    searches: list[list[str] | None] = []
+
+    def runner(output_dir, sources, on_line):
+        searches.append(sources)
+        return 0
+
+    output = tmp_path / "output"
+    static_dir = Path(__file__).resolve().parents[1] / "src" / "job_radar" / "web"
+    preferences_path = tmp_path / "search-preferences.json"
+    preferences_path.write_text(
+        json.dumps(
+            {
+                "search_terms": ["java junior", "estagio backend"],
+                "seniority_levels": ["estagio", "junior"],
+                "workplace_models": ["REMOTE"],
+                "location_scopes": ["remoto-brasil", "florianopolis-sc"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    server = create_server(
+        "127.0.0.1",
+        0,
+        SearchController(output, runner=runner),
+        static_dir,
+        preferences_path=preferences_path,
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            with page.expect_response(
+                lambda response: response.url.endswith("/api/linkedin-searches")
+            ) as response_info:
+                page.get_by_role("button", name="Pesquisar no LinkedIn").click()
+            assert response_info.value.status == 200
+            assert page.locator("#linkedin-panel").is_visible() is True
+            terms = page.locator("#linkedin-searches button")
+            assert terms.count() == 2
+            assert terms.first.text_content() == "Copiar"
+            home = page.locator("#linkedin-home-link")
+            assert home.get_attribute("href") == "https://www.linkedin.com/"
+            assert home.get_attribute("target") == "_blank"
+            assert home.get_attribute("rel") == "noopener noreferrer"
+            assert searches == []
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:

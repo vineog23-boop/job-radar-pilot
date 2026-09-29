@@ -941,6 +941,72 @@ def test_dashboard_browser_uses_fit_state_for_labels_filter_and_order(tmp_path) 
         thread.join(timeout=2)
 
 
+def test_dashboard_browser_sorts_by_published_date_and_shows_it(tmp_path) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from job_radar.webapp import SearchController, create_server
+
+    output = tmp_path / "output"
+    output.mkdir()
+    jobs = [
+        {
+            "title": "Java sem data",
+            "canonical_url": "https://example.com/sem-data",
+            "source": "example",
+            "match_labels": ["FIT:READY", "FIT_SCORE:4"],
+            "published_at": None,
+        },
+        {
+            "title": "Java antiga",
+            "canonical_url": "https://example.com/antiga",
+            "source": "example",
+            "match_labels": ["FIT:READY", "FIT_SCORE:3"],
+            "published_at": "2026-09-01T12:00:00+00:00",
+        },
+        {
+            "title": "Java recente",
+            "canonical_url": "https://example.com/recente",
+            "source": "example",
+            "match_labels": ["FIT:CONDITIONAL", "FIT_SCORE:2"],
+            "published_at": "2026-09-28T12:00:00+00:00",
+        },
+    ]
+    (output / "vagas.jsonl").write_text(
+        "".join(json.dumps(job) + "\n" for job in jobs), encoding="utf-8"
+    )
+    static_dir = Path(__file__).resolve().parents[1] / "src" / "job_radar" / "web"
+    server = create_server(
+        "127.0.0.1",
+        0,
+        SearchController(output, runner=lambda *_: 0),
+        static_dir,
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.wait_for_selector("#jobs-table-body tr")
+
+            titles = page.locator("#jobs-table-body .job-title").all_inner_texts()
+            assert titles == ["Java sem data", "Java antiga", "Java recente"]
+
+            page.locator("#sort-order").select_option("recent")
+            titles = page.locator("#jobs-table-body .job-title").all_inner_texts()
+            assert titles == ["Java recente", "Java antiga", "Java sem data"]
+
+            recent_row = page.locator("#jobs-table-body tr").filter(has_text="Java recente")
+            assert "28/09/2026" in recent_row.inner_text()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_webapp_main_rejects_non_loopback_host(capsys) -> None:
     from job_radar.webapp import main
 

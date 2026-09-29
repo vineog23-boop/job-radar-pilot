@@ -6,6 +6,7 @@ const elements = {
   textFilter: document.querySelector("#text-filter"),
   sourceFilter: document.querySelector("#source-filter"),
   matchFilter: document.querySelector("#match-filter"),
+  sortOrder: document.querySelector("#sort-order"),
   tableBody: document.querySelector("#jobs-table-body"),
   emptyState: document.querySelector("#empty-state"),
   visibleCount: document.querySelector("#visible-count"),
@@ -106,8 +107,21 @@ function filteredJobs() {
   }).sort((left, right) => {
     const order = { READY: 0, CONDITIONAL: 1, AMBIGUOUS: 2, EXCLUDE: 3 };
     const byState = order[fitState(left)] - order[fitState(right)];
-    return byState || fitScore(right) - fitScore(left);
+    const byFit = byState || fitScore(right) - fitScore(left);
+    if (elements.sortOrder.value !== "recent") return byFit;
+    return publishedTime(right) - publishedTime(left) || byFit;
   });
+}
+
+function publishedTime(job) {
+  const time = Date.parse(job.published_at ?? "");
+  return Number.isNaN(time) ? -Infinity : time;
+}
+
+function publishedLabel(job) {
+  const time = publishedTime(job);
+  if (time === -Infinity) return "";
+  return new Date(time).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 
 function textElement(tag, className, text) {
@@ -129,7 +143,10 @@ function renderTable() {
       textElement(
         "span",
         "job-meta",
-        (job.technologies ?? []).slice(0, 4).join(" · ") || "Tecnologias não informadas"
+        [
+          (job.technologies ?? []).slice(0, 4).join(" · ") || "Tecnologias não informadas",
+          publishedLabel(job) && `publicada em ${publishedLabel(job)}`,
+        ].filter(Boolean).join(" — ")
       )
     );
     row.appendChild(titleCell);
@@ -472,7 +489,7 @@ elements.linkedinButton.addEventListener("click", async () => {
   if (willShow) await loadLinkedinSearches();
 });
 elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
-[elements.textFilter, elements.sourceFilter, elements.matchFilter].forEach((filter) => {
+[elements.textFilter, elements.sourceFilter, elements.matchFilter, elements.sortOrder].forEach((filter) => {
   filter.addEventListener("input", renderTable);
   filter.addEventListener("change", renderTable);
 });

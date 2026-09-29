@@ -4,6 +4,21 @@ Ferramenta local e independente para pesquisar vagas e produzir um conjunto
 estruturado que outra IA possa ler e filtrar. O projeto usa o Scrapling
 `v0.4.15`, instalado a partir do clone oficial fixado em `vendor/Scrapling`.
 
+## Uso rapido
+
+Na raiz da pasta, execute:
+
+```powershell
+.\buscar-vagas.ps1
+```
+
+O comando pesquisa todas as fontes configuradas, valida o JSONL e informa onde
+os resultados foram salvos. Para limitar a busca a uma fonte:
+
+```powershell
+.\buscar-vagas.ps1 -Fonte programathor
+```
+
 ## Limites de segurança
 
 - Não acessa SQLite, Notion, RADAR, `pipeline-state.json` nem a pasta

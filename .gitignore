@@ -1,1 +1,11 @@
 .worktrees/
+.superpowers/
+.codex-remote-attachments/
+vendor/
+job-radar-pilot/.venv/
+job-radar-pilot/output/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "job-radar-pilot"
+version = "0.1.0"
+description = "Coletor independente de vagas usando Scrapling"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "PyYAML>=6.0,<7",
+  "jsonschema>=4.23,<5",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=9,<10"]
+
+[project.scripts]
+job-radar = "job_radar.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers --strict-config"

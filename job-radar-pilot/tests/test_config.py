@@ -143,6 +143,53 @@ def test_loads_optional_source_default_country(tmp_path: Path) -> None:
     assert sources[0].default_country == "BR"
 
 
+def test_source_adaptive_defaults_true_and_accepts_false(tmp_path: Path) -> None:
+    config = tmp_path / "sources.yaml"
+    config.write_text(
+        "sources:\n"
+        "  - code: default-adaptive\n"
+        "    kind: dynamic\n"
+        "    start_url: https://example.com/default\n"
+        "    enabled: true\n"
+        "    max_pages: 1\n"
+        "    min_interval_seconds: 1\n"
+        "    requires_auth: false\n"
+        "  - code: disabled-adaptive\n"
+        "    kind: dynamic\n"
+        "    start_url: https://example.com/disabled\n"
+        "    enabled: true\n"
+        "    max_pages: 1\n"
+        "    min_interval_seconds: 1\n"
+        "    requires_auth: false\n"
+        "    adaptive: false\n",
+        encoding="utf-8",
+    )
+
+    sources = load_sources(config)
+
+    assert sources[0].adaptive is True
+    assert sources[1].adaptive is False
+
+
+def test_rejects_non_boolean_source_adaptive(tmp_path: Path) -> None:
+    config = tmp_path / "sources.yaml"
+    config.write_text(
+        "sources:\n"
+        "  - code: example\n"
+        "    kind: dynamic\n"
+        "    start_url: https://example.com/jobs\n"
+        "    enabled: true\n"
+        "    max_pages: 1\n"
+        "    min_interval_seconds: 1\n"
+        "    requires_auth: false\n"
+        '    adaptive: "yes"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="adaptive deve ser booleano"):
+        load_sources(config)
+
+
 @pytest.mark.parametrize("default_country", ("BRA", "ZZ", "br"))
 def test_rejects_invalid_source_default_country_code(
     tmp_path: Path,

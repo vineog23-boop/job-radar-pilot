@@ -115,6 +115,8 @@ def _collect(args: argparse.Namespace) -> int:
             f"pages={source.pages_observed}; cards={source.cards_observed}; "
             f"records={len(source.records)}; stop={source.stop_reason or 'EXHAUSTED'}"
         )
+        for warning in source.warnings:
+            print(f"WARNING {source.source_code}: {warning}")
     print(f"JSONL: {manifest.jsonl_path}")
     print(f"CSV: {manifest.csv_path}")
     print(f"REPORT: {manifest.report_path}")

@@ -131,6 +131,43 @@ def test_classify_does_not_use_brazilian_default_for_explicit_foreign_country() 
     assert "FIT:READY" not in classified.match_labels
 
 
+def test_classify_preserves_adaptive_extraction_with_brazilian_remote_match() -> None:
+    classified = classify(
+        _record(
+            title="Java Junior remoto",
+            location="Remoto",
+            workplace_model=WorkplaceModel.REMOTE,
+            match_labels=("EXTRACTION:ADAPTIVE", "FIT:EXCLUDE", "TECH_MATCH:go"),
+        ),
+        PROFILE,
+        default_country="BR",
+    )
+
+    assert "EXTRACTION:ADAPTIVE" in classified.match_labels
+    assert "LOCATION_MATCH:remote_brazil" in classified.match_labels
+    assert "FIT:READY" in classified.match_labels
+    assert "FIT:EXCLUDE" not in classified.match_labels
+    assert "TECH_MATCH:go" not in classified.match_labels
+
+
+def test_classify_preserves_adaptive_extraction_with_foreign_scope_unclear() -> None:
+    classified = classify(
+        _record(
+            title="Java Junior remoto",
+            location="Remoto - Portugal",
+            remote_scope="Portugal",
+            workplace_model=WorkplaceModel.REMOTE,
+            match_labels=("EXTRACTION:ADAPTIVE",),
+        ),
+        PROFILE,
+        default_country="BR",
+    )
+
+    assert "EXTRACTION:ADAPTIVE" in classified.match_labels
+    assert "LOCATION_UNCLEAR:remote_scope" in classified.match_labels
+    assert "LOCATION_MATCH:remote_brazil" not in classified.match_labels
+
+
 @pytest.mark.parametrize("remote_scope", ("Remoto", "Brasil"))
 def test_classify_keeps_conflicting_foreign_location_unclear(
     remote_scope: str,

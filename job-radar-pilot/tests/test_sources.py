@@ -7,6 +7,7 @@ from scrapling.engines.toolbelt.custom import Response
 from scrapling.parser import Adaptor
 
 from job_radar.config import load_sources
+from job_radar.adaptive import AdaptiveCardLocator
 from job_radar.fetching import BlockReason, FetchResult
 from job_radar.models import CollectionStatus, SourceConfig, SourceKind
 from job_radar.sources import adapter_for
@@ -832,3 +833,16 @@ def test_factory_supports_every_configured_source() -> None:
     assert isinstance(adapters["indeed"], IndeedAdapter)
     assert isinstance(adapters["programathor"], GenericListAdapter)
     assert isinstance(adapters["eureca"], DynamicAdapter)
+
+
+def test_factory_accepts_shared_adaptive_locator_without_breaking_default(
+    tmp_path: Path,
+) -> None:
+    source = _config(SourceKind.GENERIC)
+    locator = AdaptiveCardLocator(tmp_path / "adaptive.db")
+
+    injected = adapter_for(source, locator=locator)
+    compatible = adapter_for(source)
+
+    assert getattr(injected, "_locator") is locator
+    assert getattr(compatible, "_locator") is None

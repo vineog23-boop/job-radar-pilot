@@ -19,7 +19,7 @@ _PROFILE_KEYS = {
     "location_scopes",
     "excluded_terms",
 }
-_SOURCE_KEYS = {
+_REQUIRED_SOURCE_KEYS = {
     "code",
     "kind",
     "start_url",
@@ -27,11 +27,14 @@ _SOURCE_KEYS = {
     "max_pages",
     "min_interval_seconds",
     "requires_auth",
+}
+_OPTIONAL_SOURCE_KEYS = {
     "selectors",
     "queries",
     "default_country",
+    "adaptive",
 }
-_REQUIRED_SOURCE_KEYS = _SOURCE_KEYS - {"selectors", "queries", "default_country"}
+_SOURCE_KEYS = _REQUIRED_SOURCE_KEYS | _OPTIONAL_SOURCE_KEYS
 _REQUIRED_GENERIC_SELECTORS = {"card", "title", "url"}
 _ISO_ALPHA_2_COUNTRY_CODES = frozenset(
     """
@@ -149,6 +152,10 @@ def _load_source(item: Any, index: int) -> SourceConfig:
             f"sources[{index}].default_country deve usar codigo ISO alfa-2 maiusculo."
         )
 
+    adaptive = item.get("adaptive", True)
+    if not isinstance(adaptive, bool):
+        raise ConfigError(f"sources[{index}].adaptive deve ser booleano.")
+
     return SourceConfig(
         code=code,
         kind=kind,
@@ -160,6 +167,7 @@ def _load_source(item: Any, index: int) -> SourceConfig:
         selectors=dict(selectors),
         queries=tuple(query.strip() for query in queries_raw),
         default_country=default_country,
+        adaptive=adaptive,
     )
 
 

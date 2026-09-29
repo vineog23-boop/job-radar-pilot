@@ -44,6 +44,14 @@ def test_parse_progress_line_ignores_regular_log() -> None:
     assert parse_progress_line("INFO: Fetched (200) <GET https://example.com>") is None
 
 
+def test_parse_progress_line_ignores_source_warning() -> None:
+    from job_radar.webapp import parse_progress_line
+
+    assert parse_progress_line(
+        "WARNING programathor: SELECTOR_RELOCATED:card"
+    ) is None
+
+
 def test_load_output_returns_jobs_and_report(tmp_path) -> None:
     from job_radar.webapp import load_output
 

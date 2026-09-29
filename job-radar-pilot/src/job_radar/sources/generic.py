@@ -7,19 +7,27 @@ from job_radar.sources.base import (
     PaginatedAdapter,
     ParsedPage,
     absolute_url,
+    adaptive_card_allowed,
     extract_value,
-    make_record,
+    make_record_with_fallback,
 )
 
 
 class GenericListAdapter(PaginatedAdapter):
     def parse_page(self, page: object, config: SourceConfig) -> ParsedPage:
-        cards = page.css(config.selectors["card"])  # type: ignore[attr-defined]
+        card_selector = config.selectors["card"]
+        selection = self.select_cards(page, config, card_selector)
+        cards = tuple(
+            card
+            for card in selection.cards
+            if selection.method != "ADAPTIVE" or adaptive_card_allowed(config, card)
+        )
         records = tuple(
             record
             for card in cards
             if (
-                record := make_record(
+                record := make_record_with_fallback(
+                    card_method=selection.method,
                     config=config,
                     page=page,
                     card=card,
@@ -32,6 +40,7 @@ class GenericListAdapter(PaginatedAdapter):
                 )
             )
         )
+        self.remember_cards(page, config, card_selector, selection, records)
         next_url = absolute_url(page, extract_value(page, config.selectors.get("next")))
         declared_text = extract_value(page, config.selectors.get("declared_count"))
         declared_match = re.search(r"\d[\d.,\s]*", declared_text or "")
@@ -50,4 +59,5 @@ class GenericListAdapter(PaginatedAdapter):
             pagination_observable=(
                 "next" in config.selectors or declared_complete
             ),
+            card_method=selection.method,
         )

@@ -99,7 +99,7 @@ Comece por lotes pequenos: layouts, termos e limites dos portais podem mudar.
 - `output/vagas.jsonl`: formato principal; um objeto JSON por vaga.
 - `output/vagas.csv`: visão humana reduzida.
 - `output/relatorio-execucao.json`: versão, commit upstream, fontes, paginação,
-  contagens, bloqueios e erros sanitizados.
+  contagens, bloqueios, warnings e erros sanitizados.
 
 Na interface, **Baixar relatório** transforma em Markdown exatamente as vagas
 visíveis pelos filtros atuais. O documento separa mais compatíveis, condicionais,
@@ -132,6 +132,25 @@ esperados desaparecerem, o status é `ERROR/LAYOUT_CHANGED`, não vazio.
 O coletor preserva o HTML integral recebido do Scrapling para o parsing. Os
 marcadores de vazio são avaliados somente no texto visível, portanto conteúdo
 em `script`, `style` ou elementos ocultos não declara `NO_RESULTS`.
+
+## Fallback adaptativo de cards
+
+Cada fonte aceita `adaptive: true|false` em `config/sources.yaml`; a ausência da
+chave equivale a `true`. O coletor tenta sempre o seletor configurado primeiro.
+Depois de extrair ao menos uma vaga válida, ele pode memorizar uma impressão
+estrutural sanitizada do card e usá-la para relocalizar cards quando somente o
+layout mudar. `adaptive: false` desliga tanto a leitura quanto a atualização
+dessa memória para a fonte.
+
+A memória fica em `%LOCALAPPDATA%\JobRadar\adaptive\adaptive.db` (ou
+`~/AppData/Local/JobRadar/adaptive/adaptive.db` sem `LOCALAPPDATA`), nunca no
+repositório. Ela contém apenas estrutura necessária à relocalização: não grava
+texto ou HTML da vaga, URL/`href` da vaga, cookie, token ou segredo.
+
+Uma relocalização não é tratada como cobertura integral: a fonte retorna no
+máximo `PARTIAL`, registra o warning `SELECTOR_RELOCATED:card` no relatório e
+marca as vagas com `EXTRACTION:ADAPTIVE`. A CLI exibe o warning em uma linha
+separada, sem alterar a linha de progresso consumida pela interface.
 
 ## Preferências de busca
 

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import re
 from typing import Protocol
 from urllib.parse import parse_qs, urlsplit
 
+from job_radar.adaptive import AdaptiveCardLocator, CardSelection, select_cards
 from job_radar.fetching import BlockReason, FetchPolicy, _visible_response_text
 from job_radar.identity import canonicalize_url
 from job_radar.models import (
@@ -29,6 +30,7 @@ class ParsedPage:
     next_url: str | None = None
     explicit_empty: bool = False
     pagination_observable: bool = True
+    card_method: str = "CONFIGURED"
 
 
 def extract_value(node: object, selector: str | None) -> str | None:
@@ -94,6 +96,41 @@ class PaginatedAdapter:
         "no opportunities found",
     )
 
+    def __init__(self, locator: AdaptiveCardLocator | None = None) -> None:
+        self._locator = locator
+
+    def select_cards(
+        self,
+        page: object,
+        config: SourceConfig,
+        selector: str,
+    ) -> CardSelection:
+        if config.adaptive and self._locator is not None:
+            return select_cards(
+                page,
+                source_code=config.code,
+                selector=selector,
+                locator=self._locator,
+            )
+        cards = tuple(page.css(selector))  # type: ignore[attr-defined]
+        return CardSelection(cards, "CONFIGURED" if cards else "NONE")
+
+    def remember_cards(
+        self,
+        page: object,
+        config: SourceConfig,
+        selector: str,
+        selection: CardSelection,
+        records: tuple[VacancyRecord, ...],
+    ) -> None:
+        if (
+            config.adaptive
+            and self._locator is not None
+            and selection.method == "CONFIGURED"
+            and records
+        ):
+            self._locator.remember(page, config.code, selector)
+
     def parse_page(self, page: object, config: SourceConfig) -> ParsedPage:
         raise NotImplementedError
 
@@ -102,6 +139,7 @@ class PaginatedAdapter:
         visited: list[str] = []
         cards_observed = 0
         current_url: str | None = config.start_url
+        warnings: list[str] = []
 
         while current_url and len(visited) < config.max_pages:
             if current_url in visited:
@@ -114,6 +152,7 @@ class PaginatedAdapter:
                     has_more=True,
                     stop_reason="PAGINATION_LOOP",
                     visited_urls=tuple(visited),
+                    warnings=tuple(warnings),
                 )
             visited.append(current_url)
             fetched = fetcher.fetch(current_url, config)
@@ -143,12 +182,33 @@ class PaginatedAdapter:
                     ),
                     errors=(fetched.error,) if fetched.error else (),
                     visited_urls=tuple(visited),
+                    warnings=tuple(warnings),
                 )
 
             parsed = self.parse_page(fetched.response, config)
+            if (
+                parsed.card_method == "ADAPTIVE"
+                and "SELECTOR_RELOCATED:card" not in warnings
+            ):
+                warnings.append("SELECTOR_RELOCATED:card")
+            parsed_records = (
+                tuple(
+                    replace(
+                        record,
+                        match_labels=tuple(
+                            dict.fromkeys(
+                                (*record.match_labels, "EXTRACTION:ADAPTIVE")
+                            )
+                        ),
+                    )
+                    for record in parsed.records
+                )
+                if parsed.card_method == "ADAPTIVE"
+                else parsed.records
+            )
             cards_observed += parsed.cards_observed
-            records.extend(parsed.records)
-            if parsed.cards_observed > 0 and not parsed.records:
+            records.extend(parsed_records)
+            if parsed.cards_observed > 0 and not parsed_records:
                 return SourceRunResult(
                     source_code=config.code,
                     status=(
@@ -162,6 +222,7 @@ class PaginatedAdapter:
                     has_more=bool(parsed.next_url),
                     stop_reason="PARSE_ZERO_RECORDS",
                     visited_urls=tuple(visited),
+                    warnings=tuple(warnings),
                 )
             if parsed.cards_observed == 0 and not records:
                 text = " ".join(_visible_response_text(fetched.response).casefold().split())
@@ -178,6 +239,7 @@ class PaginatedAdapter:
                     cards_observed=0,
                     stop_reason=("NO_RESULTS" if status is CollectionStatus.EMPTY else "LAYOUT_CHANGED"),
                     visited_urls=tuple(visited),
+                    warnings=tuple(warnings),
                 )
             if parsed.cards_observed == 0 and records:
                 return SourceRunResult(
@@ -189,9 +251,10 @@ class PaginatedAdapter:
                     has_more=bool(parsed.next_url),
                     stop_reason="EMPTY_PAGE_AFTER_RECORDS",
                     visited_urls=tuple(visited),
+                    warnings=tuple(warnings),
                 )
             if (
-                parsed.records
+                parsed_records
                 and not parsed.next_url
                 and not parsed.pagination_observable
             ):
@@ -204,6 +267,7 @@ class PaginatedAdapter:
                     has_more=True,
                     stop_reason="PAGINATION_UNVERIFIED",
                     visited_urls=tuple(visited),
+                    warnings=tuple(warnings),
                 )
             current_url = parsed.next_url
 
@@ -217,6 +281,18 @@ class PaginatedAdapter:
                 has_more=True,
                 stop_reason="PAGE_LIMIT",
                 visited_urls=tuple(visited),
+                warnings=tuple(warnings),
+            )
+        if warnings and records:
+            return SourceRunResult(
+                source_code=config.code,
+                status=CollectionStatus.PARTIAL,
+                records=tuple(records),
+                pages_observed=len(visited),
+                cards_observed=cards_observed,
+                stop_reason="SELECTOR_RELOCATED",
+                visited_urls=tuple(visited),
+                warnings=tuple(warnings),
             )
         return SourceRunResult(
             source_code=config.code,
@@ -225,6 +301,7 @@ class PaginatedAdapter:
             pages_observed=len(visited),
             cards_observed=cards_observed,
             visited_urls=tuple(visited),
+            warnings=tuple(warnings),
         )
 
 
@@ -260,3 +337,96 @@ def make_record(
         observed_at=datetime.now(timezone.utc).isoformat(),
         evidence_snippets=(title,),
     )
+
+
+def make_record_with_fallback(
+    *,
+    card_method: str,
+    config: SourceConfig,
+    page: object,
+    card: object,
+    id_selector: str | None,
+    title_selector: str,
+    url_selector: str,
+    company_selector: str | None,
+    location_selector: str | None,
+    description_selector: str | None = None,
+) -> VacancyRecord | None:
+    record = make_record(
+        config=config,
+        page=page,
+        card=card,
+        id_selector=id_selector,
+        title_selector=title_selector,
+        url_selector=url_selector,
+        company_selector=company_selector,
+        location_selector=location_selector,
+        description_selector=description_selector,
+    )
+    if record is not None and card_method == "ADAPTIVE":
+        parsed = urlsplit(record.canonical_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            record = None
+    if record is not None or card_method != "ADAPTIVE":
+        return record
+
+    fallback_title = next(
+        (
+            selector
+            for selector in (
+                "h1::all-text",
+                "h2::all-text",
+                "h3::all-text",
+                "h4::all-text",
+                "a::all-text",
+                "::all-text",
+            )
+            if extract_value(card, selector)
+        ),
+        None,
+    )
+    card_tag = str(getattr(card, "tag", "")).casefold()
+    url_candidates = (
+        ("::attr(href)", "a[href]::attr(href)")
+        if card_tag == "a"
+        else ("a[href]::attr(href)", "::attr(href)")
+    )
+    fallback_url = next(
+        (selector for selector in url_candidates if extract_value(card, selector)),
+        None,
+    )
+    if fallback_title is None or fallback_url is None:
+        return None
+    record = make_record(
+        config=config,
+        page=page,
+        card=card,
+        id_selector=id_selector,
+        title_selector=fallback_title,
+        url_selector=fallback_url,
+        company_selector=company_selector,
+        location_selector=location_selector,
+        description_selector=description_selector,
+    )
+    if record is None:
+        return None
+    parsed = urlsplit(record.canonical_url)
+    return record if parsed.scheme in {"http", "https"} and parsed.netloc else None
+
+
+def adaptive_card_allowed(config: SourceConfig, card: object) -> bool:
+    excluded_class = {
+        "programathor": "opacity-60p",
+        "companhia-de-estagios": "--expired",
+    }.get(config.code)
+    if excluded_class is None:
+        return True
+    current = getattr(card, "_root", card)
+    for _ in range(5):
+        if current is None:
+            break
+        classes = str(getattr(current, "attrib", {}).get("class", "")).split()
+        if excluded_class in classes:
+            return False
+        current = current.getparent()
+    return True

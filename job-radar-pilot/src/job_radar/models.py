@@ -50,6 +50,7 @@ class SourceConfig:
     selectors: Mapping[str, str] = field(default_factory=dict)
     queries: tuple[str, ...] = ()
     default_country: str | None = None
+    adaptive: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +90,7 @@ class SourceRunResult:
     stop_reason: str | None = None
     errors: tuple[str, ...] = ()
     visited_urls: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

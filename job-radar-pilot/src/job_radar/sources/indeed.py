@@ -4,7 +4,11 @@ from dataclasses import replace
 from urllib.parse import urlsplit, urlunsplit
 
 from job_radar.models import SourceConfig
-from job_radar.sources.base import PaginatedAdapter, ParsedPage, make_record
+from job_radar.sources.base import (
+    PaginatedAdapter,
+    ParsedPage,
+    make_record_with_fallback,
+)
 
 
 _HEX_SEQUENCE = "0123456789abcdef"
@@ -27,13 +31,16 @@ def _is_synthetic_jk(value: str) -> bool:
 
 class IndeedAdapter(PaginatedAdapter):
     def parse_page(self, page: object, config: SourceConfig) -> ParsedPage:
-        cards = page.css(".job_seen_beacon")  # type: ignore[attr-defined]
+        card_selector = ".job_seen_beacon"
+        selection = self.select_cards(page, config, card_selector)
+        cards = selection.cards
         records = []
         for card in cards:
             has_current_title = bool(
                 card.css("h3 a span::attr(title)").get()
             )
-            record = make_record(
+            record = make_record_with_fallback(
+                card_method=selection.method,
                 config=config,
                 page=page,
                 card=card,
@@ -67,6 +74,19 @@ class IndeedAdapter(PaginatedAdapter):
                 )
             if record:
                 records.append(record)
+        records_tuple = tuple(records)
+        self.remember_cards(
+            page,
+            config,
+            card_selector,
+            selection,
+            records_tuple,
+        )
         next_value = page.css("a[data-testid='pagination-page-next']::attr(href)").get()  # type: ignore[attr-defined]
         next_url = page.urljoin(next_value) if next_value else None  # type: ignore[attr-defined]
-        return ParsedPage(tuple(records), len(cards), next_url)
+        return ParsedPage(
+            records_tuple,
+            len(cards),
+            next_url,
+            card_method=selection.method,
+        )

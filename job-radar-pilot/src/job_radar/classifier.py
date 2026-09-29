@@ -260,7 +260,9 @@ def classify(
             if part
         )
     )
-    labels: set[str] = set()
+    labels: set[str] = {
+        label for label in record.match_labels if label.startswith("EXTRACTION:")
+    }
 
     if any(
         _contains_term(eligibility_text, marker)

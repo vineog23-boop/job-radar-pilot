@@ -180,6 +180,7 @@ def write_outputs(result: PipelineResult, output_dir: Path) -> OutputManifest:
                     "has_more": source.has_more,
                     "stop_reason": source.stop_reason,
                     "errors": list(source.errors),
+                    "warnings": list(source.warnings),
                     "visited_urls": [
                         canonicalize_url(url) for url in source.visited_urls
                     ],

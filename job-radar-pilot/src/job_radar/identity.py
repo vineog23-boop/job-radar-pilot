@@ -130,6 +130,32 @@ def _annotate_cross_source_semantic_candidates(
     return result
 
 
+def _merge_labels(first: VacancyRecord, duplicate: VacancyRecord) -> VacancyRecord:
+    labels = tuple(dict.fromkeys((*first.match_labels, *duplicate.match_labels)))
+    return first if labels == first.match_labels else replace(first, match_labels=labels)
+
+
+def _replace_retained(
+    records: list[VacancyRecord],
+    previous: VacancyRecord,
+    updated: VacancyRecord,
+    seen_primary: dict[tuple[str, str], VacancyRecord],
+    seen_url: dict[str, VacancyRecord],
+) -> None:
+    if updated is previous:
+        return
+    for index, record in enumerate(records):
+        if record is previous:
+            records[index] = updated
+            break
+    for key, record in tuple(seen_primary.items()):
+        if record is previous:
+            seen_primary[key] = updated
+    for key, record in tuple(seen_url.items()):
+        if record is previous:
+            seen_url[key] = updated
+
+
 def deduplicate(records: Iterable[VacancyRecord]) -> DeduplicationResult:
     unique: list[VacancyRecord] = []
     ambiguous: list[VacancyRecord] = []
@@ -153,11 +179,26 @@ def deduplicate(records: Iterable[VacancyRecord]) -> DeduplicationResult:
             ambiguous.append(original)
             continue
         if existing_url is not None:
+            _replace_retained(
+                unique,
+                existing_url,
+                _merge_labels(existing_url, original),
+                seen_primary,
+                seen_url,
+            )
             duplicate_count += 1
             continue
 
         key = identity_key(original)
         if key in seen_primary:
+            existing_primary = seen_primary[key]
+            _replace_retained(
+                unique,
+                existing_primary,
+                _merge_labels(existing_primary, original),
+                seen_primary,
+                seen_url,
+            )
             duplicate_count += 1
             continue
 

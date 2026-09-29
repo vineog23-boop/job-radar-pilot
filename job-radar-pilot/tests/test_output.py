@@ -69,6 +69,7 @@ def _result() -> PipelineResult:
                 visited_urls=(
                     "https://programathor.com.br/jobs-java?token=secret&utm_source=test",
                 ),
+                warnings=("SELECTOR_RELOCATED:card",),
             ),
         ),
         raw_record_count=2,
@@ -217,6 +218,7 @@ def test_csv_header_and_report_counts_are_reconciled(tmp_path: Path) -> None:
     assert report["sources"][0]["visited_urls"] == [
         "https://programathor.com.br/jobs-java"
     ]
+    assert report["sources"][0]["warnings"] == ["SELECTOR_RELOCATED:card"]
     assert "secret" not in manifest.report_path.read_text(encoding="utf-8")
 
 

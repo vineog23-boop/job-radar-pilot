@@ -84,6 +84,23 @@ def test_deduplicate_collapses_urls_with_reordered_query_parameters() -> None:
     assert result.duplicate_count == 1
 
 
+def test_deduplicate_stably_unions_adaptive_extraction_label() -> None:
+    first = replace(_record(), match_labels=("FIT:READY",))
+    duplicate = replace(
+        _record(url="https://jobs.example.com/vaga/123#apply"),
+        match_labels=("EXTRACTION:ADAPTIVE", "TECH_MATCH:java"),
+    )
+
+    result = deduplicate([first, duplicate])
+
+    assert result.unique[0].match_labels == (
+        "FIT:READY",
+        "EXTRACTION:ADAPTIVE",
+        "TECH_MATCH:java",
+    )
+    assert result.duplicate_count == 1
+
+
 def test_deduplicate_preserves_conflicting_job_ids_as_ambiguous() -> None:
     first = _record(source_job_id="A", url="https://jobs.example.com/vaga/123")
     conflicting = _record(source_job_id="B", url="https://jobs.example.com/vaga/123")

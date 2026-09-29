@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from scrapling.parser import Adaptor
 
+from job_radar.adaptive import AdaptiveCardLocator
 from job_radar.fetching import FetchResult
 from job_radar.models import (
     CollectionStatus,
@@ -16,7 +17,7 @@ from job_radar.models import (
     VacancyRecord,
     WorkplaceModel,
 )
-from job_radar.pipeline import JobRadarPipeline
+from job_radar.pipeline import JobRadarPipeline, _combine_query_results
 
 
 PROFILE = SearchProfile(
@@ -427,6 +428,56 @@ def test_pipeline_propagates_source_default_country_to_classifier() -> None:
     assert "FIT:READY" in result.records[0].match_labels
 
 
+def test_pipeline_preserves_adaptive_label_with_source_default_country() -> None:
+    source = replace(_source("brazilian"), default_country="BR")
+    record = replace(
+        _record("brazilian", "https://ats.example.com/jobs/adaptive-remote"),
+        location="Remoto",
+        workplace_model=WorkplaceModel.REMOTE,
+        match_labels=("EXTRACTION:ADAPTIVE",),
+    )
+    result = JobRadarPipeline(
+        (source,),
+        PROFILE,
+        fetcher=object(),
+        adapter_factory=lambda config: StaticAdapter(
+            SourceRunResult(config.code, CollectionStatus.PARTIAL, (record,))
+        ),
+    ).run()
+
+    assert "EXTRACTION:ADAPTIVE" in result.records[0].match_labels
+    assert "LOCATION_MATCH:remote_brazil" in result.records[0].match_labels
+
+
+def test_combine_query_results_stably_deduplicates_warnings_and_keeps_severity() -> None:
+    source = replace(
+        _source("indeed"),
+        kind=SourceKind.INDEED,
+        queries=("java", "spring"),
+    )
+    results = (
+        SourceRunResult(
+            "indeed",
+            CollectionStatus.PARTIAL,
+            (_record("indeed", "https://ats.example.com/jobs/1"),),
+            stop_reason="SELECTOR_RELOCATED",
+            warnings=("SELECTOR_RELOCATED:card",),
+        ),
+        SourceRunResult(
+            "indeed",
+            CollectionStatus.BLOCKED,
+            stop_reason="LOGIN_REQUIRED",
+            warnings=("SELECTOR_RELOCATED:card", "SECOND_WARNING"),
+        ),
+    )
+
+    combined = _combine_query_results(source, results)
+
+    assert combined.status is CollectionStatus.PARTIAL
+    assert combined.stop_reason == "QUERY_SWEEP_PARTIAL"
+    assert combined.warnings == ("SELECTOR_RELOCATED:card", "SECOND_WARNING")
+
+
 class HtmlFetcher:
     def __init__(self, documents: dict[str, str]) -> None:
         self.documents = documents
@@ -444,7 +495,7 @@ class HtmlFetcher:
         return FetchResult(CollectionStatus.SUCCESS, response=page, attempts=1)
 
 
-def test_pipeline_preserves_page_limit_and_pagination_loop() -> None:
+def test_pipeline_preserves_page_limit_and_pagination_loop(tmp_path) -> None:
     limited = _source("limited", max_pages=1)
     looped = _source("looped", max_pages=3)
     limited_url = limited.start_url
@@ -457,6 +508,7 @@ def test_pipeline_preserves_page_limit_and_pagination_loop() -> None:
         (limited, looped),
         PROFILE,
         fetcher=HtmlFetcher(documents),
+        adaptive_locator=AdaptiveCardLocator(tmp_path / "adaptive.db"),
     )
 
     result = pipeline.run()

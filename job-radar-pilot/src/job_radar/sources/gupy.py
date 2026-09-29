@@ -3,34 +3,78 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from job_radar.adaptive import CardSelection
 from job_radar.models import SourceConfig
-from job_radar.sources.base import PaginatedAdapter, ParsedPage, make_record
+from job_radar.sources.base import (
+    PaginatedAdapter,
+    ParsedPage,
+    make_record_with_fallback,
+)
+
+
+_LEGACY_CARD_SELECTOR = "[data-testid='job-card']"
+_CURRENT_CARD_SELECTOR = "#job-listing-results li"
 
 
 class GupyAdapter(PaginatedAdapter):
     def parse_page(self, page: object, config: SourceConfig) -> ParsedPage:
-        legacy_cards = page.css("[data-testid='job-card']")  # type: ignore[attr-defined]
-        current_cards = page.css("#job-listing-results li") if not legacy_cards else ()  # type: ignore[attr-defined]
-        cards = legacy_cards or current_cards
+        legacy_configured = tuple(page.css(_LEGACY_CARD_SELECTOR))  # type: ignore[attr-defined]
+        current_configured = tuple(page.css(_CURRENT_CARD_SELECTOR))  # type: ignore[attr-defined]
+        if legacy_configured:
+            selection = CardSelection(legacy_configured, "CONFIGURED")
+            variant = "legacy"
+            card_selector = _LEGACY_CARD_SELECTOR
+        elif current_configured:
+            selection = CardSelection(current_configured, "CONFIGURED")
+            variant = "current"
+            card_selector = _CURRENT_CARD_SELECTOR
+        else:
+            legacy_selection = self.select_cards(
+                page,
+                config,
+                _LEGACY_CARD_SELECTOR,
+            )
+            if legacy_selection.method == "ADAPTIVE":
+                selection = legacy_selection
+                variant = "legacy"
+                card_selector = _LEGACY_CARD_SELECTOR
+            else:
+                selection = self.select_cards(
+                    page,
+                    config,
+                    _CURRENT_CARD_SELECTOR,
+                )
+                variant = "current"
+                card_selector = _CURRENT_CARD_SELECTOR
+        cards = selection.cards
+        current_layout = variant == "current"
         records = tuple(
             record
             for card in cards
             if (
-                record := make_record(
+                record := make_record_with_fallback(
+                    card_method=selection.method,
                     config=config,
                     page=page,
                     card=card,
-                    id_selector=(None if current_cards else "::attr(data-job-id)"),
-                    title_selector=("h3" if current_cards else "h2"),
+                    id_selector=(None if current_layout else "::attr(data-job-id)"),
+                    title_selector=("h3" if current_layout else "h2"),
                     url_selector=(
                         "a[href*='/job/']::attr(href)"
-                        if current_cards
+                        if current_layout
                         else "a::attr(href)"
                     ),
-                    company_selector=("p" if current_cards else "[data-testid='company-name']"),
+                    company_selector=("p" if current_layout else "[data-testid='company-name']"),
                     location_selector="[data-testid='job-location']",
                 )
             )
+        )
+        self.remember_cards(
+            page,
+            config,
+            card_selector,
+            selection,
+            records,
         )
         next_buttons = page.css("button[aria-label='Próxima página']")  # type: ignore[attr-defined]
         page_buttons = page.css("button[aria-label^='Página ']")  # type: ignore[attr-defined]
@@ -56,6 +100,7 @@ class GupyAdapter(PaginatedAdapter):
             len(cards),
             next_url=next_url,
             pagination_observable=bool(next_url) or explicit_exhaustion,
+            card_method=selection.method,
         )
 
     @staticmethod

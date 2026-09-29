@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Callable, Sequence
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
+from job_radar.adaptive import AdaptiveCardLocator
 from job_radar.classifier import classify
 from job_radar.fetching import FetchPolicy
 from job_radar.identity import deduplicate
@@ -79,10 +80,17 @@ def _combine_query_results(
         return results[0]
 
     records = tuple(record for result in results for record in result.records)
+    warnings = tuple(
+        dict.fromkeys(
+            warning for result in results for warning in result.warnings
+        )
+    )
     statuses = {result.status for result in results}
     complete = {CollectionStatus.SUCCESS, CollectionStatus.EMPTY}
-    if statuses <= complete:
+    if statuses <= complete and not warnings:
         status = CollectionStatus.SUCCESS if records else CollectionStatus.EMPTY
+    elif statuses <= complete and records:
+        status = CollectionStatus.PARTIAL
     elif records:
         status = CollectionStatus.PARTIAL
     elif CollectionStatus.AUTH_REQUIRED in statuses:
@@ -99,9 +107,16 @@ def _combine_query_results(
         pages_observed=sum(result.pages_observed for result in results),
         cards_observed=sum(result.cards_observed for result in results),
         has_more=any(result.has_more for result in results),
-        stop_reason=(None if status in complete else "QUERY_SWEEP_PARTIAL"),
+        stop_reason=(
+            None
+            if status in complete
+            else "SELECTOR_RELOCATED"
+            if statuses <= complete and warnings
+            else "QUERY_SWEEP_PARTIAL"
+        ),
         errors=tuple(error for result in results for error in result.errors),
         visited_urls=tuple(url for result in results for url in result.visited_urls),
+        warnings=warnings,
     )
 
 
@@ -113,12 +128,14 @@ class JobRadarPipeline:
         *,
         fetcher: FetchPolicy,
         adapter_factory: Callable[[SourceConfig], SourceAdapter] = adapter_for,
+        adaptive_locator: AdaptiveCardLocator | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._sources = tuple(sources)
         self._profile = profile
         self._fetcher = fetcher
         self._adapter_factory = adapter_factory
+        self._adaptive_locator = adaptive_locator
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def run(self, source_codes: Sequence[str] | None = None) -> PipelineResult:
@@ -138,6 +155,7 @@ class JobRadarPipeline:
         )
         source_results: list[SourceRunResult] = []
         raw_records: list[VacancyRecord] = []
+        adaptive_locator = self._adaptive_locator or AdaptiveCardLocator()
 
         for source in selected:
             query_results: list[SourceRunResult] = []
@@ -150,7 +168,11 @@ class JobRadarPipeline:
                 if self._profile.search_terms and supports_editable_terms
                 else source
             )
-            adapter = self._adapter_factory(search_source)
+            adapter = (
+                adapter_for(search_source, locator=adaptive_locator)
+                if self._adapter_factory is adapter_for
+                else self._adapter_factory(search_source)
+            )
             for search_url in _search_urls(search_source):
                 query_source = replace(source, start_url=search_url, queries=())
                 try:

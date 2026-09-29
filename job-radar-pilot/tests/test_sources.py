@@ -294,6 +294,188 @@ def test_gupy_disabled_next_button_proves_last_page() -> None:
     assert parsed.pagination_observable is True
 
 
+def test_gupy_uses_enabled_next_when_responsive_controls_are_duplicated() -> None:
+    url = "https://portal.gupy.io/job-search/term%3Destagio%20tecnologia"
+    page = _html_page(
+        """
+        <div id="job-listing-results">
+          <li><a href="https://acme.gupy.io/job/TOKEN-1"><h3>Estágio Java</h3></a></li>
+        </div>
+        <button aria-current="page" aria-label="Página 1">1</button>
+        <button aria-label="Próxima página" disabled>Próxima</button>
+        <button aria-label="Próxima página">Próxima</button>
+        """,
+        url,
+    )
+
+    parsed = GupyAdapter().parse_page(
+        page,
+        _config(SourceKind.GUPY, code="gupy", url=url),
+    )
+
+    assert parsed.next_url == f"{url}?page=2"
+    assert parsed.pagination_observable is True
+
+
+def test_gupy_uses_future_numeric_page_when_next_control_is_absent() -> None:
+    url = "https://portal.gupy.io/job-search/term%3Destagio%20tecnologia"
+    page = _html_page(
+        """
+        <div id="job-listing-results">
+          <li><a href="https://acme.gupy.io/job/TOKEN-1"><h3>Estágio Java</h3></a></li>
+        </div>
+        <button aria-current="page" aria-label="Página 1">1</button>
+        <button aria-label="Página 2">2</button>
+        """,
+        url,
+    )
+
+    parsed = GupyAdapter().parse_page(
+        page,
+        _config(SourceKind.GUPY, code="gupy", url=url),
+    )
+
+    assert parsed.next_url == f"{url}?page=2"
+    assert parsed.pagination_observable is True
+
+
+def test_gupy_ignores_job_links_outside_listing() -> None:
+    url = "https://portal.gupy.io/job-search/term%3Djava"
+    page = _html_page(
+        """
+        <aside><a href="https://other.gupy.io/job/RECOMMENDED"><h3>Recomendada</h3></a></aside>
+        <div id="job-listing-results">
+          <li><a href="https://acme.gupy.io/job/REAL"><h3>Java Júnior</h3></a></li>
+        </div>
+        """,
+        url,
+    )
+
+    parsed = GupyAdapter().parse_page(
+        page,
+        _config(SourceKind.GUPY, code="gupy", url=url),
+    )
+
+    assert parsed.cards_observed == 1
+    assert [record.source_job_id for record in parsed.records] == ["REAL"]
+
+
+def test_gupy_without_pagination_evidence_stays_partial() -> None:
+    url = "https://portal.gupy.io/job-search/term%3Djava"
+    page = _html_page(
+        """
+        <div id="job-listing-results">
+          <li><a href="https://acme.gupy.io/job/REAL"><h3>Java Júnior</h3></a></li>
+        </div>
+        """,
+        url,
+    )
+
+    result = GupyAdapter().collect(
+        _config(SourceKind.GUPY, code="gupy", url=url),
+        FixtureFetcher({url: page}),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "PAGINATION_UNVERIFIED"
+    assert result.has_more is True
+
+
+def test_gupy_page_limit_with_continuation_stays_partial() -> None:
+    url = "https://portal.gupy.io/job-search/term%3Djava"
+    page = _html_page(
+        """
+        <div id="job-listing-results">
+          <li><a href="https://acme.gupy.io/job/REAL"><h3>Java Júnior</h3></a></li>
+        </div>
+        <button aria-current="page" aria-label="Página 1">1</button>
+        <button aria-label="Próxima página">Próxima</button>
+        """,
+        url,
+    )
+
+    result = GupyAdapter().collect(
+        _config(SourceKind.GUPY, code="gupy", url=url, max_pages=1),
+        FixtureFetcher({url: page}),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "PAGE_LIMIT"
+    assert result.has_more is True
+
+
+def test_99jobs_declared_total_proves_collection_exhausted() -> None:
+    url = "https://99jobs.com/collections/example"
+    cards = "".join(
+        f'<section class="fr_opportunity opportunity-collections"><h3>Vaga {index}</h3>'
+        f'<a class="btn btn-block btn-sort" href="https://99jobs.com/vagas/{index}">Ver vaga</a></section>'
+        for index in range(4)
+    )
+    page = _html_page(
+        f'<div id="opportunities"><p class="text-center qtd">4 oportunidades</p>{cards}</div>',
+        url,
+    )
+    config = _config(
+        SourceKind.GENERIC,
+        code="99jobs",
+        url=url,
+        max_pages=1,
+        selectors={
+            "card": "#opportunities section.fr_opportunity.opportunity-collections",
+            "title": "h3::all-text",
+            "url": "a.btn.btn-block.btn-sort::attr(href)",
+            "declared_count": "#opportunities > p.text-center.qtd::all-text",
+        },
+    )
+
+    result = GenericListAdapter().collect(
+        config,
+        FixtureFetcher({url: page}),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.SUCCESS
+    assert result.has_more is False
+    assert result.stop_reason is None
+    assert len(result.records) == 4
+
+
+def test_99jobs_incomplete_declared_total_stays_partial() -> None:
+    url = "https://99jobs.com/collections/example"
+    page = _html_page(
+        """
+        <div id="opportunities">
+          <p class="text-center qtd">4 oportunidades</p>
+          <section class="fr_opportunity opportunity-collections">
+            <h3>Vaga 1</h3>
+            <a class="btn btn-block btn-sort" href="https://99jobs.com/vagas/1">Ver vaga</a>
+          </section>
+        </div>
+        """,
+        url,
+    )
+    config = _config(
+        SourceKind.GENERIC,
+        code="99jobs",
+        url=url,
+        max_pages=1,
+        selectors={
+            "card": "#opportunities section.fr_opportunity.opportunity-collections",
+            "title": "h3::all-text",
+            "url": "a.btn.btn-block.btn-sort::attr(href)",
+            "declared_count": "#opportunities > p.text-center.qtd::all-text",
+        },
+    )
+
+    result = GenericListAdapter().collect(
+        config,
+        FixtureFetcher({url: page}),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "PAGINATION_UNVERIFIED"
+    assert result.has_more is True
+
+
 def test_gupy_extracts_strong_identity() -> None:
     url = "https://portal.gupy.io/"
     result = GupyAdapter().collect(

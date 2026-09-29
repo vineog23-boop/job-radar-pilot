@@ -11,13 +11,17 @@ from job_radar.sources.gupy import GupyAdapter
 def test_gupy_extracts_current_rendered_job_card() -> None:
     url = "https://portal.gupy.io/job-search/term%3Ddesenvolvedor%20junior"
     html = """
-    <a href="https://acme.gupy.io/job/TOKEN-123?jobBoardSource=gupy_portal">
-      <div class="MuiCard-root MuiCard-job_default">
-        <p class="MuiTypography-body-medium">Acme Tecnologia</p>
-        <h3>Pessoa Desenvolvedora Java Júnior</h3>
-        <span data-testid="job-location">São Paulo - SP</span>
-      </div>
-    </a>
+    <ul id="job-listing-results">
+      <li>
+        <a href="https://acme.gupy.io/job/TOKEN-123?jobBoardSource=gupy_portal">
+          <div class="MuiCard-root MuiCard-job_default">
+            <p class="MuiTypography-body-medium">Acme Tecnologia</p>
+            <h3>Pessoa Desenvolvedora Java Júnior</h3>
+            <span data-testid="job-location">São Paulo - SP</span>
+          </div>
+        </a>
+      </li>
+    </ul>
     """
     adaptor = Adaptor(html, url=url)
     page = SimpleNamespace(

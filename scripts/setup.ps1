@@ -62,7 +62,11 @@ $scraplingCli = Join-Path $venvRoot 'Scripts\scrapling.exe'
 & $scraplingCli install
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar os navegadores do Scrapling.' }
 
-& $venvPython -m pip freeze --all | Set-Content -Encoding utf8 (Join-Path $projectRoot 'requirements.lock.txt')
+$lockLines = @(& $venvPython -m pip freeze --all) | Where-Object {
+    $_ -notmatch 'job-radar-pilot==0\.1\.0' -and
+    $_ -notmatch '^-e .*[\\/]job-radar-pilot$'
+}
+$lockLines | Set-Content -Encoding utf8 (Join-Path $projectRoot 'requirements.lock.txt')
 
 Write-Output "Scrapling $expectedTag instalado no commit $commit"
 Write-Output "Python isolado: $venvPython"

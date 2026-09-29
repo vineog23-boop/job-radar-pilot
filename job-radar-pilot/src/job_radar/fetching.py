@@ -20,6 +20,7 @@ class ResponseLike(Protocol):
 class BlockReason(StrEnum):
     ROBOTS_DENIED = "ROBOTS_DENIED"
     RATE_LIMITED = "RATE_LIMITED"
+    ACCESS_DENIED = "ACCESS_DENIED"
     LOGIN_REQUIRED = "LOGIN_REQUIRED"
     CAPTCHA = "CAPTCHA"
     TWO_FACTOR = "TWO_FACTOR"
@@ -51,6 +52,8 @@ def _safe_url(url: str) -> str:
 def detect_block(response: ResponseLike) -> BlockReason | None:
     if response.status == 429:
         return BlockReason.RATE_LIMITED
+    if response.status in {401, 403}:
+        return BlockReason.ACCESS_DENIED
 
     path = urlsplit(str(response.url)).path.casefold()
     if any(segment in path for segment in ("/login", "/signin", "/sign-in")):

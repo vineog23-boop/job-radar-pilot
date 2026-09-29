@@ -97,6 +97,23 @@ def test_http_429_stops_without_aggressive_retry() -> None:
     assert "?" not in (result.error or "")
 
 
+@pytest.mark.parametrize("status", [401, 403])
+def test_http_auth_denial_is_typed_block(status: int) -> None:
+    policy = FetchPolicy(
+        http_get=lambda url: FakeResponse(status=status, text="Access denied"),
+        browser_fetch=lambda url: FakeResponse(status=status, text="Access denied"),
+        robots_allowed=lambda url: True,
+        sleep=lambda seconds: None,
+    )
+
+    result = policy.fetch("https://example.com/jobs", _source())
+
+    assert result.status is CollectionStatus.BLOCKED
+    assert result.block_reason is not None
+    assert result.block_reason.value == "ACCESS_DENIED"
+    assert result.attempts == 1
+
+
 @pytest.mark.parametrize(
     ("response", "reason"),
     [

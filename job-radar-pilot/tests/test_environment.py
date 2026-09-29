@@ -29,3 +29,12 @@ def test_python_and_scrapling_versions() -> None:
     commit = _git("rev-parse", "HEAD")
     assert len(commit) == 40
     assert all(character in "0123456789abcdef" for character in commit)
+
+
+def test_dependency_lock_is_portable_and_pins_upstream_commit() -> None:
+    lock = (ROOT / "job-radar-pilot" / "requirements.lock.txt").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert str(ROOT).casefold() not in lock.casefold()
+    assert "333fa22b7a5821194ce66b59b11f4b16a6484f02" in lock

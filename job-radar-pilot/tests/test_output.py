@@ -65,6 +65,9 @@ def _result() -> PipelineResult:
                 records=records,
                 pages_observed=1,
                 cards_observed=2,
+                visited_urls=(
+                    "https://programathor.com.br/jobs-java?token=secret&utm_source=test",
+                ),
             ),
         ),
         raw_record_count=2,
@@ -164,6 +167,10 @@ def test_csv_header_and_report_counts_are_reconciled(tmp_path: Path) -> None:
         "duplicates": 0,
     }
     assert report["sources"][0]["cards_observed"] == 2
+    assert report["sources"][0]["visited_urls"] == [
+        "https://programathor.com.br/jobs-java"
+    ]
+    assert "secret" not in manifest.report_path.read_text(encoding="utf-8")
 
 
 def test_validation_failure_preserves_previous_outputs(

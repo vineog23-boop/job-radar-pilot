@@ -106,6 +106,9 @@ def test_gupy_extracts_strong_identity() -> None:
     )
 
     record = result.records[0]
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "PAGINATION_UNVERIFIED"
+    assert result.has_more is True
     assert record.source_job_id == "a1b2-c3d4"
     assert record.title == "Analista Desenvolvedor Java"
     assert record.company == "Empresa Gupy"

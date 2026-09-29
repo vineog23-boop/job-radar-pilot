@@ -107,3 +107,9 @@ credenciais nem cookies no repositório ou nas saídas.
 
 Os testes de extratores usam fixtures locais sanitizadas. Apenas o smoke test
 explicitamente executado acessa uma fonte pública.
+
+Na instalação inicial, somente o Programathor foi validado ao vivo. As outras
+15 fontes estão configuradas e cobertas por fixtures por família, mas seus
+seletores devem ser confirmados individualmente antes de interpretar `SUCCESS`
+como cobertura real. Quando paginação não é observável, o coletor retorna
+`PARTIAL/PAGINATION_UNVERIFIED` em vez de declarar esgotamento.

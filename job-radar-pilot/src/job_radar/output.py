@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from job_radar.identity import canonicalize_url
 from job_radar.models import VacancyRecord
 from job_radar.pipeline import PipelineResult
 
@@ -167,6 +168,9 @@ def write_outputs(result: PipelineResult, output_dir: Path) -> OutputManifest:
                     "has_more": source.has_more,
                     "stop_reason": source.stop_reason,
                     "errors": list(source.errors),
+                    "visited_urls": [
+                        canonicalize_url(url) for url in source.visited_urls
+                    ],
                 }
                 for source in result.source_results
             ],

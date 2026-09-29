@@ -11,8 +11,6 @@ curl_cffi==0.16.3
 greenlet==3.5.6
 idna==3.20
 iniconfig==2.3.0
-# Editable Git install with no remote (job-radar-pilot==0.1.0)
--e c:\users\vine\documents\codex\2026-09-28\instale-esse-reposit-rio-e-configure\.worktrees\scrapling-job-radar\job-radar-pilot
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 lxml==6.1.3

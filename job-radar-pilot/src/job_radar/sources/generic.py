@@ -30,4 +30,9 @@ class GenericListAdapter(PaginatedAdapter):
             )
         )
         next_url = absolute_url(page, extract_value(page, config.selectors.get("next")))
-        return ParsedPage(records, len(cards), next_url or None)
+        return ParsedPage(
+            records,
+            len(cards),
+            next_url or None,
+            pagination_observable="next" in config.selectors,
+        )

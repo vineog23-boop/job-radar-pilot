@@ -27,6 +27,7 @@ class ParsedPage:
     cards_observed: int
     next_url: str | None = None
     explicit_empty: bool = False
+    pagination_observable: bool = True
 
 
 def extract_value(node: object, selector: str | None) -> str | None:
@@ -139,6 +140,22 @@ class PaginatedAdapter:
                     pages_observed=len(visited),
                     cards_observed=0,
                     stop_reason=("NO_RESULTS" if status is CollectionStatus.EMPTY else "LAYOUT_CHANGED"),
+                    visited_urls=tuple(visited),
+                )
+            if (
+                parsed.records
+                and not parsed.next_url
+                and not parsed.pagination_observable
+                and config.max_pages > len(visited)
+            ):
+                return SourceRunResult(
+                    source_code=config.code,
+                    status=CollectionStatus.PARTIAL,
+                    records=tuple(records),
+                    pages_observed=len(visited),
+                    cards_observed=cards_observed,
+                    has_more=True,
+                    stop_reason="PAGINATION_UNVERIFIED",
                     visited_urls=tuple(visited),
                 )
             current_url = parsed.next_url

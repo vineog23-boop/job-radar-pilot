@@ -23,4 +23,4 @@ class DynamicAdapter(PaginatedAdapter):
                 )
             )
         )
-        return ParsedPage(records, len(cards))
+        return ParsedPage(records, len(cards), pagination_observable=False)

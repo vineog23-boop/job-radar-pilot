@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
+from threading import Event, Lock, get_ident
 from types import SimpleNamespace
 
 import pytest
@@ -541,3 +542,304 @@ def test_pipeline_preserves_page_limit_and_pagination_loop(tmp_path) -> None:
         "PAGINATION_LOOP",
     ]
     assert all(item.status is CollectionStatus.PARTIAL for item in result.source_results)
+
+
+@pytest.mark.parametrize("workers", [0, 5])
+def test_pipeline_rejects_workers_outside_supported_range(workers: int) -> None:
+    with pytest.raises(ValueError, match="workers"):
+        JobRadarPipeline(
+            (_source("one"),),
+            PROFILE,
+            fetcher=object(),
+            workers=workers,
+        )
+
+
+def test_parallel_pipeline_requires_factory_and_rejects_shared_fetcher() -> None:
+    with pytest.raises(ValueError, match="fetcher_factory"):
+        JobRadarPipeline(
+            (_source("one"), _source("two")),
+            PROFILE,
+            workers=2,
+        )
+    with pytest.raises(ValueError, match="fetcher"):
+        JobRadarPipeline(
+            (_source("one"), _source("two")),
+            PROFILE,
+            fetcher=object(),
+            fetcher_factory=lambda: object(),
+            workers=2,
+        )
+
+
+def test_workers_one_preserves_external_fetcher_compatibility() -> None:
+    fetcher = object()
+    observed: list[object] = []
+
+    class FetcherRecordingAdapter:
+        def collect(self, config: SourceConfig, actual_fetcher: object) -> SourceRunResult:
+            observed.append(actual_fetcher)
+            return SourceRunResult(config.code, CollectionStatus.EMPTY)
+
+    result = JobRadarPipeline(
+        (_source("one"), _source("two")),
+        PROFILE,
+        fetcher=fetcher,
+        workers=1,
+        adapter_factory=lambda _config: FetcherRecordingAdapter(),
+    ).run()
+
+    assert observed == [fetcher, fetcher]
+    assert [item.source_code for item in result.source_results] == ["one", "two"]
+
+
+def test_parallel_workers_own_fetcher_lifecycle_and_keep_browser_sources_separate() -> None:
+    sources = (
+        _source("http-one"),
+        replace(_source("browser-one"), kind=SourceKind.DYNAMIC),
+        _source("http-two"),
+        replace(_source("browser-two"), kind=SourceKind.GUPY),
+    )
+    lifecycle: list[tuple[str, int, int]] = []
+    lifecycle_lock = Lock()
+    next_id = 0
+
+    class ThreadBoundFetcher:
+        def __init__(self, identifier: int) -> None:
+            self.identifier = identifier
+            with lifecycle_lock:
+                lifecycle.append(("init", identifier, get_ident()))
+
+        def __enter__(self) -> "ThreadBoundFetcher":
+            with lifecycle_lock:
+                lifecycle.append(("enter", self.identifier, get_ident()))
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            with lifecycle_lock:
+                lifecycle.append(("close", self.identifier, get_ident()))
+
+    def fetcher_factory() -> ThreadBoundFetcher:
+        nonlocal next_id
+        with lifecycle_lock:
+            identifier = next_id
+            next_id += 1
+        return ThreadBoundFetcher(identifier)
+
+    class ThreadRecordingAdapter:
+        def collect(
+            self, config: SourceConfig, fetcher: ThreadBoundFetcher
+        ) -> SourceRunResult:
+            with lifecycle_lock:
+                lifecycle.append((config.code, fetcher.identifier, get_ident()))
+            return SourceRunResult(config.code, CollectionStatus.EMPTY)
+
+    result = JobRadarPipeline(
+        sources,
+        PROFILE,
+        fetcher_factory=fetcher_factory,
+        workers=2,
+        adapter_factory=lambda _config: ThreadRecordingAdapter(),
+    ).run()
+
+    assert [item.source_code for item in result.source_results] == [
+        "http-one",
+        "browser-one",
+        "http-two",
+        "browser-two",
+    ]
+    identifiers = {identifier for _event, identifier, _thread in lifecycle}
+    assert identifiers == {0, 1}
+    for identifier in identifiers:
+        threads = {
+            thread
+            for _event, actual_identifier, thread in lifecycle
+            if actual_identifier == identifier
+        }
+        assert len(threads) == 1
+        events = [
+            event
+            for event, actual_identifier, _thread in lifecycle
+            if actual_identifier == identifier
+        ]
+        assert events[0:2] == ["init", "enter"]
+        assert events[-1] == "close"
+    browser_workers = {
+        identifier
+        for event, identifier, _thread in lifecycle
+        if event in {"browser-one", "browser-two"}
+    }
+    assert browser_workers == {0, 1}
+
+
+def test_parallel_completion_is_reordered_before_classification_and_callback_is_once() -> None:
+    first_can_finish = Event()
+    second_finished = Event()
+    sources = (
+        replace(_source("first"), default_country="US"),
+        replace(_source("second"), default_country="BR"),
+    )
+    callbacks: list[str] = []
+    callback_lock = Lock()
+
+    class OutOfOrderAdapter:
+        def collect(self, config: SourceConfig, _fetcher: object) -> SourceRunResult:
+            if config.code == "first":
+                assert second_finished.wait(timeout=2)
+                first_can_finish.set()
+            else:
+                second_finished.set()
+            record = replace(
+                _record(config.code, f"https://ats.example.com/{config.code}"),
+                location="Remoto",
+                workplace_model=WorkplaceModel.REMOTE,
+            )
+            return SourceRunResult(
+                config.code,
+                CollectionStatus.SUCCESS,
+                (record,),
+                pages_observed=1,
+                visited_urls=(config.start_url,),
+            )
+
+    def on_source_done(source_result: SourceRunResult) -> None:
+        with callback_lock:
+            callbacks.append(source_result.source_code)
+        if source_result.source_code == "second":
+            raise RuntimeError("callback nao pode abortar a coleta")
+
+    result = JobRadarPipeline(
+        sources,
+        PROFILE,
+        fetcher_factory=lambda: _NoopContext(),
+        workers=2,
+        adapter_factory=lambda _config: OutOfOrderAdapter(),
+        on_source_done=on_source_done,
+    ).run()
+
+    assert first_can_finish.is_set()
+    assert callbacks == ["second", "first"]
+    assert [item.source_code for item in result.source_results] == ["first", "second"]
+    assert [record.source for record in result.records] == ["first", "second"]
+    labels = {record.source: record.match_labels for record in result.records}
+    assert "LOCATION_MATCH:remote_brazil" not in labels["first"]
+    assert "LOCATION_MATCH:remote_brazil" in labels["second"]
+
+
+class _NoopContext:
+    def __enter__(self) -> "_NoopContext":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+
+def test_worker_initialization_failure_becomes_ordered_source_result() -> None:
+    sources = (_source("one"), _source("two"), _source("three"))
+    factory_calls = 0
+    factory_lock = Lock()
+
+    def fetcher_factory() -> _NoopContext:
+        nonlocal factory_calls
+        with factory_lock:
+            factory_calls += 1
+            call = factory_calls
+        if call == 1:
+            raise RuntimeError("credencial-super-secreta")
+        return _NoopContext()
+
+    result = JobRadarPipeline(
+        sources,
+        PROFILE,
+        fetcher_factory=fetcher_factory,
+        workers=2,
+        adapter_factory=lambda _config: StaticAdapter(
+            SourceRunResult(_config.code, CollectionStatus.EMPTY)
+        ),
+    ).run()
+
+    assert [item.source_code for item in result.source_results] == [
+        "one",
+        "two",
+        "three",
+    ]
+    failed = [item for item in result.source_results if item.status is CollectionStatus.ERROR]
+    assert failed
+    assert all(item.stop_reason == "WORKER_ERROR" for item in failed)
+    assert all(item.errors == ("Falha interna no worker",) for item in failed)
+
+
+def test_adapter_initialization_failure_does_not_cancel_later_source_in_worker() -> None:
+    sources = tuple(_source(code) for code in ("one", "two", "broken", "four", "after"))
+
+    def adapter_factory(config: SourceConfig) -> StaticAdapter:
+        if config.code == "broken":
+            raise RuntimeError("segredo que nao pode vazar")
+        return StaticAdapter(SourceRunResult(config.code, CollectionStatus.EMPTY))
+
+    result = JobRadarPipeline(
+        sources,
+        PROFILE,
+        fetcher_factory=lambda: _NoopContext(),
+        workers=2,
+        adapter_factory=adapter_factory,
+    ).run()
+
+    by_source = {item.source_code: item for item in result.source_results}
+    assert by_source["broken"].status is CollectionStatus.ERROR
+    assert by_source["broken"].stop_reason == "ADAPTER_ERROR"
+    assert by_source["broken"].errors == ("Falha interna no adaptador broken",)
+    assert by_source["after"].status is CollectionStatus.EMPTY
+
+
+def test_workers_one_and_three_have_equivalent_source_and_record_contracts() -> None:
+    sources = tuple(replace(_source(code), default_country="BR") for code in ("a", "b", "c"))
+
+    class StableAdapter:
+        def collect(self, config: SourceConfig, _fetcher: object) -> SourceRunResult:
+            record = replace(
+                _record(config.code, f"https://ats.example.com/{config.code}"),
+                location="Remoto",
+                workplace_model=WorkplaceModel.REMOTE,
+            )
+            return SourceRunResult(
+                config.code,
+                CollectionStatus.PARTIAL,
+                (record,),
+                pages_observed=2,
+                stop_reason="PAGE_LIMIT",
+                visited_urls=(config.start_url, f"{config.start_url}?page=2"),
+            )
+
+    sequential = JobRadarPipeline(
+        sources,
+        PROFILE,
+        fetcher=object(),
+        workers=1,
+        adapter_factory=lambda _config: StableAdapter(),
+    ).run()
+    parallel = JobRadarPipeline(
+        sources,
+        PROFILE,
+        fetcher_factory=lambda: _NoopContext(),
+        workers=3,
+        adapter_factory=lambda _config: StableAdapter(),
+    ).run()
+
+    def source_contract(result: object) -> list[tuple[object, ...]]:
+        return [
+            (
+                item.source_code,
+                item.status,
+                item.stop_reason,
+                item.pages_observed,
+                item.visited_urls,
+            )
+            for item in result.source_results
+        ]
+
+    def record_contract(result: object) -> list[dict[str, object]]:
+        return [asdict(record) for record in result.records]
+
+    assert source_contract(sequential) == source_contract(parallel)
+    assert record_contract(sequential) == record_contract(parallel)

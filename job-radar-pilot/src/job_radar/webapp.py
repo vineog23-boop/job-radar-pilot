@@ -61,7 +61,7 @@ def load_output(output_dir: Path) -> dict[str, Any]:
 
 
 ProgressCallback = Callable[[str], None]
-CollectionRunner = Callable[[Path, list[str] | None, ProgressCallback], int]
+CollectionRunner = Callable[[Path, list[str] | None, int, ProgressCallback], int]
 
 
 class OutputReadError(RuntimeError):
@@ -153,6 +153,7 @@ def build_collection_command(
     output_dir: Path,
     sources: list[str] | None,
     *,
+    workers: int = 1,
     executable: Path | None = None,
 ) -> list[str]:
     command = [
@@ -162,6 +163,8 @@ def build_collection_command(
         "collect",
         "--output",
         str(output_dir),
+        "--workers",
+        str(workers),
     ]
     for source in sources or []:
         command.extend(["--source", source])
@@ -171,9 +174,13 @@ def build_collection_command(
 def run_collection(
     output_dir: Path,
     sources: list[str] | None,
+    workers: int,
     on_line: ProgressCallback,
 ) -> int:
-    return stream_process(build_collection_command(output_dir, sources), on_line)
+    return stream_process(
+        build_collection_command(output_dir, sources, workers=workers),
+        on_line,
+    )
 
 
 class SearchController:
@@ -181,9 +188,14 @@ class SearchController:
         self,
         output_dir: Path,
         runner: CollectionRunner = run_collection,
+        *,
+        workers: int = 1,
     ) -> None:
+        if workers < 1 or workers > 4:
+            raise ValueError("workers deve estar entre 1 e 4")
         self._output_dir = output_dir
         self._runner = runner
+        self._workers = workers
         self._lock = Lock()
         self._thread: Thread | None = None
         self._status = "IDLE"
@@ -216,7 +228,12 @@ class SearchController:
 
     def _run(self, sources: list[str] | None) -> None:
         try:
-            exit_code = self._runner(self._output_dir, sources, self._on_line)
+            exit_code = self._runner(
+                self._output_dir,
+                sources,
+                self._workers,
+                self._on_line,
+            )
             status = "DONE" if exit_code == 0 else "PARTIAL" if exit_code == 3 else "ERROR"
             error = None if exit_code in {0, 3} else f"Coleta encerrou com codigo {exit_code}."
         except Exception as exc:  # noqa: BLE001 - boundary de thread
@@ -506,6 +523,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Interface local do Radar de Vagas.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--workers", type=int, choices=range(1, 5), default=1)
     parser.add_argument("--no-browser", action="store_true")
     return parser
 
@@ -520,7 +538,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     project = _project_root()
-    controller = SearchController(project / "output")
+    controller = SearchController(project / "output", workers=args.workers)
     try:
         server = create_server(
             args.host,

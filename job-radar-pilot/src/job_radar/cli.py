@@ -60,6 +60,13 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validar e listar fontes sem acessar a rede.",
     )
+    collect.add_argument(
+        "--workers",
+        type=int,
+        choices=range(1, 5),
+        default=1,
+        help="Fontes coletadas em paralelo (1 a 4; padrao: 1).",
+    )
     validate = commands.add_parser(
         "validate-output", help="Validar um JSONL contra o schema local."
     )
@@ -129,22 +136,40 @@ def _collect(args: argparse.Namespace) -> int:
             )
         return 0
 
-    with FetchPolicy() as fetcher:
-        pipeline = JobRadarPipeline(
-            sources,
-            profile,
-            fetcher=fetcher,
-        )
-        result = pipeline.run(args.sources)
-    manifest = write_outputs(result, args.output.resolve())
-    for source in result.source_results:
+    def print_source_progress(source: object) -> None:
         print(
             f"{source.source_code}: {source.status.value}; "
             f"pages={source.pages_observed}; cards={source.cards_observed}; "
-            f"records={len(source.records)}; stop={source.stop_reason or 'EXHAUSTED'}"
+            f"records={len(source.records)}; "
+            f"stop={source.stop_reason or 'EXHAUSTED'}",
+            flush=True,
         )
         for warning in source.warnings:
-            print(f"WARNING {source.source_code}: {warning}")
+            print(
+                f"WARNING {source.source_code}: {warning}",
+                flush=True,
+            )
+
+    if args.workers == 1:
+        with FetchPolicy() as fetcher:
+            pipeline = JobRadarPipeline(
+                sources,
+                profile,
+                fetcher=fetcher,
+                workers=1,
+                on_source_done=print_source_progress,
+            )
+            result = pipeline.run(args.sources)
+    else:
+        pipeline = JobRadarPipeline(
+            sources,
+            profile,
+            fetcher_factory=FetchPolicy,
+            workers=args.workers,
+            on_source_done=print_source_progress,
+        )
+        result = pipeline.run(args.sources)
+    manifest = write_outputs(result, args.output.resolve())
     print(f"JSONL: {manifest.jsonl_path}")
     print(f"CSV: {manifest.csv_path}")
     print(f"REPORT: {manifest.report_path}")

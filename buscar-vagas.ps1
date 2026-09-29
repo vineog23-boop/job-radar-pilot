@@ -1,5 +1,7 @@
 param(
-    [string[]]$Fonte
+    [string[]]$Fonte,
+    [ValidateRange(1, 4)]
+    [int]$Workers = 1
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,7 +11,7 @@ $executarRadar = Join-Path $raiz "scripts\run-job-radar.ps1"
 $saida = Join-Path $raiz "job-radar-pilot\output"
 $jsonl = Join-Path $saida "vagas.jsonl"
 
-$argumentosRadar = @("--output", $saida)
+$argumentosRadar = @("--output", $saida, "--workers", $Workers)
 foreach ($codigoFonte in $Fonte) {
     $argumentosRadar += @("--source", $codigoFonte)
 }

@@ -37,6 +37,19 @@ os resultados foram salvos. Para limitar a busca a uma fonte:
 .\buscar-vagas.ps1 -Fonte programathor
 ```
 
+Para coletar fontes em paralelo, use de 1 a 4 workers. Cada fonte continua
+sequencial internamente, inclusive suas consultas e limites de acesso. O padrão
+permanece `1`:
+
+```powershell
+.\buscar-vagas.ps1 -Workers 3
+```
+
+Na CLI, a opção equivalente é `collect --workers 3`. A interface local também
+aceita `--workers 3` ao iniciar o módulo `job_radar.webapp`. Os resultados são
+sempre restaurados à ordem das fontes configuradas antes da classificação e da
+deduplicação.
+
 ## Limites de segurança
 
 - Não acessa SQLite, Notion, RADAR, `pipeline-state.json` nem a pasta

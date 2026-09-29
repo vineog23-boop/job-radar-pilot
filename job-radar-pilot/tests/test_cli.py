@@ -33,12 +33,18 @@ class FakePipeline:
     result = _pipeline_result()
     selected: list[str] | None = None
     profile: object | None = None
+    kwargs: dict[str, object] = {}
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         type(self).profile = args[1]
+        type(self).kwargs = kwargs
 
     def run(self, source_codes: list[str] | None = None) -> PipelineResult:
         type(self).selected = source_codes
+        callback = type(self).kwargs.get("on_source_done")
+        if callable(callback):
+            for source_result in type(self).result.source_results:
+                callback(source_result)
         return type(self).result
 
 
@@ -439,6 +445,52 @@ def test_collect_accepts_repeated_source_filters(
     assert FakeFetchPolicy.entered == 1
     assert FakeFetchPolicy.exited == 1
     assert (tmp_path / "relatorio-execucao.json").exists()
+
+
+def test_collect_workers_three_uses_factory_and_prints_progress_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class ProgressPipeline(FakePipeline):
+        def run(self, source_codes: list[str] | None = None) -> PipelineResult:
+            return super().run(source_codes)
+
+    ProgressPipeline.result = _pipeline_result()
+    monkeypatch.setattr(cli, "JobRadarPipeline", ProgressPipeline)
+    monkeypatch.setattr(cli, "FetchPolicy", FakeFetchPolicy)
+
+    exit_code = cli.main(
+        [
+            "collect",
+            "--workers",
+            "3",
+            "--source",
+            "programathor",
+            "--output",
+            str(tmp_path),
+        ]
+    )
+
+    progress_lines = [
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("programathor:")
+    ]
+    assert exit_code == 0
+    assert ProgressPipeline.kwargs["workers"] == 3
+    assert ProgressPipeline.kwargs["fetcher_factory"] is FakeFetchPolicy
+    assert progress_lines == [
+        "programathor: SUCCESS; pages=0; cards=0; records=0; stop=EXHAUSTED"
+    ]
+
+
+@pytest.mark.parametrize("workers", ["0", "5"])
+def test_collect_rejects_workers_outside_supported_range(workers: str) -> None:
+    with pytest.raises(SystemExit) as error:
+        cli.main(["collect", "--workers", workers, "--dry-run"])
+
+    assert error.value.code == 2
 
 
 def test_collect_applies_local_preferences_to_pipeline(

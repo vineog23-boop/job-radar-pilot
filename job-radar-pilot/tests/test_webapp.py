@@ -89,9 +89,10 @@ def test_search_controller_runs_once_and_tracks_source_progress(tmp_path) -> Non
     release = Event()
     emitted = Event()
 
-    def runner(output_dir, sources, on_line):
+    def runner(output_dir, sources, workers, on_line):
         assert output_dir == tmp_path
         assert sources == ["programathor"]
+        assert workers == 3
         on_line(
             "programathor: PARTIAL; pages=1; cards=16; records=12; "
             "stop=PAGINATION_UNVERIFIED"
@@ -100,7 +101,7 @@ def test_search_controller_runs_once_and_tracks_source_progress(tmp_path) -> Non
         release.wait(timeout=2)
         return 3
 
-    controller = SearchController(tmp_path, runner=runner)
+    controller = SearchController(tmp_path, runner=runner, workers=3)
 
     assert controller.start(["programathor"]) is True
     assert emitted.wait(timeout=2) is True
@@ -141,6 +142,7 @@ def test_build_collection_command_includes_selected_sources(tmp_path) -> None:
     command = build_collection_command(
         tmp_path / "output",
         ["programathor", "companhia-de-estagios"],
+        workers=3,
         executable=Path("python.exe"),
     )
 
@@ -151,6 +153,8 @@ def test_build_collection_command_includes_selected_sources(tmp_path) -> None:
         "collect",
         "--output",
         str(tmp_path / "output"),
+        "--workers",
+        "3",
         "--source",
         "programathor",
         "--source",
@@ -303,7 +307,8 @@ def test_search_api_starts_collection_and_rejects_duplicate(tmp_path) -> None:
     release = Event()
     received_sources: list[list[str] | None] = []
 
-    def runner(output_dir, sources, on_line):
+    def runner(output_dir, sources, workers, on_line):
+        assert workers == 1
         received_sources.append(sources)
         release.wait(timeout=2)
         return 0
@@ -490,7 +495,8 @@ def test_linkedin_api_returns_manual_plan_without_starting_collection(tmp_path) 
 
     searches: list[list[str] | None] = []
 
-    def runner(output_dir, sources, on_line):
+    def runner(output_dir, sources, workers, on_line):
+        assert workers == 1
         searches.append(sources)
         return 0
 
@@ -589,7 +595,8 @@ def test_dashboard_lists_manual_linkedin_searches_without_starting_collection(
 
     searches: list[list[str] | None] = []
 
-    def runner(output_dir, sources, on_line):
+    def runner(output_dir, sources, workers, on_line):
+        assert workers == 1
         searches.append(sources)
         return 0
 
@@ -650,7 +657,8 @@ def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:
 
     searches: list[list[str] | None] = []
 
-    def runner(output_dir, sources, on_line):
+    def runner(output_dir, sources, workers, on_line):
+        assert workers == 1
         searches.append(sources)
         return 0
 
@@ -940,6 +948,14 @@ def test_webapp_main_rejects_non_loopback_host(capsys) -> None:
 
     assert exit_code == 2
     assert "127.0.0.1" in capsys.readouterr().err
+
+
+def test_webapp_parser_accepts_workers_for_local_collection() -> None:
+    from job_radar.webapp import _parser
+
+    args = _parser().parse_args(["--workers", "3"])
+
+    assert args.workers == 3
 
 
 def test_dashboard_browser_reveals_source_details_on_request(tmp_path) -> None:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Callable, Sequence
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
@@ -130,17 +132,149 @@ class JobRadarPipeline:
         sources: Sequence[SourceConfig],
         profile: SearchProfile,
         *,
-        fetcher: FetchPolicy,
+        fetcher: FetchPolicy | None = None,
+        fetcher_factory: Callable[[], FetchPolicy] | None = None,
+        workers: int = 1,
+        on_source_done: Callable[[SourceRunResult], None] | None = None,
         adapter_factory: Callable[[SourceConfig], SourceAdapter] = adapter_for,
         adaptive_locator: AdaptiveCardLocator | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
+        if workers < 1 or workers > 4:
+            raise ValueError("workers deve estar entre 1 e 4")
+        if fetcher is not None and fetcher_factory is not None:
+            raise ValueError("fetcher e fetcher_factory sao mutuamente exclusivos")
+        if workers > 1 and fetcher is not None:
+            raise ValueError("fetcher compartilhado nao e permitido com workers > 1")
+        if workers > 1 and fetcher_factory is None:
+            raise ValueError("workers > 1 exige fetcher_factory")
         self._sources = tuple(sources)
         self._profile = profile
         self._fetcher = fetcher
+        self._fetcher_factory = fetcher_factory
+        self._workers = workers
+        self._on_source_done = on_source_done
+        self._callback_lock = Lock()
         self._adapter_factory = adapter_factory
         self._adaptive_locator = adaptive_locator
         self._now = now or (lambda: datetime.now(timezone.utc))
+
+    def _notify_source_done(self, result: SourceRunResult) -> None:
+        if self._on_source_done is None:
+            return
+        with self._callback_lock:
+            try:
+                self._on_source_done(result)
+            except Exception:
+                return
+
+    def _collect_source(
+        self,
+        source: SourceConfig,
+        fetcher: FetchPolicy,
+        adaptive_locator: AdaptiveCardLocator,
+    ) -> SourceRunResult:
+        query_results: list[SourceRunResult] = []
+        supports_editable_terms = source.kind in {
+            SourceKind.GUPY,
+            SourceKind.INDEED,
+        } or source.code == "casado-dev"
+        search_source = (
+            replace(source, queries=self._profile.search_terms)
+            if self._profile.search_terms and supports_editable_terms
+            else source
+        )
+        try:
+            adapter = (
+                adapter_for(search_source, locator=adaptive_locator)
+                if self._adapter_factory is adapter_for
+                else self._adapter_factory(search_source)
+            )
+        except Exception:
+            return SourceRunResult(
+                source_code=source.code,
+                status=CollectionStatus.ERROR,
+                stop_reason="ADAPTER_ERROR",
+                errors=(f"Falha interna no adaptador {source.code}",),
+            )
+        for search_url in _search_urls(search_source):
+            query_source = replace(source, start_url=search_url, queries=())
+            try:
+                query_result = adapter.collect(query_source, fetcher)
+                if (
+                    source.kind is SourceKind.DYNAMIC
+                    and query_result.status is CollectionStatus.ERROR
+                    and query_result.stop_reason == "LAYOUT_CHANGED"
+                ):
+                    query_result = adapter.collect(query_source, fetcher)
+            except Exception:
+                query_result = SourceRunResult(
+                    source_code=source.code,
+                    status=CollectionStatus.ERROR,
+                    stop_reason="ADAPTER_ERROR",
+                    errors=(f"Falha interna no adaptador {source.code}",),
+                )
+            query_results.append(query_result)
+            if source.code == "indeed" and query_result.stop_reason in {
+                "LOGIN_REQUIRED",
+                "TWO_FACTOR",
+                "CAPTCHA",
+                "ACTIVITY_ALERT",
+                "RATE_LIMITED",
+                "ACCESS_DENIED",
+            }:
+                break
+        return _combine_query_results(source, query_results)
+
+    @staticmethod
+    def _worker_error(source: SourceConfig) -> SourceRunResult:
+        return SourceRunResult(
+            source_code=source.code,
+            status=CollectionStatus.ERROR,
+            stop_reason="WORKER_ERROR",
+            errors=("Falha interna no worker",),
+        )
+
+    def _collect_batch(
+        self,
+        sources: Sequence[SourceConfig],
+        adaptive_locator: AdaptiveCardLocator,
+    ) -> tuple[SourceRunResult, ...]:
+        results: list[SourceRunResult] = []
+        try:
+            factory = self._fetcher_factory or FetchPolicy
+            with factory() as fetcher:
+                for source in sources:
+                    results.append(
+                        self._collect_source(source, fetcher, adaptive_locator)
+                    )
+        except Exception:
+            completed_codes = {result.source_code for result in results}
+            results.extend(
+                self._worker_error(source)
+                for source in sources
+                if source.code not in completed_codes
+            )
+        for result in results:
+            self._notify_source_done(result)
+        return tuple(results)
+
+    @staticmethod
+    def _parallel_batches(
+        sources: Sequence[SourceConfig], workers: int
+    ) -> tuple[tuple[SourceConfig, ...], ...]:
+        browser_kinds = {SourceKind.DYNAMIC, SourceKind.GUPY}
+        scheduled = sorted(
+            sources,
+            key=lambda source: source.kind not in browser_kinds
+            and not source.requires_auth,
+        )
+        batches: list[list[SourceConfig]] = [
+            [] for _ in range(min(workers, len(scheduled)))
+        ]
+        for index, source in enumerate(scheduled):
+            batches[index % len(batches)].append(source)
+        return tuple(tuple(batch) for batch in batches if batch)
 
     def run(self, source_codes: Sequence[str] | None = None) -> PipelineResult:
         started_at = self._now().isoformat()
@@ -157,59 +291,38 @@ class JobRadarPipeline:
             if source.enabled
             and (requested_codes is None or source.code in requested_codes)
         )
-        source_results: list[SourceRunResult] = []
-        raw_records: list[VacancyRecord] = []
         adaptive_locator = self._adaptive_locator or AdaptiveCardLocator()
+        unordered_results: list[SourceRunResult] = []
+        if not selected:
+            source_results: list[SourceRunResult] = []
+        elif self._workers == 1 and self._fetcher is not None:
+            source_results = []
+            for source in selected:
+                result = self._collect_source(source, self._fetcher, adaptive_locator)
+                source_results.append(result)
+                self._notify_source_done(result)
+        elif self._workers == 1:
+            source_results = list(self._collect_batch(selected, adaptive_locator))
+        else:
+            batches = self._parallel_batches(selected, self._workers)
+            with ThreadPoolExecutor(
+                max_workers=len(batches),
+                thread_name_prefix="job-radar-source",
+            ) as executor:
+                futures = [
+                    executor.submit(self._collect_batch, batch, adaptive_locator)
+                    for batch in batches
+                ]
+                for future in as_completed(futures):
+                    unordered_results.extend(future.result())
+            by_code = {result.source_code: result for result in unordered_results}
+            source_results = [by_code[source.code] for source in selected]
 
-        for source in selected:
-            query_results: list[SourceRunResult] = []
-            supports_editable_terms = source.kind in {
-                SourceKind.GUPY,
-                SourceKind.INDEED,
-            } or source.code == "casado-dev"
-            search_source = (
-                replace(source, queries=self._profile.search_terms)
-                if self._profile.search_terms and supports_editable_terms
-                else source
-            )
-            adapter = (
-                adapter_for(search_source, locator=adaptive_locator)
-                if self._adapter_factory is adapter_for
-                else self._adapter_factory(search_source)
-            )
-            for search_url in _search_urls(search_source):
-                query_source = replace(source, start_url=search_url, queries=())
-                try:
-                    query_result = adapter.collect(query_source, self._fetcher)
-                    if (
-                        source.kind is SourceKind.DYNAMIC
-                        and query_result.status is CollectionStatus.ERROR
-                        and query_result.stop_reason == "LAYOUT_CHANGED"
-                    ):
-                        query_result = adapter.collect(query_source, self._fetcher)
-                except Exception:
-                    query_result = SourceRunResult(
-                        source_code=source.code,
-                        status=CollectionStatus.ERROR,
-                        stop_reason="ADAPTER_ERROR",
-                        errors=(f"Falha interna no adaptador {source.code}",),
-                    )
-                query_results.append(query_result)
-                if source.code == "indeed" and query_result.stop_reason in {
-                    "LOGIN_REQUIRED",
-                    "TWO_FACTOR",
-                    "CAPTCHA",
-                    "ACTIVITY_ALERT",
-                    "RATE_LIMITED",
-                    "ACCESS_DENIED",
-                }:
-                    break
-            result = _combine_query_results(source, query_results)
-            source_results.append(result)
-            raw_records.extend(
-                replace(record, collection_status=result.status)
-                for record in result.records
-            )
+        raw_records = [
+            replace(record, collection_status=result.status)
+            for result in source_results
+            for record in result.records
+        ]
 
         default_countries = {
             source.code: source.default_country for source in selected

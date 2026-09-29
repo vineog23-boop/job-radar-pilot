@@ -49,3 +49,54 @@ def test_cli_launcher_prioritizes_workspace_source_over_existing_pythonpath(
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "DRY_RUN" in completed.stdout
     assert "PACOTE_EXTERNO_INCORRETO" not in completed.stdout + completed.stderr
+
+
+def test_buscar_vagas_propagates_workers_to_collection(tmp_path: Path) -> None:
+    powershell = shutil.which("pwsh")
+    if powershell is None:
+        pytest.skip("PowerShell 7 nao disponivel neste ambiente.")
+
+    launcher = tmp_path / "buscar-vagas.ps1"
+    shutil.copy2(WORKSPACE / "buscar-vagas.ps1", launcher)
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    calls = tmp_path / "calls.txt"
+    fake_runner = scripts / "run-job-radar.ps1"
+    fake_runner.write_text(
+        "Add-Content -LiteralPath $env:JOB_RADAR_TEST_CALLS -Value ($args -join '|')\n"
+        "if ($args[0] -ne 'validate-output') {\n"
+        "  $outputIndex = [Array]::IndexOf($args, '--output')\n"
+        "  $outputDir = $args[$outputIndex + 1]\n"
+        "  New-Item -ItemType Directory -Path $outputDir -Force | Out-Null\n"
+        "  Set-Content -LiteralPath (Join-Path $outputDir 'vagas.jsonl') -Value ''\n"
+        "}\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    environment = os.environ.copy()
+    environment["JOB_RADAR_TEST_CALLS"] = str(calls)
+
+    completed = subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-File",
+            str(launcher),
+            "-Workers",
+            "3",
+            "-Fonte",
+            "programathor",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    first_call = calls.read_text(encoding="utf-8").splitlines()[0]
+    assert "--workers|3" in first_call

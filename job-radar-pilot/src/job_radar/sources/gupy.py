@@ -4,7 +4,7 @@ import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from job_radar.adaptive import CardSelection
-from job_radar.models import SourceConfig
+from job_radar.models import SourceConfig, VacancyRecord
 from job_radar.sources.base import (
     PaginatedAdapter,
     ParsedPage,
@@ -20,55 +20,86 @@ class GupyAdapter(PaginatedAdapter):
     def parse_page(self, page: object, config: SourceConfig) -> ParsedPage:
         legacy_configured = tuple(page.css(_LEGACY_CARD_SELECTOR))  # type: ignore[attr-defined]
         current_configured = tuple(page.css(_CURRENT_CARD_SELECTOR))  # type: ignore[attr-defined]
+        candidates: list[tuple[CardSelection, str, str]] = []
         if legacy_configured:
-            selection = CardSelection(legacy_configured, "CONFIGURED")
-            variant = "legacy"
-            card_selector = _LEGACY_CARD_SELECTOR
-        elif current_configured:
-            selection = CardSelection(current_configured, "CONFIGURED")
-            variant = "current"
-            card_selector = _CURRENT_CARD_SELECTOR
-        else:
-            legacy_selection = self.select_cards(
-                page,
-                config,
-                _LEGACY_CARD_SELECTOR,
+            candidates.append(
+                (
+                    CardSelection(legacy_configured, "CONFIGURED"),
+                    "legacy",
+                    _LEGACY_CARD_SELECTOR,
+                )
             )
-            if legacy_selection.method == "ADAPTIVE":
-                selection = legacy_selection
-                variant = "legacy"
-                card_selector = _LEGACY_CARD_SELECTOR
-            else:
-                selection = self.select_cards(
-                    page,
-                    config,
+        if current_configured:
+            candidates.append(
+                (
+                    CardSelection(current_configured, "CONFIGURED"),
+                    "current",
                     _CURRENT_CARD_SELECTOR,
                 )
-                variant = "current"
-                card_selector = _CURRENT_CARD_SELECTOR
-        cards = selection.cards
-        current_layout = variant == "current"
-        card_records = tuple(
-            (card, record)
-            for card in cards
-            if (
-                record := make_record_with_fallback(
-                    card_method=selection.method,
-                    config=config,
-                    page=page,
-                    card=card,
-                    id_selector=(None if current_layout else "::attr(data-job-id)"),
-                    title_selector=("h3" if current_layout else "h2"),
-                    url_selector=(
-                        "a[href*='/job/']::attr(href)"
-                        if current_layout
-                        else "a::attr(href)"
-                    ),
-                    company_selector=("p" if current_layout else "[data-testid='company-name']"),
-                    location_selector="[data-testid='job-location']",
+            )
+        if not legacy_configured:
+            candidates.append(
+                (
+                    self.select_cards(page, config, _LEGACY_CARD_SELECTOR),
+                    "legacy",
+                    _LEGACY_CARD_SELECTOR,
                 )
             )
-        )
+        if not current_configured:
+            candidates.append(
+                (
+                    self.select_cards(
+                        page,
+                        config,
+                        _CURRENT_CARD_SELECTOR,
+                    ),
+                    "current",
+                    _CURRENT_CARD_SELECTOR,
+                )
+            )
+
+        selection = candidates[-1][0]
+        card_selector = candidates[-1][2]
+        card_records: tuple[tuple[object, VacancyRecord], ...] = ()
+        first_nonempty: tuple[CardSelection, str] | None = None
+        for candidate, variant, card_selector in candidates:
+            if candidate.cards and first_nonempty is None:
+                first_nonempty = (candidate, card_selector)
+            current_layout = variant == "current"
+            candidate_records = tuple(
+                (card, record)
+                for card in candidate.cards
+                if (
+                    record := make_record_with_fallback(
+                        card_method=candidate.method,
+                        config=config,
+                        page=page,
+                        card=card,
+                        id_selector=(
+                            None if current_layout else "::attr(data-job-id)"
+                        ),
+                        title_selector=("h3" if current_layout else "h2"),
+                        url_selector=(
+                            "a[href*='/job/']::attr(href)"
+                            if current_layout
+                            else "a::attr(href)"
+                        ),
+                        company_selector=(
+                            "p" if current_layout else "[data-testid='company-name']"
+                        ),
+                        location_selector="[data-testid='job-location']",
+                        validated_fallback=True,
+                    )
+                )
+            )
+            if candidate_records:
+                selection = candidate
+                card_records = candidate_records
+                break
+        else:
+            if first_nonempty is not None:
+                selection, card_selector = first_nonempty
+        cards = selection.cards
         records = tuple(record for _, record in card_records)
         valid_card = card_records[0][0] if card_records else None
         self.remember_cards(

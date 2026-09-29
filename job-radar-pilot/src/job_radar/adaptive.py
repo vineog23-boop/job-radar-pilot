@@ -17,6 +17,10 @@ from job_radar.fetching import page_html
 
 
 _SAFE_CLASS = re.compile(r"^[A-Za-z_-][A-Za-z0-9_-]{0,127}$")
+_SENSITIVE_CLASS = re.compile(
+    r"(?:^|[-_])(?:api[-_]?key|auth|bearer|credential|jwt|secret|session|token)(?:[-_]|$)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,9 +39,28 @@ def _element(node: object) -> Any:
     return getattr(node, "_root", node)
 
 
+def _looks_high_entropy(value: str) -> bool:
+    compact = "".join(character for character in value if character.isalnum())
+    return (
+        len(compact) >= 24
+        and any(character.islower() for character in compact)
+        and any(character.isupper() for character in compact)
+        and any(character.isdigit() for character in compact)
+        and len(set(compact)) / len(compact) >= 0.5
+    )
+
+
+def _safe_class(value: str) -> bool:
+    return (
+        _SAFE_CLASS.fullmatch(value) is not None
+        and _SENSITIVE_CLASS.search(value) is None
+        and not _looks_high_entropy(value)
+    )
+
+
 def _classes(element: Any) -> tuple[str, ...]:
     value = str(getattr(element, "attrib", {}).get("class", ""))
-    return tuple(sorted(token for token in value.split() if _SAFE_CLASS.fullmatch(token)))
+    return tuple(sorted(token for token in value.split() if _safe_class(token)))
 
 
 def _safe_attributes(element: Any) -> dict[str, str]:
@@ -100,7 +123,21 @@ def _fingerprint(node: object) -> dict[str, object]:
 
 def _origin(page: object) -> str:
     parsed = urlsplit(str(getattr(page, "url", "")))
-    return urlunsplit((parsed.scheme.casefold(), parsed.netloc.casefold(), "", "", ""))
+    scheme = parsed.scheme.casefold()
+    host = (parsed.hostname or "").casefold()
+    if not scheme or not host:
+        return ""
+    netloc = f"[{host}]" if ":" in host else host
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    if port is not None and not (
+        (scheme == "https" and port == 443)
+        or (scheme == "http" and port == 80)
+    ):
+        netloc = f"{netloc}:{port}"
+    return urlunsplit((scheme, netloc, "", "", ""))
 
 
 def _relocation_data(fingerprint: dict[str, object]) -> dict[str, object]:

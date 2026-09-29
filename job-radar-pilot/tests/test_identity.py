@@ -84,19 +84,35 @@ def test_deduplicate_collapses_urls_with_reordered_query_parameters() -> None:
     assert result.duplicate_count == 1
 
 
-def test_deduplicate_stably_unions_adaptive_extraction_label() -> None:
-    first = replace(_record(), match_labels=("FIT:READY",))
+def test_deduplicate_merges_only_orthogonal_extraction_provenance() -> None:
+    first = replace(
+        _record(),
+        match_labels=(
+            "FIT:READY",
+            "FIT_SCORE:4",
+            "LOCATION_MATCH:sao-carlos-sp",
+            "TECH_MATCH:java",
+        ),
+    )
     duplicate = replace(
         _record(url="https://jobs.example.com/vaga/123#apply"),
-        match_labels=("EXTRACTION:ADAPTIVE", "TECH_MATCH:java"),
+        match_labels=(
+            "EXTRACTION:ADAPTIVE",
+            "FIT:EXCLUDE",
+            "FIT_SCORE:-2",
+            "LOCATION_MISMATCH:outside_scope",
+            "TECH_MATCH:go",
+        ),
     )
 
     result = deduplicate([first, duplicate])
 
     assert result.unique[0].match_labels == (
         "FIT:READY",
-        "EXTRACTION:ADAPTIVE",
+        "FIT_SCORE:4",
+        "LOCATION_MATCH:sao-carlos-sp",
         "TECH_MATCH:java",
+        "EXTRACTION:ADAPTIVE",
     )
     assert result.duplicate_count == 1
 

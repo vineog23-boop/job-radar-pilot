@@ -131,7 +131,18 @@ def _annotate_cross_source_semantic_candidates(
 
 
 def _merge_labels(first: VacancyRecord, duplicate: VacancyRecord) -> VacancyRecord:
-    labels = tuple(dict.fromkeys((*first.match_labels, *duplicate.match_labels)))
+    labels = tuple(
+        dict.fromkeys(
+            (
+                *first.match_labels,
+                *(
+                    label
+                    for label in duplicate.match_labels
+                    if label.startswith("EXTRACTION:")
+                ),
+            )
+        )
+    )
     return first if labels == first.match_labels else replace(first, match_labels=labels)
 
 

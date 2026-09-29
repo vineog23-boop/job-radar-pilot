@@ -478,6 +478,29 @@ def test_combine_query_results_stably_deduplicates_warnings_and_keeps_severity()
     assert combined.warnings == ("SELECTOR_RELOCATED:card", "SECOND_WARNING")
 
 
+def test_combine_complete_empty_queries_with_warning_is_partial() -> None:
+    source = replace(
+        _source("indeed"),
+        kind=SourceKind.INDEED,
+        queries=("java", "spring"),
+    )
+    results = (
+        SourceRunResult(
+            "indeed",
+            CollectionStatus.SUCCESS,
+            warnings=("SELECTOR_RELOCATED:card",),
+        ),
+        SourceRunResult("indeed", CollectionStatus.EMPTY),
+    )
+
+    combined = _combine_query_results(source, results)
+
+    assert combined.status is CollectionStatus.PARTIAL
+    assert combined.stop_reason == "SELECTOR_RELOCATED"
+    assert combined.records == ()
+    assert combined.warnings == ("SELECTOR_RELOCATED:card",)
+
+
 class HtmlFetcher:
     def __init__(self, documents: dict[str, str]) -> None:
         self.documents = documents

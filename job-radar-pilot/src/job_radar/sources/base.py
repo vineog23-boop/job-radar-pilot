@@ -17,6 +17,11 @@ from job_radar.models import (
 )
 
 
+_ALTERNATE_ADAPTIVE_HOST_SUFFIXES = {
+    "gupy": (".gupy.io",),
+}
+
+
 class SourceAdapter(Protocol):
     def collect(
         self, config: SourceConfig, fetcher: FetchPolicy
@@ -75,6 +80,33 @@ def job_id_from_url(url: str) -> str | None:
             return values[0]
     last_segment = parsed.path.rstrip("/").rsplit("/", 1)[-1]
     return last_segment or None
+
+
+def _adaptive_url_allowed(config: SourceConfig, url: str) -> bool:
+    parsed = urlsplit(url)
+    source = urlsplit(config.start_url)
+    candidate_scheme = parsed.scheme.casefold()
+    source_scheme = source.scheme.casefold()
+    candidate_host = (parsed.hostname or "").casefold()
+    source_host = (source.hostname or "").casefold()
+    if candidate_scheme not in {"http", "https"} or not candidate_host:
+        return False
+    default_ports = {"http": 80, "https": 443}
+    candidate_port = parsed.port or default_ports[candidate_scheme]
+    source_port = source.port or default_ports.get(source_scheme)
+    same_origin = (
+        candidate_scheme == source_scheme
+        and candidate_host == source_host
+        and candidate_port == source_port
+    )
+    allowed_suffixes = _ALTERNATE_ADAPTIVE_HOST_SUFFIXES.get(
+        config.code,
+        (),
+    )
+    return same_origin or (
+        candidate_scheme == "https"
+        and any(candidate_host.endswith(suffix) for suffix in allowed_suffixes)
+    )
 
 
 def _clean_source_location(config: SourceConfig, location: str | None) -> str | None:
@@ -356,6 +388,7 @@ def make_record_with_fallback(
     company_selector: str | None,
     location_selector: str | None,
     description_selector: str | None = None,
+    validated_fallback: bool = False,
 ) -> VacancyRecord | None:
     record = make_record(
         config=config,
@@ -368,11 +401,14 @@ def make_record_with_fallback(
         location_selector=location_selector,
         description_selector=description_selector,
     )
-    if record is not None and card_method == "ADAPTIVE":
-        parsed = urlsplit(record.canonical_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            record = None
-    if record is not None or card_method != "ADAPTIVE":
+    fallback_enabled = card_method == "ADAPTIVE" or validated_fallback
+    if (
+        record is not None
+        and fallback_enabled
+        and not _adaptive_url_allowed(config, record.canonical_url)
+    ):
+        record = None
+    if record is not None or not fallback_enabled:
         return record
 
     fallback_title = next(
@@ -415,8 +451,7 @@ def make_record_with_fallback(
     )
     if record is None:
         return None
-    parsed = urlsplit(record.canonical_url)
-    return record if parsed.scheme in {"http", "https"} and parsed.netloc else None
+    return record if _adaptive_url_allowed(config, record.canonical_url) else None
 
 
 def adaptive_card_allowed(config: SourceConfig, card: object) -> bool:

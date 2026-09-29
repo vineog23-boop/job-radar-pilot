@@ -188,6 +188,41 @@ def test_remember_persists_only_sanitized_structure_and_relocates_job_cards(
     } == {"Java Júnior", "Estágio Backend", "Card sem link"}
 
 
+def test_remember_removes_origin_credentials_and_sensitive_class_tokens(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "adaptive.db"
+    page = Adaptor(
+        """
+        <main class="jobs-list session-private-42">
+          <article class="job-card layout-grid token-super-secret xQ9aB3cD7eF1gH5iJ8kL2mN6">
+            <h2>Java Junior</h2><a href="/jobs/1">Detalhes</a>
+          </article>
+        </main>
+        """,
+        url="https://collector-user:collector-password@jobs.example.com/search",
+    )
+
+    AdaptiveCardLocator(database).remember(page, "example", "article")
+
+    with sqlite3.connect(database) as connection:
+        origin, raw_fingerprint = connection.execute(
+            "SELECT origin, fingerprint FROM adaptive_fingerprints"
+        ).fetchone()
+    fingerprint = json.loads(raw_fingerprint)
+
+    assert origin == "https://jobs.example.com"
+    assert fingerprint["element"]["attributes"] == {
+        "class": "job-card layout-grid"
+    }
+    assert fingerprint["scope"] == [{"tag": "main", "classes": ["jobs-list"]}]
+    assert "collector-user" not in raw_fingerprint
+    assert "collector-password" not in raw_fingerprint
+    assert "private-42" not in raw_fingerprint
+    assert "super-secret" not in raw_fingerprint
+    assert "xQ9aB3cD7eF1gH5iJ8kL2mN6" not in raw_fingerprint
+
+
 def test_remember_once_per_execution_and_keeps_only_latest_between_executions(
     tmp_path: Path,
 ) -> None:
@@ -395,6 +430,32 @@ def test_relocated_card_with_non_http_link_is_not_promoted(
 
 
 @pytest.mark.parametrize(
+    "malicious_url",
+    (
+        "https://attacker.example/jobs/999",
+        "http://jobs.example.com/jobs/999",
+    ),
+)
+def test_relocated_card_outside_source_origin_is_not_promoted(
+    tmp_path: Path,
+    malicious_url: str,
+) -> None:
+    locator = AdaptiveCardLocator(tmp_path / "adaptive.db")
+    adapter = GenericListAdapter(locator=locator)
+    adapter.parse_page(_page("adaptive-v1.html"), _config())
+    changed = Adaptor(
+        f'<main><div class="jobs-list"><article class="job-entry"><h2 class="title-v1"><a href="{malicious_url}">Java suspeita</a></h2></article></div></main>',
+        url=URL,
+    )
+
+    parsed = adapter.parse_page(changed, _config())
+
+    assert parsed.card_method == "ADAPTIVE"
+    assert parsed.cards_observed == 1
+    assert parsed.records == ()
+
+
+@pytest.mark.parametrize(
     ("code", "selector", "valid_html", "expired_html"),
     (
         (
@@ -567,6 +628,38 @@ def test_gupy_checks_current_configured_layout_before_legacy_fingerprint(
     assert parsed.records[0].source_job_id == "current-1"
 
 
+def test_gupy_tries_current_layout_when_legacy_cards_produce_no_records() -> None:
+    config = SourceConfig(
+        code="gupy",
+        kind=SourceKind.GUPY,
+        start_url=URL,
+        enabled=True,
+        max_pages=1,
+        min_interval_seconds=1,
+        requires_auth=False,
+    )
+    page = Adaptor(
+        """
+        <main class="results">
+          <article data-testid="job-card" data-job-id="stale">
+            <h2>Componente legado sem link</h2>
+          </article>
+          <ul id="job-listing-results">
+            <li><a href="/job/current-1"><p>Acme</p><h2>Estágio Java</h2></a></li>
+          </ul>
+        </main>
+        """,
+        url=URL,
+    )
+
+    parsed = GupyAdapter().parse_page(page, config)
+
+    assert parsed.card_method == "CONFIGURED"
+    assert parsed.cards_observed == 1
+    assert [record.title for record in parsed.records] == ["Estágio Java"]
+    assert [record.source_job_id for record in parsed.records] == ["current-1"]
+
+
 def test_gupy_keeps_separate_legacy_and_current_fingerprints(
     tmp_path: Path,
 ) -> None:
@@ -677,3 +770,39 @@ def test_gupy_recovers_current_layout_with_current_field_contract(
     assert parsed.records[0].title == "Estágio Java"
     assert parsed.records[0].company == "Beta"
     assert parsed.records[0].source_job_id == "current-2"
+
+
+def test_gupy_adaptive_allows_declared_tenant_host_suffix(
+    tmp_path: Path,
+) -> None:
+    locator = AdaptiveCardLocator(tmp_path / "gupy-current.db")
+    config = SourceConfig(
+        code="gupy",
+        kind=SourceKind.GUPY,
+        start_url="https://portal.gupy.io/job-search/term%3Djava",
+        enabled=True,
+        max_pages=1,
+        min_interval_seconds=1,
+        requires_auth=False,
+    )
+    adapter = GupyAdapter(locator=locator)
+    adapter.parse_page(
+        Adaptor(
+            '<main><ul id="job-listing-results"><li><a href="https://acme.gupy.io/job/current-1"><p>Acme</p><h3>Java Junior</h3></a></li></ul></main>',
+            url=config.start_url,
+        ),
+        config,
+    )
+
+    parsed = adapter.parse_page(
+        Adaptor(
+            '<main><ul class="new-results"><li><a href="https://beta.gupy.io/job/current-2"><p>Beta</p><h3>Estágio Java</h3></a></li></ul></main>',
+            url=config.start_url,
+        ),
+        config,
+    )
+
+    assert parsed.card_method == "ADAPTIVE"
+    assert [record.canonical_url for record in parsed.records] == [
+        "https://beta.gupy.io/job/current-2"
+    ]

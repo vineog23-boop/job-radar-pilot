@@ -87,10 +87,14 @@ def _combine_query_results(
     )
     statuses = {result.status for result in results}
     complete = {CollectionStatus.SUCCESS, CollectionStatus.EMPTY}
-    if statuses <= complete and not warnings:
-        status = CollectionStatus.SUCCESS if records else CollectionStatus.EMPTY
-    elif statuses <= complete and records:
-        status = CollectionStatus.PARTIAL
+    if statuses <= complete:
+        status = (
+            CollectionStatus.PARTIAL
+            if warnings
+            else CollectionStatus.SUCCESS
+            if records
+            else CollectionStatus.EMPTY
+        )
     elif records:
         status = CollectionStatus.PARTIAL
     elif CollectionStatus.AUTH_REQUIRED in statuses:

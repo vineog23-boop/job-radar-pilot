@@ -97,6 +97,99 @@ def test_classify_keeps_remote_without_country_uncertain() -> None:
     assert "FIT:READY" not in classified.match_labels
 
 
+def test_classify_uses_brazilian_source_default_for_remote_without_country() -> None:
+    classified = classify(
+        _record(
+            title="Java Junior remoto",
+            location="Remoto",
+            workplace_model=WorkplaceModel.REMOTE,
+            remote_scope=None,
+        ),
+        PROFILE,
+        default_country="BR",
+    )
+
+    assert "LOCATION_MATCH:remote_brazil" in classified.match_labels
+    assert "LOCATION_UNCLEAR:remote_scope" not in classified.match_labels
+    assert "FIT:READY" in classified.match_labels
+
+
+def test_classify_does_not_use_brazilian_default_for_explicit_foreign_country() -> None:
+    classified = classify(
+        _record(
+            title="Java Junior remoto",
+            location="Remoto - Portugal",
+            workplace_model=WorkplaceModel.REMOTE,
+            remote_scope="Portugal",
+        ),
+        PROFILE,
+        default_country="BR",
+    )
+
+    assert "LOCATION_MATCH:remote_brazil" not in classified.match_labels
+    assert "LOCATION_UNCLEAR:remote_scope" in classified.match_labels
+    assert "FIT:READY" not in classified.match_labels
+
+
+def test_classify_does_not_use_brazilian_default_for_usa_alias() -> None:
+    classified = classify(
+        _record(
+            title="Java Junior remoto",
+            location="Remote - USA",
+            workplace_model=WorkplaceModel.REMOTE,
+            remote_scope="USA",
+        ),
+        PROFILE,
+        default_country="BR",
+    )
+
+    assert "LOCATION_MATCH:remote_brazil" not in classified.match_labels
+    assert "LOCATION_UNCLEAR:remote_scope" in classified.match_labels
+    assert "FIT:READY" not in classified.match_labels
+
+
+@pytest.mark.parametrize(
+    "foreign_country",
+    ("Suíça", "Noruega", "África do Sul", "Romênia"),
+)
+def test_classify_keeps_unknown_geographic_scope_unclear(
+    foreign_country: str,
+) -> None:
+    classified = classify(
+        _record(
+            title="Java Junior remoto",
+            location=f"Remote - {foreign_country}",
+            workplace_model=WorkplaceModel.REMOTE,
+            remote_scope=foreign_country,
+        ),
+        PROFILE,
+        default_country="BR",
+    )
+
+    assert "LOCATION_MATCH:remote_brazil" not in classified.match_labels
+    assert "LOCATION_UNCLEAR:remote_scope" in classified.match_labels
+    assert "FIT:READY" not in classified.match_labels
+
+
+@pytest.mark.parametrize("location", ("Recife, PE", "Vitória, ES"))
+def test_classify_does_not_confuse_brazilian_state_with_foreign_country_code(
+    location: str,
+) -> None:
+    classified = classify(
+        _record(
+            title="Java Junior remoto",
+            location=location,
+            workplace_model=WorkplaceModel.REMOTE,
+            remote_scope=None,
+        ),
+        PROFILE,
+        default_country="BR",
+    )
+
+    assert "LOCATION_MATCH:remote_brazil" in classified.match_labels
+    assert "FIT:READY" in classified.match_labels
+
+
 def test_classify_infers_remote_brazil_from_explicit_location_text() -> None:
     classified = classify(
         _record(
@@ -118,6 +211,61 @@ def test_classify_marks_missing_location_without_inventing_dates() -> None:
     assert "LOCATION_UNCLEAR:missing" in classified.match_labels
     assert classified.published_at is None
     assert classified.application_deadline is None
+
+
+@pytest.mark.parametrize(
+    "location",
+    (
+        "Brasil",
+        "Localidade: Diversas",
+        "São Paulo / SP A empresa aceita candidaturas de qualquer cidade do Brasil",
+    ),
+)
+def test_classify_keeps_generic_brazilian_location_unclear(location: str) -> None:
+    classified = classify(
+        _record(title="Desenvolvedor Java Junior", location=location),
+        PROFILE,
+    )
+
+    assert "LOCATION_UNCLEAR:multiple" in classified.match_labels
+    assert "LOCATION_MISMATCH:outside_scope" not in classified.match_labels
+    assert "FIT:EXCLUDE" not in classified.match_labels
+
+
+def test_classify_keeps_diversas_location_unclear() -> None:
+    classified = classify(
+        _record(title="Desenvolvedor Java Junior", location="Diversas"),
+        PROFILE,
+    )
+
+    assert "LOCATION_UNCLEAR:multiple" in classified.match_labels
+    assert "LOCATION_MISMATCH:outside_scope" not in classified.match_labels
+
+
+def test_classify_keeps_diversas_localidades_location_unclear() -> None:
+    classified = classify(
+        _record(
+            title="Desenvolvedor Java Junior",
+            location="Diversas localidades",
+        ),
+        PROFILE,
+    )
+
+    assert "LOCATION_UNCLEAR:multiple" in classified.match_labels
+    assert "LOCATION_MISMATCH:outside_scope" not in classified.match_labels
+
+
+def test_classify_keeps_any_brazilian_city_location_unclear() -> None:
+    classified = classify(
+        _record(
+            title="Desenvolvedor Java Junior",
+            location="Qualquer cidade do Brasil",
+        ),
+        PROFILE,
+    )
+
+    assert "LOCATION_UNCLEAR:multiple" in classified.match_labels
+    assert "LOCATION_MISMATCH:outside_scope" not in classified.match_labels
 
 
 def test_classify_does_not_match_java_inside_javascript() -> None:
@@ -542,6 +690,44 @@ def test_classify_matches_city_uf_scope_to_full_state_name() -> None:
 
     assert "LOCATION_MATCH:florianopolis-sc" in classified.match_labels
     assert "FIT:READY" in classified.match_labels
+
+
+@pytest.mark.parametrize("location", ("Florianóp... - SC", "Florianóp… - SC"))
+def test_classify_matches_truncated_city_prefix_with_compatible_state(
+    location: str,
+) -> None:
+    profile = SearchProfile(
+        positive_keywords=("java",),
+        seniority_levels=("junior",),
+        location_scopes=("florianopolis-sc",),
+    )
+
+    classified = classify(
+        _record(title="Desenvolvedor Java Junior", location=location),
+        profile,
+    )
+
+    assert "LOCATION_MATCH:florianopolis-sc" in classified.match_labels
+    assert "FIT:READY" in classified.match_labels
+
+
+@pytest.mark.parametrize("location", ("Florianóp...", "Florianóp... - SP"))
+def test_classify_does_not_promote_truncated_city_without_compatible_state(
+    location: str,
+) -> None:
+    profile = SearchProfile(
+        positive_keywords=("java",),
+        seniority_levels=("junior",),
+        location_scopes=("florianopolis-sc",),
+    )
+
+    classified = classify(
+        _record(title="Desenvolvedor Java Junior", location=location),
+        profile,
+    )
+
+    assert "LOCATION_MATCH:florianopolis-sc" not in classified.match_labels
+    assert "FIT:READY" not in classified.match_labels
 
 
 def test_classify_accepts_selected_entry_level_when_title_mentions_two_entry_levels() -> None:

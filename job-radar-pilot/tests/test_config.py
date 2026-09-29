@@ -47,6 +47,9 @@ def test_loads_complete_profile_and_sources() -> None:
     assert all(1 <= source.max_pages <= 100 for source in sources)
     assert all(source.min_interval_seconds >= 1 for source in sources)
     assert "linkedin" not in {source.code for source in sources}
+    assert {
+        source.code for source in sources if source.default_country == "BR"
+    } == {"indeed", "casado-dev"}
 
 
 def test_priority_sources_target_real_result_surfaces_and_current_selectors() -> None:
@@ -117,6 +120,49 @@ def test_rejects_non_https_start_url(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ConfigError, match="HTTPS"):
+        load_sources(config)
+
+
+def test_loads_optional_source_default_country(tmp_path: Path) -> None:
+    config = tmp_path / "sources.yaml"
+    config.write_text(
+        "sources:\n"
+        "  - code: example\n"
+        "    kind: dynamic\n"
+        "    start_url: https://example.com/jobs\n"
+        "    enabled: true\n"
+        "    max_pages: 1\n"
+        "    min_interval_seconds: 1\n"
+        "    requires_auth: false\n"
+        "    default_country: BR\n",
+        encoding="utf-8",
+    )
+
+    sources = load_sources(config)
+
+    assert sources[0].default_country == "BR"
+
+
+@pytest.mark.parametrize("default_country", ("BRA", "ZZ", "br"))
+def test_rejects_invalid_source_default_country_code(
+    tmp_path: Path,
+    default_country: str,
+) -> None:
+    config = tmp_path / "sources.yaml"
+    config.write_text(
+        "sources:\n"
+        "  - code: example\n"
+        "    kind: dynamic\n"
+        "    start_url: https://example.com/jobs\n"
+        "    enabled: true\n"
+        "    max_pages: 1\n"
+        "    min_interval_seconds: 1\n"
+        "    requires_auth: false\n"
+        f"    default_country: {default_country}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="default_country deve usar codigo ISO"):
         load_sources(config)
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 from typing import Protocol
 from urllib.parse import parse_qs, urlsplit
 
@@ -72,6 +73,17 @@ def job_id_from_url(url: str) -> str | None:
             return values[0]
     last_segment = parsed.path.rstrip("/").rsplit("/", 1)[-1]
     return last_segment or None
+
+
+def _clean_source_location(config: SourceConfig, location: str | None) -> str | None:
+    if config.code != "infojobs" or location is None:
+        return location
+    cleaned = re.sub(
+        r"\s*,?\s*\d+(?:[.,]\d+)?\s+Km de você\.\s*$",
+        "",
+        location,
+    ).rstrip(" ,")
+    return cleaned or None
 
 
 class PaginatedAdapter:
@@ -241,7 +253,10 @@ def make_record(
         title=title,
         company=extract_value(card, company_selector),
         description_summary=extract_value(card, description_selector),
-        location=extract_value(card, location_selector),
+        location=_clean_source_location(
+            config,
+            extract_value(card, location_selector),
+        ),
         observed_at=datetime.now(timezone.utc).isoformat(),
         evidence_snippets=(title,),
     )

@@ -604,6 +604,34 @@ def test_dynamic_uses_portal_specific_selectors_when_configured() -> None:
     assert parsed.records[0].location == "Remoto - Brasil"
 
 
+def test_infojobs_removes_distance_suffix_without_erasing_city_and_state() -> None:
+    url = "https://www.infojobs.com.br/vagas"
+    page = _html_page(
+        """
+        <article class="job">
+          <a class="title" href="/vaga-de-java__42.aspx">Java Junior</a>
+          <span class="location">São Paulo - SP , 0 Km de você.</span>
+        </article>
+        """,
+        url,
+    )
+    config = _config(
+        SourceKind.DYNAMIC,
+        code="infojobs",
+        url=url,
+        selectors={
+            "card": "article.job",
+            "title": ".title::all-text",
+            "url": ".title::attr(href)",
+            "location": ".location::all-text",
+        },
+    )
+
+    parsed = DynamicAdapter().parse_page(page, config)
+
+    assert parsed.records[0].location == "São Paulo - SP"
+
+
 def test_login_block_becomes_auth_handoff() -> None:
     url = "https://example.com/jobs"
     blocked = FetchResult(

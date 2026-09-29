@@ -14,6 +14,7 @@ sources:
     max_pages: 1
     min_interval_seconds: 3
     requires_auth: false
+    default_country: BR
     queries: [Java junior, estagio desenvolvimento, backend junior, spring boot junior, estagio java, desenvolvedor software junior]
   - code: estagiotrainee
     kind: generic
@@ -46,6 +47,7 @@ sources:
     max_pages: 10
     min_interval_seconds: 2
     requires_auth: false
+    default_country: BR
     queries: [java junior, backend junior, spring boot junior, estagio desenvolvimento, estagio tecnologia]
     selectors: {card: "a.cd-job", title: ".cd-job-title::all-text", url: "::attr(href)", company: ".cd-job-company::all-text", location: ".cd-job-meta > span:nth-of-type(2)::all-text", summary: ".cd-guide-desc::all-text", next: "a[rel='next']::attr(href)"}
   - code: ciee

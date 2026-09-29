@@ -33,6 +33,18 @@ _CONDITIONAL_ELIGIBILITY_MARKERS = (
     "exclusiva para mulheres",
     "exclusivo para mulheres",
 )
+_REMOTE_SCOPE_NEUTRAL_TERMS = (
+    "apenas",
+    "integralmente",
+    "modalidade",
+    "modelo",
+    "nacional",
+    "somente",
+    "totalmente",
+    "trabalho",
+    "vaga",
+    "work",
+)
 
 _WORKPLACE_MARKERS: tuple[tuple[WorkplaceModel, tuple[str, ...]], ...] = (
     (WorkplaceModel.HYBRID, ("hibrido", "hybrid")),
@@ -115,6 +127,45 @@ def _infer_workplaces(record: VacancyRecord) -> frozenset[WorkplaceModel]:
     )
 
 
+def _has_brazilian_location_context(normalized_scope: str) -> bool:
+    return any(
+        _contains_term(normalized_scope, reference)
+        for reference in (
+            *_BRAZIL_STATE_UFS.keys(),
+            *_BRAZIL_STATE_UFS.values(),
+        )
+    )
+
+
+def _brazilian_default_applies_to_remote_scope(normalized_scope: str) -> bool:
+    if not normalized_scope or _has_brazilian_location_context(normalized_scope):
+        return True
+
+    remaining = normalized_scope
+    remote_markers = next(
+        markers
+        for model, markers in _WORKPLACE_MARKERS
+        if model is WorkplaceModel.REMOTE
+    )
+    for term in (*remote_markers, "teletrabalho", *_REMOTE_SCOPE_NEUTRAL_TERMS):
+        parts = [re.escape(part) for part in re.split(r"[\s-]+", term) if part]
+        pattern = r"[\s-]+".join(parts)
+        remaining = re.sub(rf"(?<!\w){pattern}(?!\w)", " ", remaining)
+    return not re.sub(r"[\W\d_]+", "", remaining)
+
+
+def _is_generic_brazilian_location(normalized_location: str) -> bool:
+    return normalized_location in {
+        "brasil",
+        "diversas",
+        "diversas localidades",
+        "localidade: diversas",
+        "qualquer cidade do brasil",
+    } or (
+        "aceita candidaturas de qualquer cidade do brasil" in normalized_location
+    )
+
+
 def _matches_location_scope(normalized_location: str, scope: str) -> bool:
     normalized_scope = _normalize(scope.replace("-", " "))
     if not normalized_scope or normalized_scope == "remoto brasil":
@@ -134,12 +185,22 @@ def _matches_location_scope(normalized_location: str, scope: str) -> bool:
                 )
             )
         state_pattern = "(?:" + "|".join(state_patterns) + ")"
-        return bool(
-            re.search(
-                rf"(?<!\w){city_pattern}(?:\s*[,/\-]\s*|\s+){state_pattern}(?!\w)",
-                normalized_location,
-            )
+        if re.search(
+            rf"(?<!\w){city_pattern}(?:\s*[,/\-]\s*|\s+){state_pattern}(?!\w)",
+            normalized_location,
+        ):
+            return True
+        truncated_city = re.search(
+            rf"(?:^|[;,|]\s*)(?P<prefix>[a-z][a-z\s-]{{2,}}?)"
+            rf"(?:\.{{3}}|…)(?:\s*[,/\-]\s*|\s+){state_pattern}(?!\w)",
+            normalized_location,
         )
+        if truncated_city is None:
+            return False
+        city_prefix = " ".join(
+            truncated_city.group("prefix").replace("-", " ").split()
+        )
+        return city.startswith(city_prefix)
 
     state = _BRAZIL_STATE_UFS.get(normalized_scope)
     if state is None and re.fullmatch(r"[a-z]{2}", normalized_scope):
@@ -162,7 +223,12 @@ def _matches_location_scope(normalized_location: str, scope: str) -> bool:
     return _contains_term(normalized_location, normalized_scope)
 
 
-def classify(record: VacancyRecord, profile: SearchProfile) -> VacancyRecord:
+def classify(
+    record: VacancyRecord,
+    profile: SearchProfile,
+    *,
+    default_country: str | None = None,
+) -> VacancyRecord:
     searchable_text = _normalize(
         " ".join(
             part
@@ -238,12 +304,21 @@ def classify(record: VacancyRecord, profile: SearchProfile) -> VacancyRecord:
     )
     if is_remote:
         normalized_scope = _normalize(record.remote_scope or record.location)
-        if _contains_term(normalized_scope, "brasil") or _contains_term(normalized_scope, "brazil"):
+        if (
+            _contains_term(normalized_scope, "brasil")
+            or _contains_term(normalized_scope, "brazil")
+            or (
+                default_country == "BR"
+                and _brazilian_default_applies_to_remote_scope(normalized_scope)
+            )
+        ):
             labels.add("LOCATION_MATCH:remote_brazil")
         else:
             labels.add("LOCATION_UNCLEAR:remote_scope")
     if not normalized_location and not is_remote:
         labels.add("LOCATION_UNCLEAR:missing")
+    elif _is_generic_brazilian_location(normalized_location):
+        labels.add("LOCATION_UNCLEAR:multiple")
     elif normalized_location:
         for scope in profile.location_scopes:
             if _matches_location_scope(normalized_location, scope):

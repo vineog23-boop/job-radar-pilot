@@ -185,7 +185,17 @@ class JobRadarPipeline:
                 for record in result.records
             )
 
-        classified = tuple(classify(record, self._profile) for record in raw_records)
+        default_countries = {
+            source.code: source.default_country for source in selected
+        }
+        classified = tuple(
+            classify(
+                record,
+                self._profile,
+                default_country=default_countries.get(record.source),
+            )
+            for record in raw_records
+        )
         deduplicated = deduplicate(classified)
         return PipelineResult(
             started_at=started_at,

@@ -49,6 +49,7 @@ class SourceConfig:
     requires_auth: bool
     selectors: Mapping[str, str] = field(default_factory=dict)
     queries: tuple[str, ...] = ()
+    default_country: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

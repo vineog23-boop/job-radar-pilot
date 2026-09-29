@@ -14,6 +14,7 @@ from job_radar.models import (
     SourceKind,
     SourceRunResult,
     VacancyRecord,
+    WorkplaceModel,
 )
 from job_radar.pipeline import JobRadarPipeline
 
@@ -402,6 +403,28 @@ def test_pipeline_propagates_partial_source_status_to_its_records() -> None:
     result = pipeline.run()
 
     assert result.records[0].collection_status is CollectionStatus.PARTIAL
+
+
+def test_pipeline_propagates_source_default_country_to_classifier() -> None:
+    source = replace(_source("brazilian"), default_country="BR")
+    record = replace(
+        _record("brazilian", "https://ats.example.com/jobs/remote"),
+        location="Remoto",
+        workplace_model=WorkplaceModel.REMOTE,
+    )
+    pipeline = JobRadarPipeline(
+        (source,),
+        PROFILE,
+        fetcher=object(),
+        adapter_factory=lambda config: StaticAdapter(
+            SourceRunResult(config.code, CollectionStatus.SUCCESS, (record,))
+        ),
+    )
+
+    result = pipeline.run()
+
+    assert "LOCATION_MATCH:remote_brazil" in result.records[0].match_labels
+    assert "FIT:READY" in result.records[0].match_labels
 
 
 class HtmlFetcher:

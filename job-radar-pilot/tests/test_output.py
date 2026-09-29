@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -101,6 +102,36 @@ def test_missing_git_metadata_does_not_abort_outputs(
 
     assert manifest.jsonl_path.exists()
     assert manifest.csv_path.exists()
+    assert report["upstream_commit"] == "desconhecido"
+
+
+def test_failed_git_command_does_not_abort_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failed_git(*args, **kwargs):
+        raise subprocess.CalledProcessError(128, "git")
+
+    monkeypatch.setattr("job_radar.output.subprocess.run", failed_git)
+
+    manifest = write_outputs(_result(), tmp_path)
+    report = json.loads(manifest.report_path.read_text(encoding="utf-8"))
+
+    assert manifest.jsonl_path.exists()
+    assert manifest.csv_path.exists()
+    assert report["upstream_commit"] == "desconhecido"
+
+
+def test_empty_git_commit_is_reported_as_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "job_radar.output.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, stdout=""),
+    )
+
+    manifest = write_outputs(_result(), tmp_path)
+    report = json.loads(manifest.report_path.read_text(encoding="utf-8"))
+
     assert report["upstream_commit"] == "desconhecido"
 
 

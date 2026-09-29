@@ -690,7 +690,7 @@ def test_parallel_completion_is_reordered_before_classification_and_callback_is_
             else:
                 second_finished.set()
             record = replace(
-                _record(config.code, f"https://ats.example.com/{config.code}"),
+                _record(config.code, f"https://ats.example.com/{config.code}", title=f"Java Junior {config.code}"),
                 location="Remoto",
                 workplace_model=WorkplaceModel.REMOTE,
             )

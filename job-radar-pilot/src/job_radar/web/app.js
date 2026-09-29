@@ -177,6 +177,12 @@ function trackingCell(job) {
   return cell;
 }
 
+function alsoSeenIn(job) {
+  return (job.match_labels ?? [])
+    .filter((label) => String(label).startsWith("ALSO_SEEN_IN:"))
+    .map((label) => String(label).slice("ALSO_SEEN_IN:".length));
+}
+
 function publishedTime(job) {
   const time = Date.parse(job.published_at ?? "");
   return Number.isNaN(time) ? -Infinity : time;
@@ -212,6 +218,7 @@ function renderTable() {
         [
           (job.technologies ?? []).slice(0, 4).join(" · ") || "Tecnologias não informadas",
           publishedLabel(job) && `publicada em ${publishedLabel(job)}`,
+          alsoSeenIn(job).length && `também em ${alsoSeenIn(job).join(", ")}`,
         ].filter(Boolean).join(" — ")
       )
     );

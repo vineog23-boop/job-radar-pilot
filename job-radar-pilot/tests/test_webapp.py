@@ -973,7 +973,7 @@ def test_dashboard_browser_sorts_by_published_date_and_shows_it(tmp_path) -> Non
             "title": "Java recente",
             "canonical_url": "https://example.com/recente",
             "source": "example",
-            "match_labels": ["FIT:CONDITIONAL", "FIT_SCORE:2"],
+            "match_labels": ["ALSO_SEEN_IN:indeed", "FIT:CONDITIONAL", "FIT_SCORE:2"],
             "published_at": "2026-09-28T12:00:00+00:00",
         },
     ]
@@ -1006,6 +1006,7 @@ def test_dashboard_browser_sorts_by_published_date_and_shows_it(tmp_path) -> Non
 
             recent_row = page.locator("#jobs-table-body tr").filter(has_text="Java recente")
             assert "28/09/2026" in recent_row.inner_text()
+            assert "também em indeed" in recent_row.inner_text()
             browser.close()
     finally:
         server.shutdown()

@@ -472,7 +472,16 @@ def classify(
         else:
             fit = "AMBIGUOUS"
 
+    workplace_model = record.workplace_model
+    if workplace_model is WorkplaceModel.UNKNOWN and len(inferred_workplaces) == 1:
+        (workplace_model,) = inferred_workplaces
+        labels.add(f"WORKPLACE_INFERRED:{workplace_model.value}")
+
     labels.add(f"FIT:{fit}")
     labels.add(f"FIT_SCORE:{score}")
 
-    return replace(record, match_labels=tuple(sorted(labels)))
+    return replace(
+        record,
+        match_labels=tuple(sorted(labels)),
+        workplace_model=workplace_model,
+    )

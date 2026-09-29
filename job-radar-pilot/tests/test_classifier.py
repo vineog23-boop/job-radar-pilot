@@ -945,3 +945,63 @@ def test_pl_sql_is_not_treated_as_pleno_in_junior_title() -> None:
 
     assert "SENIORITY_MATCH:junior" in labels
     assert not any(label.startswith("SENIORITY_MISMATCH:") for label in labels)
+
+
+@pytest.mark.parametrize(
+    ("title", "location", "summary", "expected"),
+    [
+        ("Dev Java", "CLT • Senior • Home Office", None, WorkplaceModel.REMOTE),
+        ("Dev Java", "Remoto (Sede em Campinas, SP)", None, WorkplaceModel.REMOTE),
+        ("Dev Java", "Presencial (39)", None, WorkplaceModel.ONSITE),
+        ("Dev Java", "São Paulo, SP", "Modelo híbrido, 3 dias no escritório", WorkplaceModel.HYBRID),
+        ("Dev Java", "São Paulo, SP", "Híbrido ou totalmente remoto", WorkplaceModel.UNKNOWN),
+        ("Dev Java", "São Paulo, SP", None, WorkplaceModel.UNKNOWN),
+    ],
+)
+def test_classify_fills_workplace_model_only_with_unambiguous_evidence(
+    title: str, location: str, summary: str | None, expected: WorkplaceModel
+) -> None:
+    record = _record(
+        title=title,
+        location=location,
+        description_summary=summary,
+        workplace_model=WorkplaceModel.UNKNOWN,
+    )
+
+    classified = classify(record, ENTRY_PROFILE, default_country="BR")
+
+    assert classified.workplace_model is expected
+    inferred = "WORKPLACE_INFERRED:" + expected.value
+    assert (inferred in classified.match_labels) is (expected is not WorkplaceModel.UNKNOWN)
+
+
+def test_classify_keeps_workplace_model_declared_by_source() -> None:
+    record = _record(
+        workplace_model=WorkplaceModel.HYBRID,
+        description_summary="Vaga 100% remota",
+    )
+
+    classified = classify(record, ENTRY_PROFILE, default_country="BR")
+
+    assert classified.workplace_model is WorkplaceModel.HYBRID
+    assert not any(label.startswith("WORKPLACE_INFERRED:") for label in classified.match_labels)
+
+
+def test_inferred_workplace_counts_toward_workplace_confirmed() -> None:
+    profile = SearchProfile(
+        positive_keywords=("java",),
+        seniority_levels=("junior",),
+        location_scopes=("remoto-brasil",),
+        workplace_models=(WorkplaceModel.REMOTE,),
+    )
+    record = _record(
+        title="Desenvolvedor Java Júnior",
+        location="Brasil",
+        description_summary="Trabalho remoto",
+        workplace_model=WorkplaceModel.UNKNOWN,
+    )
+
+    labels = classify(record, profile, default_country="BR").match_labels
+
+    assert "WORKPLACE_MATCH:REMOTE" in labels
+    assert "FIT:READY" in labels

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 import yaml
 
-from job_radar.models import SearchProfile, SourceConfig, SourceKind
+from job_radar.models import BrowserOptions, SearchProfile, SourceConfig, SourceKind
 
 
 class ConfigError(ValueError):
@@ -33,9 +34,15 @@ _OPTIONAL_SOURCE_KEYS = {
     "queries",
     "default_country",
     "adaptive",
+    "browser",
 }
 _SOURCE_KEYS = _REQUIRED_SOURCE_KEYS | _OPTIONAL_SOURCE_KEYS
+_BROWSER_KEYS = {"disable_resources", "blocked_domains"}
 _REQUIRED_GENERIC_SELECTORS = {"card", "title", "url"}
+_HOSTNAME_PATTERN = re.compile(
+    r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*",
+    re.IGNORECASE,
+)
 _ISO_ALPHA_2_COUNTRY_CODES = frozenset(
     """
     AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ
@@ -89,6 +96,44 @@ def load_profile(path: Path) -> SearchProfile:
         excluded_terms=tuple(
             item.strip().casefold() for item in raw.get("excluded_terms", [])
         ),
+    )
+
+
+def _load_browser_options(value: Any, index: int) -> BrowserOptions:
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"sources[{index}].browser deve ser um objeto.")
+    unknown = set(value) - _BROWSER_KEYS
+    if unknown:
+        raise ConfigError(
+            f"sources[{index}].browser invalido; chaves desconhecidas={sorted(unknown)}"
+        )
+
+    disable_resources = value.get("disable_resources", False)
+    if not isinstance(disable_resources, bool):
+        raise ConfigError(
+            f"sources[{index}].browser.disable_resources deve ser booleano."
+        )
+
+    blocked_domains = value.get("blocked_domains", [])
+    if not isinstance(blocked_domains, list):
+        raise ConfigError(
+            f"sources[{index}].browser.blocked_domains deve ser uma lista."
+        )
+    normalized_domains: list[str] = []
+    for domain_index, domain in enumerate(blocked_domains):
+        field_name = (
+            f"sources[{index}].browser.blocked_domains[{domain_index}]"
+        )
+        if not isinstance(domain, str):
+            raise ConfigError(f"{field_name} deve ser um hostname valido.")
+        normalized = domain.strip().casefold()
+        if not normalized or _HOSTNAME_PATTERN.fullmatch(normalized) is None:
+            raise ConfigError(f"{field_name} deve ser um hostname valido.")
+        normalized_domains.append(normalized)
+
+    return BrowserOptions(
+        disable_resources=disable_resources,
+        blocked_domains=tuple(normalized_domains),
     )
 
 
@@ -156,6 +201,8 @@ def _load_source(item: Any, index: int) -> SourceConfig:
     if not isinstance(adaptive, bool):
         raise ConfigError(f"sources[{index}].adaptive deve ser booleano.")
 
+    browser = _load_browser_options(item.get("browser", {}), index)
+
     return SourceConfig(
         code=code,
         kind=kind,
@@ -168,6 +215,7 @@ def _load_source(item: Any, index: int) -> SourceConfig:
         queries=tuple(query.strip() for query in queries_raw),
         default_country=default_country,
         adaptive=adaptive,
+        browser=browser,
     )
 
 

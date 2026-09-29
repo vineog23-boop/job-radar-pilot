@@ -29,6 +29,12 @@ class WorkplaceModel(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class BrowserOptions:
+    disable_resources: bool = False
+    blocked_domains: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class SearchProfile:
     positive_keywords: tuple[str, ...]
     seniority_levels: tuple[str, ...]
@@ -51,6 +57,7 @@ class SourceConfig:
     queries: tuple[str, ...] = ()
     default_country: str | None = None
     adaptive: bool = True
+    browser: BrowserOptions = field(default_factory=BrowserOptions)
 
 
 @dataclass(frozen=True, slots=True)

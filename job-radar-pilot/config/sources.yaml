@@ -145,4 +145,5 @@ sources:
     min_interval_seconds: 3
     requires_auth: false
     adaptive: true
+    browser: {disable_resources: true, blocked_domains: []}
     selectors: {card: ".js_vacanciesGridFragment > .js_rowCard", id: ".js_vacancyLoad::attr(data-id)", title: ".js_vacancyTitle::all-text", url: "a[href*='/vaga-de-'][href*='__']::attr(href)", company: ".d-flex.align-items-baseline .text-body a::all-text", location: ".d-flex.align-items-baseline + .mb-8::all-text", summary: "::all-text"}

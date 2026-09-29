@@ -8,6 +8,7 @@ import pytest
 from scrapling.engines.toolbelt.custom import Response
 
 import job_radar.fetching as fetching
+import job_radar.models as models
 from job_radar.fetching import BlockReason, FetchPolicy, detect_block
 from job_radar.models import CollectionStatus, SourceConfig, SourceKind
 
@@ -505,8 +506,124 @@ def test_default_browser_fetch_uses_retry_count_accepted_by_scrapling(
             "network_idle": False,
             "timeout": 30_000,
             "retries": 1,
+            "locale": fetching.BROWSER_LOCALE,
+            "timezone_id": fetching.BROWSER_TIMEZONE,
+            "disable_resources": False,
+            "blocked_domains": set(),
+            "block_ads": False,
         },
     }
+
+
+def test_default_browser_fetch_applies_brazil_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scrapling.fetchers import DynamicFetcher
+
+    captured: dict[str, object] = {}
+
+    def fake_fetch(cls: type, url: str, **kwargs: object) -> FakeResponse:
+        captured.update(kwargs)
+        return FakeResponse(url=url)
+
+    monkeypatch.setattr(DynamicFetcher, "fetch", classmethod(fake_fetch))
+
+    FetchPolicy._default_browser_fetch("https://example.com/jobs")
+
+    assert captured["locale"] == fetching.BROWSER_LOCALE == "pt-BR"
+    assert captured["timezone_id"] == fetching.BROWSER_TIMEZONE == "America/Sao_Paulo"
+
+
+def test_default_http_transports_send_accept_language(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scrapling.fetchers import Fetcher, FetcherSession
+
+    session_kwargs: dict[str, object] = {}
+    direct_kwargs: dict[str, object] = {}
+    robots_kwargs: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        FetcherSession,
+        "__init__",
+        lambda self, **kwargs: session_kwargs.update(kwargs),
+    )
+
+    def fake_get(cls: type, url: str, **kwargs: object) -> FakeResponse:
+        target = robots_kwargs if url.endswith("/robots.txt") else direct_kwargs
+        target.update(kwargs)
+        return FakeResponse(text="User-agent: *\nAllow: /\n", url=url)
+
+    monkeypatch.setattr(Fetcher, "get", classmethod(fake_get))
+
+    fetching._default_http_session_factory()
+    FetchPolicy._default_http_get("https://example.com/jobs")
+    FetchPolicy._default_robots_allowed("https://example.com/jobs")
+
+    expected = {"Accept-Language": fetching.HTTP_ACCEPT_LANGUAGE}
+    assert session_kwargs["headers"] == expected
+    assert direct_kwargs["headers"] == expected
+    assert robots_kwargs["headers"] == expected
+
+
+def test_browser_session_keeps_resource_options_isolated_per_source() -> None:
+    session = FakeSession()
+    factory_kwargs: list[dict[str, object]] = []
+
+    def factory(**kwargs: object) -> FakeSession:
+        factory_kwargs.append(dict(kwargs))
+        return session
+
+    optimized = replace(
+        _source(SourceKind.DYNAMIC),
+        code="optimized",
+        browser=models.BrowserOptions(
+            disable_resources=True,
+            blocked_domains=("ads.example.com",),
+        ),
+    )
+    default = replace(
+        _source(SourceKind.DYNAMIC),
+        code="default",
+        browser=models.BrowserOptions(),
+    )
+
+    with FetchPolicy(
+        browser_session_factory=factory,
+        robots_allowed=lambda url: True,
+        sleep=lambda seconds: None,
+    ) as policy:
+        assert policy.fetch(optimized.start_url, optimized).status is CollectionStatus.SUCCESS
+        assert policy.fetch(default.start_url, default).status is CollectionStatus.SUCCESS
+
+    assert len(factory_kwargs) == 1
+    assert factory_kwargs[0]["locale"] == fetching.BROWSER_LOCALE
+    assert factory_kwargs[0]["timezone_id"] == fetching.BROWSER_TIMEZONE
+    assert factory_kwargs[0]["block_ads"] is False
+    assert session.fetch_kwargs[0]["disable_resources"] is True
+    assert session.fetch_kwargs[0]["blocked_domains"] == {"ads.example.com"}
+    assert "disable_resources" not in session.fetch_kwargs[1]
+    assert "blocked_domains" not in session.fetch_kwargs[1]
+
+
+def test_fetch_policy_true_block_ads_reaches_browser_session() -> None:
+    session = FakeSession()
+    factory_kwargs: list[dict[str, object]] = []
+
+    def factory(**kwargs: object) -> FakeSession:
+        factory_kwargs.append(dict(kwargs))
+        return session
+
+    with FetchPolicy(
+        block_ads=True,
+        browser_session_factory=factory,
+        robots_allowed=lambda url: True,
+        sleep=lambda seconds: None,
+    ) as policy:
+        result = policy.fetch("https://example.com/jobs", _source(SourceKind.DYNAMIC))
+
+    assert result.status is CollectionStatus.SUCCESS
+    assert factory_kwargs[0]["block_ads"] is True
 
 
 def test_default_robots_policy_reads_plain_text_response_body(
@@ -663,6 +780,9 @@ def test_authenticated_collection_reuses_source_profile_and_closes_browser(
             "timeout": 30_000,
             "retries": 1,
             "user_data_dir": str(tmp_path / "nube"),
+            "locale": fetching.BROWSER_LOCALE,
+            "timezone_id": fetching.BROWSER_TIMEZONE,
+            "block_ads": False,
         }
     ]
     assert session.urls == [
@@ -761,6 +881,9 @@ def test_bootstrap_auth_opens_headful_profile_waits_and_closes(
             "timeout": 30_000,
             "retries": 1,
             "user_data_dir": str(tmp_path / "nube"),
+            "locale": fetching.BROWSER_LOCALE,
+            "timezone_id": fetching.BROWSER_TIMEZONE,
+            "block_ads": False,
         }
     ]
     assert len(events) == 1
@@ -1005,6 +1128,9 @@ def test_public_source_reuses_profile_created_by_auth(tmp_path: Path) -> None:
             "timeout": 30_000,
             "retries": 1,
             "user_data_dir": str(tmp_path / "infojobs"),
+            "locale": fetching.BROWSER_LOCALE,
+            "timezone_id": fetching.BROWSER_TIMEZONE,
+            "block_ads": False,
         }
     ]
     assert collection_session.urls == [source.start_url]

@@ -12,7 +12,14 @@ from urllib.parse import urlsplit, urlunsplit
 import yaml
 
 from job_radar.config import ConfigError, load_profile, load_sources
-from job_radar.fetching import FetchPolicy, ProfileInUseError, bootstrap_auth
+from job_radar.fetching import (
+    BROWSER_LOCALE,
+    BROWSER_TIMEZONE,
+    HTTP_ACCEPT_LANGUAGE,
+    FetchPolicy,
+    ProfileInUseError,
+    bootstrap_auth,
+)
 from job_radar.models import CollectionStatus, SourceKind
 from job_radar.output import validate_jsonl, write_outputs
 from job_radar.pipeline import JobRadarPipeline
@@ -111,7 +118,15 @@ def _collect(args: argparse.Namespace) -> int:
         )
         for source in selected:
             auth = "auth-manual" if source.requires_auth else "publica"
-            print(f"- {source.code}: {source.kind.value}, {auth}, max_pages={source.max_pages}")
+            blocked_domains = ",".join(source.browser.blocked_domains) or "-"
+            print(
+                f"- {source.code}: {source.kind.value}, {auth}, "
+                f"max_pages={source.max_pages}, locale={BROWSER_LOCALE}, "
+                f"timezone={BROWSER_TIMEZONE}, "
+                f"accept_language={HTTP_ACCEPT_LANGUAGE}, block_ads=false, "
+                f"disable_resources={str(source.browser.disable_resources).lower()}, "
+                f"blocked_domains={blocked_domains}"
+            )
         return 0
 
     with FetchPolicy() as fetcher:

@@ -404,6 +404,12 @@ def test_dry_run_validates_all_sources_without_fetching(
     assert "companhia-de-estagios" in output
     assert "15 fontes habilitadas" in output
     assert "16 fontes configuradas" in output
+    assert "locale=pt-BR" in output
+    assert "timezone=America/Sao_Paulo" in output
+    assert "accept_language=pt-BR,pt;q=0.9,en;q=0.6" in output
+    assert "block_ads=false" in output
+    assert "disable_resources=false" in output
+    assert "blocked_domains=-" in output
 
 
 def test_collect_accepts_repeated_source_filters(

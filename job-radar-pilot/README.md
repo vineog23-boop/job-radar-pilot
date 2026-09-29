@@ -75,7 +75,36 @@ Nada é instalado no Python global.
 ```
 
 O dry run valida `config/profile.yaml` e `config/sources.yaml`, lista as fontes
-habilitadas e não cria `FetchPolicy` nem realiza requisições.
+habilitadas com as opções efetivas de navegador/HTTP e não cria `FetchPolicy`
+nem realiza requisições.
+
+## Contexto do navegador e recursos por fonte
+
+As coletas usam locale `pt-BR`, timezone `America/Sao_Paulo` e o cabeçalho HTTP
+`Accept-Language: pt-BR,pt;q=0.9,en;q=0.6`. Esse contexto melhora a consistência
+de idioma e formatação, mas **não é evidência geográfica**: ele não preenche
+`default_country` nem transforma uma vaga remota em vaga no Brasil. Somente
+Indeed e Casa do Dev preservam `default_country: BR` por evidência própria da
+fonte.
+
+Cada fonte pode declarar opções aditivas de navegador:
+
+```yaml
+browser:
+  disable_resources: false
+  blocked_domains: []
+```
+
+`disable_resources` e `blocked_domains` valem apenas para o request daquela
+fonte. Domínios devem ser hostnames simples, sem esquema, porta, caminho ou
+wildcard. A ausência de `browser` equivale aos valores acima; o bloqueio de
+anúncios também permanece desligado (`block_ads=false`). Ative bloqueios somente
+depois de comparar a coleta com e sem a opção e confirmar que status, motivo de
+parada, páginas, URLs únicas, campos e completude não regrediram.
+
+O InfoJobs é a única exceção configurada: `disable_resources: true` foi mantido
+após uma comparação controlada sem regressão nesses indicadores. Os domínios
+bloqueados continuam vazios.
 
 ## Coletar
 

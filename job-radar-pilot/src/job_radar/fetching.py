@@ -17,6 +17,13 @@ from job_radar.models import CollectionStatus, SourceConfig, SourceKind
 
 
 _PROFILE_READY_MARKER = ".job-radar.auth-ready"
+BROWSER_LOCALE = "pt-BR"
+BROWSER_TIMEZONE = "America/Sao_Paulo"
+HTTP_ACCEPT_LANGUAGE = "pt-BR,pt;q=0.9,en;q=0.6"
+
+
+def _http_headers() -> dict[str, str]:
+    return {"Accept-Language": HTTP_ACCEPT_LANGUAGE}
 
 
 class ResponseLike(Protocol):
@@ -114,7 +121,12 @@ def _profile_directory(source_code: str, profile_root: Path | None = None) -> Pa
 def _default_http_session_factory() -> ContextManager[Any]:
     from scrapling.fetchers import FetcherSession
 
-    return FetcherSession(timeout=30, retries=1, stealthy_headers=True)
+    return FetcherSession(
+        timeout=30,
+        retries=1,
+        stealthy_headers=True,
+        headers=_http_headers(),
+    )
 
 
 def _default_browser_session_factory(**kwargs: object) -> ContextManager[Any]:
@@ -366,6 +378,9 @@ def bootstrap_auth(
         "timeout": 30_000,
         "retries": 1,
         "user_data_dir": str(profile_dir),
+        "locale": BROWSER_LOCALE,
+        "timezone_id": BROWSER_TIMEZONE,
+        "block_ads": False,
     }
     with _ProfileLock(profile_dir):
         with factory(**options) as session:
@@ -395,6 +410,7 @@ class FetchPolicy:
         sleep: Callable[[float], None] = system_sleep,
         monotonic: Callable[[], float] = system_monotonic,
         max_attempts: int = 2,
+        block_ads: bool = False,
     ) -> None:
         self._http_get = http_get
         self._browser_fetch = browser_fetch
@@ -407,6 +423,7 @@ class FetchPolicy:
         self._sleep = sleep
         self._monotonic = monotonic
         self._max_attempts = max_attempts
+        self._block_ads = block_ads
         self._last_request_at: dict[str, float] = {}
         self._robots_policies: dict[
             tuple[str, str], Callable[[str], bool]
@@ -437,7 +454,13 @@ class FetchPolicy:
     def _default_http_get(url: str) -> ResponseLike:
         from scrapling.fetchers import Fetcher
 
-        return Fetcher.get(url, timeout=30, retries=0, stealthy_headers=True)
+        return Fetcher.get(
+            url,
+            timeout=30,
+            retries=0,
+            stealthy_headers=True,
+            headers=_http_headers(),
+        )
 
     @staticmethod
     def _default_browser_fetch(url: str) -> ResponseLike:
@@ -449,6 +472,11 @@ class FetchPolicy:
             network_idle=False,
             timeout=30_000,
             retries=1,
+            locale=BROWSER_LOCALE,
+            timezone_id=BROWSER_TIMEZONE,
+            disable_resources=False,
+            blocked_domains=set(),
+            block_ads=False,
         )
 
     @staticmethod
@@ -463,6 +491,7 @@ class FetchPolicy:
                 timeout=10,
                 retries=0,
                 stealthy_headers=True,
+                headers=_http_headers(),
             )
         except Exception:
             return lambda target_url: False
@@ -533,6 +562,9 @@ class FetchPolicy:
             "network_idle": False,
             "timeout": 30_000,
             "retries": 1,
+            "locale": BROWSER_LOCALE,
+            "timezone_id": BROWSER_TIMEZONE,
+            "block_ads": self._block_ads,
         }
         with ExitStack() as opening:
             if profile_dir is not None:
@@ -567,6 +599,10 @@ class FetchPolicy:
             "network_idle": False,
             "timeout": request_timeout,
         }
+        if source.browser.disable_resources:
+            fetch_options["disable_resources"] = True
+        if source.browser.blocked_domains:
+            fetch_options["blocked_domains"] = set(source.browser.blocked_domains)
         if wait_selector:
             fetch_options["wait_selector"] = wait_selector
         if source.kind is SourceKind.GUPY:

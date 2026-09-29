@@ -21,6 +21,9 @@ class SearchPreferences:
     seniority_levels: tuple[str, ...]
     workplace_models: tuple[WorkplaceModel, ...]
     location_scopes: tuple[str, ...]
+    # Vazio = usar positive_keywords/excluded_terms do profile.yaml.
+    technologies: tuple[str, ...] = ()
+    excluded_terms: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         search_terms = _validated_texts(
@@ -45,14 +48,30 @@ class SearchPreferences:
         object.__setattr__(self, "seniority_levels", seniority_levels)
         object.__setattr__(self, "workplace_models", workplace_models)
         object.__setattr__(self, "location_scopes", location_scopes)
+        for field_name in ("technologies", "excluded_terms"):
+            object.__setattr__(
+                self,
+                field_name,
+                _validated_texts(
+                    getattr(self, field_name),
+                    field=field_name,
+                    minimum=0,
+                    maximum=_MAX_FILTER_TERMS,
+                    item_limit=60,
+                    casefold=True,
+                ),
+            )
 
 
-_FIELDS = {
+_REQUIRED_FIELDS = {
     "search_terms",
     "seniority_levels",
     "workplace_models",
     "location_scopes",
 }
+_OPTIONAL_FIELDS = {"technologies", "excluded_terms"}
+_FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
+_MAX_FILTER_TERMS = 40
 _SENIORITY_LEVELS = {"estagio", "junior"}
 _WORKPLACE_MODELS = {
     WorkplaceModel.REMOTE,
@@ -147,7 +166,7 @@ def preferences_from_dict(payload: Mapping[str, object]) -> SearchPreferences:
     if not isinstance(payload, Mapping):
         raise PreferencesError("Preferencias devem ser um objeto JSON.")
     unknown = set(payload) - _FIELDS
-    missing = _FIELDS - set(payload)
+    missing = _REQUIRED_FIELDS - set(payload)
     if unknown or missing:
         raise PreferencesError(
             "Preferencias com chaves desconhecidas="
@@ -158,6 +177,8 @@ def preferences_from_dict(payload: Mapping[str, object]) -> SearchPreferences:
         seniority_levels=payload["seniority_levels"],  # type: ignore[arg-type]
         workplace_models=payload["workplace_models"],  # type: ignore[arg-type]
         location_scopes=payload["location_scopes"],  # type: ignore[arg-type]
+        technologies=payload.get("technologies", ()),  # type: ignore[arg-type]
+        excluded_terms=payload.get("excluded_terms", ()),  # type: ignore[arg-type]
     )
 
 
@@ -174,12 +195,16 @@ def preferences_to_dict(preferences: SearchPreferences) -> dict[str, list[str]]:
         seniority_levels=preferences.seniority_levels,
         workplace_models=preferences.workplace_models,
         location_scopes=preferences.location_scopes,
+        technologies=preferences.technologies,
+        excluded_terms=preferences.excluded_terms,
     )
     return {
         "search_terms": list(validated.search_terms),
         "seniority_levels": list(validated.seniority_levels),
         "workplace_models": [model.value for model in validated.workplace_models],
         "location_scopes": list(validated.location_scopes),
+        "technologies": list(validated.technologies),
+        "excluded_terms": list(validated.excluded_terms),
     }
 
 
@@ -205,6 +230,8 @@ def load_preferences(
             seniority_levels=default_profile.seniority_levels,
             workplace_models=default_profile.workplace_models,
             location_scopes=default_profile.location_scopes,
+            technologies=tuple(default_profile.positive_keywords[:_MAX_FILTER_TERMS]),
+            excluded_terms=tuple(default_profile.excluded_terms[:_MAX_FILTER_TERMS]),
         )
     try:
         raw = json.loads(resolved_path.read_text(encoding="utf-8"))
@@ -259,4 +286,6 @@ def apply_preferences(
         seniority_levels=preferences.seniority_levels,
         workplace_models=preferences.workplace_models,
         location_scopes=preferences.location_scopes,
+        positive_keywords=preferences.technologies or profile.positive_keywords,
+        excluded_terms=preferences.excluded_terms or profile.excluded_terms,
     )

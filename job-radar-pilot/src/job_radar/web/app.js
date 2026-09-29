@@ -25,6 +25,8 @@ const elements = {
   preferencesStatus: document.querySelector("#preferences-status"),
   searchTerms: document.querySelector("#search-terms"),
   locationScopes: document.querySelector("#location-scopes"),
+  technologies: document.querySelector("#technologies"),
+  excludedTerms: document.querySelector("#excluded-terms"),
   seniorityInternship: document.querySelector("#seniority-internship"),
   seniorityJunior: document.querySelector("#seniority-junior"),
   workplaceRemote: document.querySelector("#workplace-remote"),
@@ -417,6 +419,8 @@ async function loadPreferences() {
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
     elements.locationScopes.value = (payload.location_scopes ?? []).join("\n");
+    elements.technologies.value = (payload.technologies ?? []).join("\n");
+    elements.excludedTerms.value = (payload.excluded_terms ?? []).join("\n");
     setChecked(elements.seniorityInternship, payload.seniority_levels ?? []);
     setChecked(elements.seniorityJunior, payload.seniority_levels ?? []);
     setChecked(elements.workplaceRemote, payload.workplace_models ?? []);
@@ -461,6 +465,8 @@ async function savePreferences(event) {
       elements.workplaceOnsite,
     ]),
     location_scopes: linesFrom(elements.locationScopes),
+    technologies: linesFrom(elements.technologies),
+    excluded_terms: linesFrom(elements.excludedTerms),
   };
   if (payload.seniority_levels.length === 0) {
     elements.preferencesStatus.textContent = "Selecione Estágio e/ou Júnior.";

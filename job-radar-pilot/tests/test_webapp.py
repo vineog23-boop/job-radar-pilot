@@ -379,6 +379,8 @@ def test_preferences_api_saves_validated_search_configuration(tmp_path) -> None:
         "seniority_levels": ["estagio", "junior"],
         "workplace_models": ["REMOTE", "HYBRID"],
         "location_scopes": ["sao-carlos-sp", "florianopolis-sc"],
+        "technologies": ["java", "spring boot"],
+        "excluded_terms": ["pleno"],
     }
 
     try:
@@ -692,6 +694,8 @@ def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:
             page.locator("#location-scopes").fill(
                 "sao-carlos-sp\nflorianopolis-sc"
             )
+            page.locator("#technologies").fill("Java\nSpring Boot")
+            page.locator("#excluded-terms").fill("Pleno\nSênior")
             with page.expect_response(
                 lambda response: response.url.endswith("/api/preferences")
                 and response.request.method == "PUT"
@@ -730,6 +734,8 @@ def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:
         "seniority_levels": ["estagio", "junior"],
         "workplace_models": ["REMOTE", "HYBRID"],
         "location_scopes": ["sao-carlos-sp", "florianopolis-sc"],
+        "technologies": ["java", "spring boot"],
+        "excluded_terms": ["pleno", "sênior"],
     }
 
 

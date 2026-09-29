@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+from dataclasses import replace
 import json
 from pathlib import Path
 import sqlite3
@@ -11,6 +12,7 @@ from scrapling.parser import Adaptor
 from job_radar.adaptive import AdaptiveCardLocator, adaptive_db_path, select_cards
 from job_radar.fetching import FetchResult
 from job_radar.models import CollectionStatus, SourceConfig, SourceKind
+from job_radar.sources.base import _adaptive_url_allowed
 from job_radar.sources.generic import GenericListAdapter
 from job_radar.sources.dynamic import DynamicAdapter
 from job_radar.sources.gupy import GupyAdapter
@@ -190,12 +192,14 @@ def test_remember_persists_only_sanitized_structure_and_relocates_job_cards(
 
 def test_remember_removes_origin_credentials_and_sensitive_class_tokens(
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level("DEBUG")
     database = tmp_path / "adaptive.db"
     page = Adaptor(
         """
         <main class="jobs-list session-private-42">
-          <article class="job-card layout-grid token-super-secret xQ9aB3cD7eF1gH5iJ8kL2mN6">
+          <article class="job-card layout-grid vaga opacity-60p token-super-secret sessionToken session123 token123 secretvalue credentialvalue authvalue bearervalue jwtvalue sk_live_123456 css-a1b2c3d4e5f6a7b8c9d0e1f2 xQ9aB3cD7eF1gH5iJ8kL2mN6">
             <h2>Java Junior</h2><a href="/jobs/1">Detalhes</a>
           </article>
         </main>
@@ -213,14 +217,84 @@ def test_remember_removes_origin_credentials_and_sensitive_class_tokens(
 
     assert origin == "https://jobs.example.com"
     assert fingerprint["element"]["attributes"] == {
-        "class": "job-card layout-grid"
+        "class": "job-card layout-grid opacity-60p vaga"
     }
     assert fingerprint["scope"] == [{"tag": "main", "classes": ["jobs-list"]}]
     assert "collector-user" not in raw_fingerprint
     assert "collector-password" not in raw_fingerprint
     assert "private-42" not in raw_fingerprint
     assert "super-secret" not in raw_fingerprint
+    assert "sessionToken" not in raw_fingerprint
+    assert "session123" not in raw_fingerprint
+    assert "token123" not in raw_fingerprint
+    assert "secretvalue" not in raw_fingerprint
+    assert "credentialvalue" not in raw_fingerprint
+    assert "authvalue" not in raw_fingerprint
+    assert "bearervalue" not in raw_fingerprint
+    assert "jwtvalue" not in raw_fingerprint
+    assert "sk_live_123456" not in raw_fingerprint
+    assert "css-a1b2c3d4e5f6a7b8c9d0e1f2" not in raw_fingerprint
     assert "xQ9aB3cD7eF1gH5iJ8kL2mN6" not in raw_fingerprint
+    assert "sessionToken" not in caplog.text
+    assert "sk_live_123456" not in caplog.text
+
+
+def test_remember_sanitizes_role_and_custom_tag_names_in_all_structure_fields(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "adaptive.db"
+    custom_tag = "token-super-secret-xq9ab3cd7ef1gh5ij8kl2mn6"
+    sensitive_role = "session-xQ9aB3cD7eF1gH5iJ8kL2mN6"
+    page = Adaptor(
+        f"""
+        <main>
+          <{custom_tag} class="jobs-list">
+            <{custom_tag} class="layout-grid"></{custom_tag}>
+            <{custom_tag} class="job-card" role="{sensitive_role}">
+              <{custom_tag}></{custom_tag}>
+            </{custom_tag}>
+          </{custom_tag}>
+        </main>
+        """,
+        url=URL,
+    )
+
+    AdaptiveCardLocator(database).remember(page, "example", ".job-card")
+
+    with sqlite3.connect(database) as connection:
+        raw_fingerprint = connection.execute(
+            "SELECT fingerprint FROM adaptive_fingerprints"
+        ).fetchone()[0]
+    fingerprint = json.loads(raw_fingerprint)
+    element = fingerprint["element"]
+
+    assert sensitive_role not in raw_fingerprint
+    assert custom_tag not in raw_fingerprint
+    assert element["attributes"] == {"class": "job-card"}
+    assert element["tag"] == "unknown"
+    assert element["parent_name"] == "unknown"
+    assert element["path"][-2:] == ["unknown", "unknown"]
+    assert element["siblings"] == ["unknown"]
+    assert element["children"] == ["unknown"]
+    assert fingerprint["scope"] == [
+        {"tag": "unknown", "classes": ["jobs-list"]}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("start_url", "candidate_url"),
+    (
+        (URL, "https://jobs.example.com:bad/jobs/1"),
+        ("https://jobs.example.com:bad/search", "https://jobs.example.com/jobs/1"),
+    ),
+)
+def test_adaptive_url_rejects_malformed_candidate_or_source_port(
+    start_url: str,
+    candidate_url: str,
+) -> None:
+    config = replace(_config(), start_url=start_url)
+
+    assert _adaptive_url_allowed(config, candidate_url) is False
 
 
 def test_remember_once_per_execution_and_keeps_only_latest_between_executions(

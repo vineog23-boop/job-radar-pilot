@@ -18,9 +18,24 @@ from job_radar.fetching import page_html
 
 _SAFE_CLASS = re.compile(r"^[A-Za-z_-][A-Za-z0-9_-]{0,127}$")
 _SENSITIVE_CLASS = re.compile(
-    r"(?:^|[-_])(?:api[-_]?key|auth|bearer|credential|jwt|secret|session|token)(?:[-_]|$)",
+    r"api[-_]?key|auth|bearer|credential|jwt|secret|session|sk[-_]?live|token",
     re.IGNORECASE,
 )
+_VOLATILE_HASH_CLASS = re.compile(
+    r"(?:css|emotion|jsx|sc)[-_][a-z0-9]{12,}",
+    re.IGNORECASE,
+)
+_HTML_TAGS = frozenset(
+    "a abbr address area article aside audio b base bdi bdo blockquote body br "
+    "button canvas caption cite code col colgroup data datalist dd del details dfn "
+    "dialog div dl dt em embed fieldset figcaption figure footer form h1 h2 h3 h4 "
+    "h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li "
+    "link main map mark menu meta meter nav noscript object ol optgroup option output "
+    "p picture pre progress q rp rt ruby s samp script search section select slot "
+    "small source span strong style sub summary sup table tbody td template textarea "
+    "tfoot th thead time title tr track u ul var video wbr".split()
+)
+_UNKNOWN_TAG = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,17 +65,23 @@ def _looks_high_entropy(value: str) -> bool:
     )
 
 
-def _safe_class(value: str) -> bool:
+def _safe_token(value: str) -> bool:
     return (
         _SAFE_CLASS.fullmatch(value) is not None
         and _SENSITIVE_CLASS.search(value) is None
+        and _VOLATILE_HASH_CLASS.fullmatch(value) is None
         and not _looks_high_entropy(value)
     )
 
 
 def _classes(element: Any) -> tuple[str, ...]:
     value = str(getattr(element, "attrib", {}).get("class", ""))
-    return tuple(sorted(token for token in value.split() if _safe_class(token)))
+    return tuple(sorted(token for token in value.split() if _safe_token(token)))
+
+
+def _safe_tag(value: object) -> str:
+    normalized = str(value).casefold()
+    return normalized if normalized in _HTML_TAGS else _UNKNOWN_TAG
 
 
 def _safe_attributes(element: Any) -> dict[str, str]:
@@ -69,7 +90,7 @@ def _safe_attributes(element: Any) -> dict[str, str]:
     if classes:
         attributes["class"] = " ".join(classes)
     role = str(getattr(element, "attrib", {}).get("role", "")).strip()
-    if _SAFE_CLASS.fullmatch(role):
+    if _safe_token(role):
         attributes["role"] = role
     return attributes
 
@@ -80,7 +101,7 @@ def _tag_path(element: Any) -> tuple[str, ...]:
     while current is not None:
         tag = getattr(current, "tag", None)
         if isinstance(tag, str):
-            tags.append(tag)
+            tags.append(_safe_tag(tag))
         current = current.getparent()
     return tuple(reversed(tags))
 
@@ -90,7 +111,7 @@ def _fingerprint(node: object) -> dict[str, object]:
     parent = element.getparent()
     siblings = (
         tuple(
-            str(child.tag)
+            _safe_tag(child.tag)
             for child in parent.iterchildren()
             if child is not element and isinstance(child.tag, str)
         )
@@ -98,17 +119,19 @@ def _fingerprint(node: object) -> dict[str, object]:
         else ()
     )
     children = tuple(
-        str(child.tag) for child in element.iterchildren() if isinstance(child.tag, str)
+        _safe_tag(child.tag)
+        for child in element.iterchildren()
+        if isinstance(child.tag, str)
     )
     structural: dict[str, object] = {
-        "tag": str(element.tag),
+        "tag": _safe_tag(element.tag),
         "attributes": _safe_attributes(element),
         "path": _tag_path(element),
         "siblings": siblings,
         "children": children,
     }
     if parent is not None:
-        structural["parent_name"] = str(parent.tag)
+        structural["parent_name"] = _safe_tag(parent.tag)
         structural["parent_attributes"] = _safe_attributes(parent)
 
     scope: list[dict[str, object]] = []
@@ -116,7 +139,7 @@ def _fingerprint(node: object) -> dict[str, object]:
     while ancestor is not None and len(scope) < 4:
         classes = _classes(ancestor)
         if classes:
-            scope.append({"tag": str(ancestor.tag), "classes": classes})
+            scope.append({"tag": _safe_tag(ancestor.tag), "classes": classes})
         ancestor = ancestor.getparent()
     return {"element": structural, "scope": scope}
 
@@ -187,7 +210,7 @@ def _matches_scope(node: object, fingerprint: dict[str, object]) -> bool:
     for _ in range(4):
         if current is None:
             break
-        tag = str(getattr(current, "tag", ""))
+        tag = _safe_tag(getattr(current, "tag", ""))
         if any((tag, class_name) in expected_anchors for class_name in _classes(current)):
             return True
         current = current.getparent()

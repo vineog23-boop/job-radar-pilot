@@ -92,8 +92,11 @@ def _adaptive_url_allowed(config: SourceConfig, url: str) -> bool:
     if candidate_scheme not in {"http", "https"} or not candidate_host:
         return False
     default_ports = {"http": 80, "https": 443}
-    candidate_port = parsed.port or default_ports[candidate_scheme]
-    source_port = source.port or default_ports.get(source_scheme)
+    try:
+        candidate_port = parsed.port or default_ports[candidate_scheme]
+        source_port = source.port or default_ports.get(source_scheme)
+    except ValueError:
+        return False
     same_origin = (
         candidate_scheme == source_scheme
         and candidate_host == source_host

@@ -846,3 +846,35 @@ def test_factory_accepts_shared_adaptive_locator_without_breaking_default(
 
     assert getattr(injected, "_locator") is locator
     assert getattr(compatible, "_locator") is None
+
+
+def test_generic_extracts_published_at_and_cleans_title_badge() -> None:
+    url = "https://example.com/jobs"
+    page = _html_page(
+        """
+        <article class="job">
+          <a class="title" href="/1">Nova Desenvolvedor Java Jr</a>
+          <time datetime="2026-09-20T10:00:00-03:00">20 set</time>
+        </article>
+        <article class="job">
+          <a class="title" href="/2">Estágio Backend</a>
+          <span class="date">sem data</span>
+        </article>
+        """,
+        url,
+    )
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={
+            "card": "article.job",
+            "title": ".title::all-text",
+            "url": ".title::attr(href)",
+            "published": "time::attr(datetime)",
+        },
+    )
+
+    parsed = GenericListAdapter().parse_page(page, config)
+
+    assert parsed.records[0].title == "Desenvolvedor Java Jr"
+    assert parsed.records[0].published_at == "2026-09-20T13:00:00+00:00"
+    assert parsed.records[1].published_at is None

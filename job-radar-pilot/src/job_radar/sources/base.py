@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 from job_radar.adaptive import AdaptiveCardLocator, CardSelection, select_cards
 from job_radar.fetching import BlockReason, FetchPolicy, _visible_response_text
 from job_radar.identity import canonicalize_url
+from job_radar.dates import parse_published_at
 from job_radar.text_cleaning import clean_title
 from job_radar.models import (
     CollectionStatus,
@@ -434,6 +435,9 @@ def make_record(
         location=_clean_source_location(
             config,
             extract_value(card, location_selector),
+        ),
+        published_at=parse_published_at(
+            extract_value(card, config.selectors.get("published"))
         ),
         observed_at=datetime.now(timezone.utc).isoformat(),
         evidence_snippets=(title,),

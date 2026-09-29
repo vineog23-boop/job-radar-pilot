@@ -40,12 +40,45 @@ def test_loads_complete_profile_and_sources() -> None:
     assert "remoto-brasil" in profile.location_scopes
     assert "sao-carlos-sp" in profile.location_scopes
     assert "florianopolis-sc" in profile.location_scopes
+    assert {"pleno", "senior", "staff", "principal"} <= set(profile.excluded_terms)
     assert {source.code for source in sources} == EXPECTED_SOURCES
     assert len({source.code for source in sources}) == len(sources)
     assert all(source.start_url.startswith("https://") for source in sources)
     assert all(1 <= source.max_pages <= 100 for source in sources)
     assert all(source.min_interval_seconds >= 1 for source in sources)
     assert "linkedin" not in {source.code for source in sources}
+
+
+def test_priority_sources_target_real_result_surfaces_and_current_selectors() -> None:
+    sources = {
+        source.code: source
+        for source in load_sources(PROJECT / "config" / "sources.yaml")
+    }
+
+    assert "/job-search/term%3D" in sources["gupy"].start_url
+    assert "?q=" in sources["indeed"].start_url
+    assert len(sources["gupy"].queries) >= 5
+    assert len(sources["indeed"].queries) >= 5
+    assert sources["programathor"].selectors["next"]
+    assert ":not(.opacity-60p)" in sources["programathor"].selectors["card"]
+    assert sources["casado-dev"].selectors["card"] == "a.cd-job"
+    assert sources["casado-dev"].selectors["next"] == "a[rel='next']::attr(href)"
+    assert sources["vagas-com"].selectors["title"].endswith("::all-text")
+    assert sources["companhia-de-estagios"].start_url.endswith("/vagas-de-estagio/")
+    assert "--expired" in sources["companhia-de-estagios"].selectors["card"]
+    assert sources["otrainee"].start_url.endswith("/category/vagas-abertas/")
+    assert sources["otrainee"].selectors["title"] == ".entry-title a::all-text"
+    assert sources["seja-trainee"].selectors["card"] == "article.jeg_post"
+    assert sources["vidadetrainee"].enabled is False
+    assert sources["eureca"].start_url.endswith("/oportunidades")
+    assert sources["eureca"].selectors["card"].startswith("[data-testid^")
+    assert sources["ciee"].selectors["card"].startswith("a.vaga-row")
+    assert sources["nube"].requires_auth is False
+    assert sources["nube"].selectors["card"].startswith("a.flex.flex-col")
+    assert sources["99jobs"].kind is SourceKind.GENERIC
+    assert sources["cia-de-talentos"].selectors["card"] == ".block-opportunities"
+    assert sources["infojobs"].kind is SourceKind.DYNAMIC
+    assert sources["infojobs"].selectors["card"].startswith(".js_vacanciesGridFragment")
 
 
 def test_rejects_unknown_source_kind(tmp_path: Path) -> None:

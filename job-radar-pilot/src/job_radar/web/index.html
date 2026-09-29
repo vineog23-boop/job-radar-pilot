@@ -34,14 +34,54 @@
             <span class="button-icon" aria-hidden="true">↻</span>
             <span class="button-copy"><strong>Buscar vagas agora</strong><small>Consultar todos os portais</small></span>
           </button>
+          <div class="secondary-actions">
+            <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
+            <a id="download-report" class="ghost-button action-button" href="/api/export/markdown" download>Baixar relatório</a>
+          </div>
           <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
         </div>
+      </section>
+
+      <section id="preferences-panel" class="preferences-panel" hidden aria-labelledby="preferences-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">PREFERÊNCIAS</p><h2 id="preferences-title">Configurar busca</h2></div>
+          <button id="close-preferences" class="ghost-button" type="button">Fechar</button>
+        </div>
+        <p class="panel-copy">Escolha o tipo de oportunidade e onde você quer trabalhar. As mudanças só valem depois de salvar e não iniciam uma busca sozinhas.</p>
+        <form id="preferences-form" class="preferences-form">
+          <label class="wide-field" for="search-terms">
+            <strong>Termos de busca</strong>
+            <small>Um por linha. Eles são enviados somente aos portais que oferecem pesquisa por texto.</small>
+            <textarea id="search-terms" rows="4" maxlength="1452" required></textarea>
+          </label>
+          <fieldset>
+            <legend>Nível</legend>
+            <label class="check-option"><input id="seniority-internship" type="checkbox" value="estagio"> Estágio</label>
+            <label class="check-option"><input id="seniority-junior" type="checkbox" value="junior"> Júnior</label>
+          </fieldset>
+          <fieldset>
+            <legend>Modelo de trabalho</legend>
+            <small>Deixe todos desmarcados para aceitar qualquer modelo.</small>
+            <label class="check-option"><input id="workplace-remote" type="checkbox" value="REMOTE"> Remoto</label>
+            <label class="check-option"><input id="workplace-hybrid" type="checkbox" value="HYBRID"> Híbrido</label>
+            <label class="check-option"><input id="workplace-onsite" type="checkbox" value="ONSITE"> Presencial</label>
+          </fieldset>
+          <label class="wide-field" for="location-scopes">
+            <strong>Localidades</strong>
+            <small>Uma por linha. Informe ao menos uma cidade, estado ou Brasil.</small>
+            <textarea id="location-scopes" rows="4" maxlength="1212"></textarea>
+          </label>
+          <div class="preferences-footer">
+            <p id="preferences-status" class="preferences-status" aria-live="polite"></p>
+            <button id="save-preferences" class="primary-button compact-button" type="submit">Salvar configurações</button>
+          </div>
+        </form>
       </section>
 
       <section id="summary-cards" class="summary-grid" aria-label="Resumo da busca">
         <article class="summary-card accent-card"><span>Vagas coletadas</span><strong id="summary-jobs">—</strong><small>registros estruturados</small></article>
         <article class="summary-card"><span>Portais com resultado</span><strong id="summary-sources">—</strong><small>fontes nesta execução</small></article>
-        <article class="summary-card"><span>Compatíveis</span><strong id="summary-matches">—</strong><small>sem conflito de senioridade</small></article>
+        <article class="summary-card"><span>Compatíveis</span><strong id="summary-matches">—</strong><small>classificadas como mais compatíveis</small></article>
         <article class="summary-card"><span>Última busca</span><strong id="summary-date" class="summary-date">—</strong><small id="summary-time">aguardando dados</small></article>
       </section>
 
@@ -54,7 +94,7 @@
         <div class="filters" aria-label="Filtros das vagas">
           <label class="search-field">
             <span aria-hidden="true">⌕</span>
-            <input id="text-filter" type="search" placeholder="Buscar cargo, empresa ou tecnologia" autocomplete="off">
+            <input id="text-filter" type="search" placeholder="Buscar em cargo, requisitos ou detalhes" autocomplete="off">
           </label>
           <label>
             <span class="sr-only">Portal</span>
@@ -64,8 +104,9 @@
             <span class="sr-only">Compatibilidade</span>
             <select id="match-filter">
               <option value="">Todas as vagas</option>
-              <option value="compatible">Mais compatíveis</option>
-              <option value="mismatch">Com ressalvas</option>
+              <option value="ready">Mais compatíveis</option>
+              <option value="review">A revisar ou dados insuficientes</option>
+              <option value="exclude">Fora do perfil</option>
             </select>
           </label>
         </div>
@@ -89,7 +130,7 @@
         <div id="source-statuses" class="source-statuses" hidden></div>
       </section>
 
-      <footer><span>Radar local · nenhum dado é enviado para fora</span><span id="footer-version">Scrapling</span></footer>
+      <footer><span>Resultados e preferências ficam locais · consultas vão somente aos portais configurados</span><span id="footer-version">Scrapling</span></footer>
     </main>
     <script src="/app.js" defer></script>
   </body>

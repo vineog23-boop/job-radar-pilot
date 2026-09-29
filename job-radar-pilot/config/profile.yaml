@@ -24,7 +24,13 @@ location_scopes:
   - palhoca-sc
   - biguacu-sc
 excluded_terms:
+  - pleno
   - senior
+  - staff
+  - principal
   - especialista
   - lider tecnico
   - tech lead
+  - arquiteto
+  - arquiteta
+  - architect

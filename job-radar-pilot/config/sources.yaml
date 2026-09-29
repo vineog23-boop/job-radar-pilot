@@ -1,52 +1,53 @@
 sources:
   - code: gupy
     kind: gupy
-    start_url: https://portal.gupy.io/
+    start_url: https://portal.gupy.io/job-search/term%3Ddesenvolvedor%20junior
     enabled: true
-    max_pages: 5
+    max_pages: 9
     min_interval_seconds: 2
     requires_auth: false
-    queries: [Java, backend, software, tecnologia]
+    queries: [desenvolvedor java junior, backend junior, estagio desenvolvimento, estagio tecnologia, engenheiro de software junior]
   - code: indeed
     kind: indeed
-    start_url: https://br.indeed.com/jobs
+    start_url: https://br.indeed.com/jobs?q=java+junior
     enabled: true
     max_pages: 3
     min_interval_seconds: 3
     requires_auth: false
-    queries: [Java junior, estagio desenvolvimento, backend junior]
+    queries: [Java junior, estagio desenvolvimento, backend junior, spring boot junior, estagio java, desenvolvedor software junior]
   - code: estagiotrainee
     kind: generic
     start_url: https://www.estagiotrainee.com/vagas-programas-estagio
     enabled: true
-    max_pages: 5
+    max_pages: 1
     min_interval_seconds: 2
     requires_auth: false
-    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".empresa", location: ".local"}
+    selectors: {card: ".gallery-item-container", title: "a.O16KGI[href*='/post/']::all-text", url: "a.O16KGI[href*='/post/']::attr(href)"}
   - code: eureca
     kind: dynamic
-    start_url: https://app.eureca.me/vagas
+    start_url: https://app.eureca.me/oportunidades
     enabled: true
     max_pages: 10
     min_interval_seconds: 3
     requires_auth: false
-    queries: [tecnologia, software, dados]
+    selectors: {card: "[data-testid^='opportunities-list-card-']", title: "p.text-base::all-text", url: "a[href^='/vagas/']::attr(href)", company: "div.flex.items-center span::all-text", location: "div.flex.flex-wrap.items-center > div:nth-of-type(3)::all-text", summary: "::all-text"}
   - code: programathor
     kind: generic
     start_url: https://programathor.com.br/jobs-java
     enabled: true
-    max_pages: 5
+    max_pages: 20
     min_interval_seconds: 2
     requires_auth: false
-    selectors: {card: ".cell-list", title: ".cell-list-content h3", url: "a::attr(href)", company: ".company", location: ".location"}
+    selectors: {card: ".cell-list:not(.opacity-60p) > a[href^='/jobs/']", title: ".cell-list-content h3::all-text", url: "::attr(href)", company: ".cell-list-content-icon > span:nth-of-type(1)::all-text", location: ".cell-list-content-icon > span:nth-of-type(2)::all-text", summary: "::all-text", next: "ul.pagination li:nth-last-child(2) a.page-link::attr(href)"}
   - code: casado-dev
     kind: generic
     start_url: https://casado.dev/vagas
     enabled: true
-    max_pages: 5
+    max_pages: 10
     min_interval_seconds: 2
     requires_auth: false
-    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".company", location: ".location"}
+    queries: [java junior, backend junior, spring boot junior, estagio desenvolvimento, estagio tecnologia]
+    selectors: {card: "a.cd-job", title: ".cd-job-title::all-text", url: "::attr(href)", company: ".cd-job-company::all-text", location: ".cd-job-meta > span:nth-of-type(2)::all-text", summary: ".cd-guide-desc::all-text", next: "a[rel='next']::attr(href)"}
   - code: ciee
     kind: dynamic
     start_url: https://portal.ciee.org.br/quero-uma-vaga/
@@ -54,30 +55,31 @@ sources:
     max_pages: 5
     min_interval_seconds: 3
     requires_auth: false
-    queries: [tecnologia da informacao, desenvolvimento, programacao]
+    selectors: {card: "a.vaga-row[href*='codigoVaga=']", id: ".cod-vaga::all-text", title: "h2.tipo-vaga::all-text", url: "::attr(href)", location: "li.info-local::all-text", summary: "li.info-area::all-text"}
   - code: nube
     kind: dynamic
     start_url: https://www.nube.com.br/estudantes/vagas
     enabled: true
     max_pages: 5
     min_interval_seconds: 3
-    requires_auth: true
-    queries: [tecnologia da informacao, desenvolvimento]
+    requires_auth: false
+    selectors: {card: "a.flex.flex-col[href^='/detalhes-vaga/']", title: "p.font-bold.text-sm::all-text", url: "::attr(href)", location: "div.p-3 > p:nth-of-type(2)::all-text", summary: "::all-text"}
   - code: vagas-com
     kind: generic
     start_url: https://www.vagas.com.br/vagas-de-java
     enabled: true
-    max_pages: 5
+    max_pages: 1
     min_interval_seconds: 2
     requires_auth: false
-    selectors: {card: ".vaga", title: ".cargo", url: "a::attr(href)", company: ".emprVaga", location: ".vaga-local"}
+    selectors: {card: ".vaga", title: ".link-detalhes-vaga::all-text", url: ".link-detalhes-vaga::attr(href)", company: ".emprVaga::all-text", location: ".vaga-local::all-text", summary: ".detalhes::all-text"}
   - code: 99jobs
-    kind: dynamic
+    kind: generic
     start_url: https://99jobs.com/collections/seu-proximo-estagio-ta-on
     enabled: true
-    max_pages: 5
+    max_pages: 1
     min_interval_seconds: 3
     requires_auth: false
+    selectors: {card: "#opportunities section.fr_opportunity.opportunity-collections", title: "h3::all-text", url: "a.btn.btn-block.btn-sort[href*='.99jobs.com/vagas/']::attr(href)", summary: "::all-text"}
   - code: cia-de-talentos
     kind: dynamic
     start_url: https://vagas.ciadetalentos.com.br/applicant/#/opportunities
@@ -85,43 +87,44 @@ sources:
     max_pages: 10
     min_interval_seconds: 3
     requires_auth: false
+    selectors: {card: ".block-opportunities", title: ".title-process-opportunities::all-text", url: "a.link-details-button::attr(href)", location: "p:nth-of-type(3)::all-text", summary: "::all-text"}
   - code: companhia-de-estagios
     kind: generic
-    start_url: https://www.ciadeestagios.com.br/
+    start_url: https://www.ciadeestagios.com.br/vagas-de-estagio/
     enabled: true
-    max_pages: 5
+    max_pages: 1
     min_interval_seconds: 2
     requires_auth: false
-    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".company", location: ".location"}
+    selectors: {card: ".vagas__card:not([class~='--expired'])", title: ".vagas__card__title h2::all-text", url: ".vagas__card__link::attr(href)", company: ".vagas__card__brand__image::attr(alt)"}
   - code: otrainee
     kind: generic
-    start_url: https://otrainee.com.br/
+    start_url: https://otrainee.com.br/category/vagas-abertas/
     enabled: true
-    max_pages: 5
+    max_pages: 1
     min_interval_seconds: 2
     requires_auth: false
-    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".company", location: ".location"}
+    selectors: {card: "article.category-vagas-abertas", title: ".entry-title a::all-text", url: ".entry-title a::attr(href)", summary: ".entry-content::all-text"}
   - code: vidadetrainee
     kind: generic
-    start_url: https://www.vidadetrainee.com/
-    enabled: true
-    max_pages: 5
+    start_url: https://www.vidadetrainee.com/archive
+    enabled: false
+    max_pages: 1
     min_interval_seconds: 2
     requires_auth: false
-    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".company", location: ".location"}
+    selectors: {card: ".container-Qnseki", title: "a[class*='clamp-3']::all-text", url: "a[class*='clamp-3']::attr(href)", summary: "a[class*='clamp-2']::all-text"}
   - code: seja-trainee
     kind: generic
     start_url: https://sejatrainee.com.br/trainee/
     enabled: true
-    max_pages: 5
+    max_pages: 1
     min_interval_seconds: 2
     requires_auth: false
-    selectors: {card: article, title: h2, url: "a::attr(href)", company: ".company", location: ".location"}
+    selectors: {card: "article.jeg_post", title: ".jeg_post_title a::all-text", url: ".jeg_post_title a::attr(href)", summary: ".jeg_post_excerpt::all-text"}
   - code: infojobs
-    kind: generic
+    kind: dynamic
     start_url: https://www.infojobs.com.br/vagas-de-emprego-java.aspx
     enabled: true
     max_pages: 1
     min_interval_seconds: 3
     requires_auth: false
-    selectors: {card: ".ij-OfferCard", title: "h2", url: "a::attr(href)", company: ".ij-OfferCardContent-description-title", location: ".ij-OfferCardContent-description-list-item"}
+    selectors: {card: ".js_vacanciesGridFragment > .js_rowCard", id: ".js_vacancyLoad::attr(data-id)", title: ".js_vacancyTitle::all-text", url: "a[href*='/vaga-de-'][href*='__']::attr(href)", company: ".d-flex.align-items-baseline .text-body a::all-text", location: ".d-flex.align-items-baseline + .mb-8::all-text", summary: "::all-text"}

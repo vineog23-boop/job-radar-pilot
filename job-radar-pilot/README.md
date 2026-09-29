@@ -13,9 +13,16 @@ Para abrir a interface local no navegador, execute na raiz da pasta:
 ```
 
 O painel abre em `http://127.0.0.1:8765`, mostra os resultados existentes e
-permite iniciar uma nova busca pelo botão **Buscar vagas agora**. O servidor
-aceita conexões somente deste computador; pressione `Ctrl+C` no terminal para
-encerrar.
+permite:
+
+- configurar termos de busca, estágio/júnior, remoto/híbrido/presencial e
+  cidades, estados ou Brasil;
+- salvar essas preferências somente neste computador;
+- iniciar uma nova busca pelo botão **Buscar vagas agora**;
+- baixar as vagas em um relatório Markdown, separado por aderência.
+
+Salvar a configuração não inicia uma busca automaticamente. O servidor aceita
+conexões somente deste computador; pressione `Ctrl+C` no terminal para encerrar.
 
 Para executar somente pelo terminal:
 
@@ -87,6 +94,13 @@ Comece por lotes pequenos: layouts, termos e limites dos portais podem mudar.
 - `output/relatorio-execucao.json`: versão, commit upstream, fontes, paginação,
   contagens, bloqueios e erros sanitizados.
 
+Na interface, **Baixar relatório** transforma em Markdown exatamente as vagas
+visíveis pelos filtros atuais. O documento separa mais compatíveis, condicionais,
+dados insuficientes e fora do perfil; também registra os estados de cobertura de
+cada portal. Se a saída local estiver corrompida, o download falha de forma
+explícita em vez de gerar um relatório vazio. O arquivo é produzido localmente e
+não é enviado para serviços externos.
+
 Cada objeto JSONL contém origem, identidade, URL oficial, cargo, empresa,
 descrição resumida, senioridade, tecnologias, localidade, modalidade, datas,
 requisitos, evidências curtas, rótulos, status e hash de conteúdo. Campo factual
@@ -109,12 +123,32 @@ Validar um arquivo:
 `EMPTY` significa que a página declarou ausência de resultados. Se os seletores
 esperados desaparecerem, o status é `ERROR/LAYOUT_CHANGED`, não vazio.
 
+## Preferências de busca
+
+Use **Configurar busca** na interface. Os valores ficam em
+`%LOCALAPPDATA%\JobRadar\search-preferences.json`, fora do repositório. As
+consultas personalizadas são aplicadas às fontes que oferecem busca por texto;
+nível, modalidade e localidade também participam da classificação das vagas.
+
+Uma modalidade desconhecida nunca é apresentada como correspondência
+confirmada. Artigos editoriais permanecem para revisão e não são promovidos
+automaticamente a vaga aplicável sem evidência suficiente.
+
 ## Autenticação manual
 
 `AUTH_REQUIRED`, `LOGIN_REQUIRED`, `TWO_FACTOR`, `CAPTCHA` e
-`ACTIVITY_ALERT` não são burlados. Abra a URL indicada no relatório, autentique
-manualmente quando apropriado e só depois repita a fonte. O piloto não mantém
-credenciais nem cookies no repositório ou nas saídas.
+`ACTIVITY_ALERT` não são burlados. Para preparar uma sessão local de um portal:
+
+```powershell
+.\scripts\run-job-radar.ps1 auth CODIGO_DA_FONTE
+```
+
+Conclua senha, CAPTCHA ou 2FA diretamente na janela do navegador e feche-a
+quando o comando orientar. O piloto não solicita nem grava senhas. Cookies da
+sessão ficam em `%LOCALAPPDATA%\JobRadar\profiles`, fora do repositório e das
+saídas. Salvar o perfil não prova que o login terminou: a confirmação acontece
+na coleta seguinte. A descoberta atual usa as páginas públicas; login só deve
+ser usado quando um portal realmente o exigir.
 
 ## Prompt curto para outra IA
 
@@ -128,14 +162,21 @@ credenciais nem cookies no repositório ou nas saídas.
 ## Desenvolvimento e testes
 
 ```powershell
+$env:PYTHONPATH = (Resolve-Path .\job-radar-pilot\src).Path
 .\job-radar-pilot\.venv\Scripts\python.exe -m pytest job-radar-pilot\tests -v
 ```
+
+Definir o `PYTHONPATH` dessa forma garante que os testes usem o código deste
+workspace, mesmo quando a instalação editável da `.venv` ainda aponta para
+outro checkout. Os launchers `run-job-radar.ps1` e `abrir-interface.ps1` fazem
+essa priorização automaticamente.
 
 Os testes de extratores usam fixtures locais sanitizadas. Apenas o smoke test
 explicitamente executado acessa uma fonte pública.
 
-Na instalação inicial, somente o Programathor foi validado ao vivo. As outras
-15 fontes estão configuradas e cobertas por fixtures por família, mas seus
-seletores devem ser confirmados individualmente antes de interpretar `SUCCESS`
-como cobertura real. Quando paginação não é observável, o coletor retorna
-`PARTIAL/PAGINATION_UNVERIFIED` em vez de declarar esgotamento.
+Os seletores das 15 fontes habilitadas foram validados ao vivo em setembro de
+2026 e têm testes determinísticos por comportamento. A fonte Vida de Trainee
+fica desabilitada porque o arquivo observado estava parado em 2024. Portais
+externos continuam sujeitos a mudanças de layout, bloqueios e paginação não
+observável; nesses casos, o coletor retorna estado parcial ou erro explícito em
+vez de declarar cobertura completa.

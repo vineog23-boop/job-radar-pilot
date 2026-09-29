@@ -26,6 +26,7 @@ class GenericListAdapter(PaginatedAdapter):
                     url_selector=config.selectors["url"],
                     company_selector=config.selectors.get("company"),
                     location_selector=config.selectors.get("location"),
+                    description_selector=config.selectors.get("summary"),
                 )
             )
         )

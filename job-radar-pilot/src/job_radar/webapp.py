@@ -10,7 +10,11 @@ import subprocess
 import sys
 from threading import Lock, Thread, Timer
 from typing import Any, Callable, Sequence
+import unicodedata
+from urllib.parse import parse_qs, urlsplit
 import webbrowser
+
+from job_radar.export_document import build_markdown_report
 
 
 _PROGRESS_LINE = re.compile(
@@ -58,6 +62,75 @@ def load_output(output_dir: Path) -> dict[str, Any]:
 
 ProgressCallback = Callable[[str], None]
 CollectionRunner = Callable[[Path, list[str] | None, ProgressCallback], int]
+
+
+class OutputReadError(RuntimeError):
+    """Impede que uma saida local corrompida pareca um relatorio vazio valido."""
+
+
+def _normalized_search_text(value: Any) -> str:
+    decomposed = unicodedata.normalize("NFKD", str(value or "").casefold())
+    return " ".join(
+        "".join(
+            character
+            for character in decomposed
+            if not unicodedata.combining(character)
+        ).split()
+    )
+
+
+def _fit_state(job: dict[str, Any]) -> str:
+    labels = job.get("match_labels") or []
+    for state in ("READY", "CONDITIONAL", "EXCLUDE", "AMBIGUOUS"):
+        if f"FIT:{state}" in labels:
+            return state
+    return "AMBIGUOUS"
+
+
+def filter_jobs_for_export(
+    jobs: Sequence[dict[str, Any]],
+    *,
+    text: str = "",
+    source: str = "",
+    match: str = "",
+) -> list[dict[str, Any]]:
+    normalized_filter = _normalized_search_text(text)
+    result: list[dict[str, Any]] = []
+    for job in jobs:
+        if source and job.get("source") != source:
+            continue
+        state = _fit_state(job)
+        if match == "ready" and state != "READY":
+            continue
+        if match == "review" and state not in {"CONDITIONAL", "AMBIGUOUS"}:
+            continue
+        if match == "exclude" and state != "EXCLUDE":
+            continue
+        if normalized_filter:
+            searchable = _normalized_search_text(
+                json.dumps(
+                    {
+                        key: job.get(key)
+                        for key in (
+                            "title",
+                            "company",
+                            "location",
+                            "technologies",
+                            "match_labels",
+                            "description_summary",
+                            "requirements",
+                            "evidence_snippets",
+                            "seniority",
+                            "remote_scope",
+                        )
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            if normalized_filter not in searchable:
+                continue
+        result.append(job)
+    return result
 
 
 def stream_process(command: list[str], on_line: ProgressCallback) -> int:
@@ -185,10 +258,36 @@ class SearchController:
         thread.join(timeout=timeout)
         return not thread.is_alive()
 
+    def export_markdown(
+        self,
+        *,
+        text: str = "",
+        source: str = "",
+        match: str = "",
+    ) -> bytes:
+        output = load_output(self._output_dir)
+        if output["read_error"]:
+            raise OutputReadError(f"Nao foi possivel ler a saida local: {output['read_error']}")
+        jobs = filter_jobs_for_export(
+            output["jobs"], text=text, source=source, match=match
+        )
+        generated_at = datetime.now().astimezone().strftime("%d/%m/%Y %H:%M")
+        report = output["report"] if isinstance(output["report"], dict) else {}
+        sources = report.get("sources", [])
+        if not isinstance(sources, list):
+            sources = []
+        return build_markdown_report(
+            jobs,
+            generated_at=generated_at,
+            sources=sources,
+            applied_filters={"text": text, "source": source, "match": match},
+        ).encode("utf-8-sig")
+
 
 def _dashboard_handler(
     controller: SearchController,
     static_dir: Path,
+    preferences_path: Path | None,
 ) -> type[BaseHTTPRequestHandler]:
     static_files = {
         "/": ("index.html", "text/html; charset=utf-8"),
@@ -197,11 +296,20 @@ def _dashboard_handler(
     }
 
     class DashboardHandler(BaseHTTPRequestHandler):
-        def _write(self, status: int, content_type: str, body: bytes) -> None:
+        def _write(
+            self,
+            status: int,
+            content_type: str,
+            body: bytes,
+            *,
+            headers: dict[str, str] | None = None,
+        ) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
 
@@ -209,10 +317,87 @@ def _dashboard_handler(
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self._write(status, "application/json; charset=utf-8", body)
 
+        def _read_json_body(self) -> dict[str, Any]:
+            content_type = self.headers.get("Content-Type", "").split(";", maxsplit=1)[0]
+            if content_type != "application/json":
+                raise TypeError("Use application/json.")
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if not 0 <= content_length <= 16_384:
+                raise ValueError("Corpo excede o limite permitido.")
+            payload = json.loads(self.rfile.read(content_length) or b"{}")
+            if not isinstance(payload, dict):
+                raise ValueError("O corpo deve ser um objeto JSON.")
+            return payload
+
+        def _load_preferences_payload(self) -> dict[str, Any]:
+            from job_radar.config import load_profile, load_sources
+            from job_radar.preferences import load_preferences, preferences_to_dict
+
+            project = _project_root()
+            profile = load_profile(project / "config" / "profile.yaml")
+            sources = load_sources(project / "config" / "sources.yaml")
+            search_terms = tuple(
+                dict.fromkeys(
+                    query
+                    for source in sources
+                    if source.enabled
+                    for query in source.queries
+                )
+            )
+            preferences = load_preferences(
+                default_profile=profile,
+                default_search_terms=search_terms,
+                path=preferences_path,
+            )
+            return preferences_to_dict(preferences)
+
         def do_GET(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
-            path = self.path.split("?", maxsplit=1)[0]
+            request_url = urlsplit(self.path)
+            path = request_url.path
             if path == "/api/state":
                 self._json(200, controller.snapshot())
+                return
+            if path == "/api/preferences":
+                try:
+                    payload = self._load_preferences_payload()
+                except (OSError, ValueError) as exc:
+                    self._json(500, {"error": str(exc)})
+                    return
+                self._json(200, payload)
+                return
+            if path == "/api/export/markdown":
+                parameters = parse_qs(request_url.query, keep_blank_values=True)
+                text_filter = parameters.get("text", [""])[-1]
+                source_filter = parameters.get("source", [""])[-1]
+                match_filter = parameters.get("match", [""])[-1]
+                if len(text_filter) > 200:
+                    self._json(400, {"error": "Filtro de texto excede o limite."})
+                    return
+                if source_filter and not re.fullmatch(r"[a-z0-9-]+", source_filter):
+                    self._json(400, {"error": "Filtro de portal invalido."})
+                    return
+                if match_filter not in {"", "ready", "review", "exclude"}:
+                    self._json(400, {"error": "Filtro de aderencia invalido."})
+                    return
+                try:
+                    document = controller.export_markdown(
+                        text=text_filter,
+                        source=source_filter,
+                        match=match_filter,
+                    )
+                except OutputReadError as exc:
+                    self._json(500, {"error": str(exc)})
+                    return
+                self._write(
+                    200,
+                    "text/markdown; charset=utf-8",
+                    document,
+                    headers={
+                        "Content-Disposition": (
+                            'attachment; filename="relatorio-vagas.md"'
+                        )
+                    },
+                )
                 return
             static = static_files.get(path)
             if static is None:
@@ -231,15 +416,8 @@ def _dashboard_handler(
             if path != "/api/search":
                 self._json(404, {"error": "Recurso nao encontrado."})
                 return
-            content_type = self.headers.get("Content-Type", "").split(";", maxsplit=1)[0]
-            if content_type != "application/json":
-                self._json(415, {"error": "Use application/json."})
-                return
             try:
-                content_length = int(self.headers.get("Content-Length", "0"))
-                if content_length > 16_384:
-                    raise ValueError("Corpo excede o limite permitido.")
-                payload = json.loads(self.rfile.read(content_length) or b"{}")
+                payload = self._read_json_body()
                 sources = payload.get("sources")
                 if sources is not None and (
                     not isinstance(sources, list)
@@ -250,6 +428,9 @@ def _dashboard_handler(
                     )
                 ):
                     raise ValueError("Lista de fontes invalida.")
+            except TypeError as exc:
+                self._json(415, {"error": str(exc)})
+                return
             except (ValueError, json.JSONDecodeError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
@@ -258,6 +439,29 @@ def _dashboard_handler(
                 self._json(409, {"error": "Uma busca ja esta em andamento."})
                 return
             self._json(202, {"accepted": True})
+
+        def do_PUT(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+            path = self.path.split("?", maxsplit=1)[0]
+            if path != "/api/preferences":
+                self._json(404, {"error": "Recurso nao encontrado."})
+                return
+            try:
+                from job_radar.preferences import (
+                    preferences_to_dict,
+                    save_preferences,
+                    validate_preferences_payload,
+                )
+
+                payload = self._read_json_body()
+                preferences = validate_preferences_payload(payload)
+                save_preferences(preferences, path=preferences_path)
+            except TypeError as exc:
+                self._json(415, {"error": str(exc)})
+                return
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(200, preferences_to_dict(preferences))
 
         def log_message(self, format: str, *args: Any) -> None:
             return
@@ -270,10 +474,12 @@ def create_server(
     port: int,
     controller: SearchController,
     static_dir: Path,
+    *,
+    preferences_path: Path | None = None,
 ) -> ThreadingHTTPServer:
     return ThreadingHTTPServer(
         (host, port),
-        _dashboard_handler(controller, static_dir),
+        _dashboard_handler(controller, static_dir, preferences_path),
     )
 
 

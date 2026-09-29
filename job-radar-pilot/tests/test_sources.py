@@ -21,6 +21,10 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 def _page(name: str, url: str) -> SimpleNamespace:
     html = (FIXTURES / name).read_text(encoding="utf-8")
+    return _html_page(html, url)
+
+
+def _html_page(html: str, url: str) -> SimpleNamespace:
     adaptor = Adaptor(html, url=url)
     return SimpleNamespace(
         status=200,
@@ -51,13 +55,14 @@ def _config(
     url: str = "https://example.com/jobs",
     selectors: dict[str, str] | None = None,
     requires_auth: bool = False,
+    max_pages: int = 3,
 ) -> SourceConfig:
     return SourceConfig(
         code=code,
         kind=kind,
         start_url=url,
         enabled=True,
-        max_pages=3,
+        max_pages=max_pages,
         min_interval_seconds=1,
         requires_auth=requires_auth,
         selectors=selectors or {},
@@ -98,6 +103,106 @@ def test_generic_extracts_relative_links_partial_fields_and_pagination() -> None
     assert result.records[1].location is None
 
 
+def test_pagination_stops_at_empty_page_after_valid_records() -> None:
+    first_url = "https://example.com/jobs"
+    second_url = "https://example.com/jobs?page=2"
+    third_url = "https://example.com/jobs?page=3"
+    fetcher = FixtureFetcher(
+        {
+            first_url: _html_page(
+                """
+                <article class="job"><a href="/jobs/1"><h2>Java Junior</h2></a></article>
+                <a class="next" href="/jobs?page=2">Proxima</a>
+                """,
+                first_url,
+            ),
+            second_url: _html_page(
+                '<p>Nenhuma vaga nesta pagina.</p><a class="next" href="/jobs?page=3">Proxima</a>',
+                second_url,
+            ),
+            third_url: _html_page(
+                '<a class="next" href="/jobs?page=4">Proxima</a>',
+                third_url,
+            ),
+        }
+    )
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={
+            "card": "article.job",
+            "title": "h2",
+            "url": "a::attr(href)",
+            "next": "a.next::attr(href)",
+        },
+    )
+
+    result = GenericListAdapter().collect(config, fetcher)  # type: ignore[arg-type]
+
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "EMPTY_PAGE_AFTER_RECORDS"
+    assert result.has_more is True
+    assert result.pages_observed == 2
+    assert len(result.records) == 1
+    assert fetcher.calls == [first_url, second_url]
+
+
+def test_single_page_limit_does_not_prove_unobservable_pagination_exhausted() -> None:
+    url = "https://example.com/jobs"
+    config = _config(
+        SourceKind.GENERIC,
+        max_pages=1,
+        selectors={
+            "card": "article.job",
+            "title": "h2",
+            "url": "a::attr(href)",
+        },
+    )
+    page = _html_page(
+        '<article class="job"><a href="/jobs/1"><h2>Java Junior</h2></a></article>',
+        url,
+    )
+
+    result = GenericListAdapter().collect(
+        config,
+        FixtureFetcher({url: page}),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "PAGINATION_UNVERIFIED"
+    assert result.has_more is True
+    assert len(result.records) == 1
+
+
+def test_generic_can_join_descendant_text_and_capture_summary() -> None:
+    url = "https://example.com/jobs"
+    page = _html_page(
+        """
+        <article class="job">
+          <a class="title" href="/1">Desenvolvedor <mark>Java</mark> Jr</a>
+          <span class="location"><i></i>100% <strong>Remoto</strong></span>
+          <p class="summary">APIs <em>Spring Boot</em></p>
+        </article>
+        """,
+        url,
+    )
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={
+            "card": "article.job",
+            "title": ".title::all-text",
+            "url": ".title::attr(href)",
+            "location": ".location::all-text",
+            "summary": ".summary::all-text",
+        },
+    )
+
+    parsed = GenericListAdapter().parse_page(page, config)
+
+    assert parsed.records[0].title == "Desenvolvedor Java Jr"
+    assert parsed.records[0].location == "100% Remoto"
+    assert parsed.records[0].description_summary == "APIs Spring Boot"
+
+
 def test_gupy_extracts_strong_identity() -> None:
     url = "https://portal.gupy.io/"
     result = GupyAdapter().collect(
@@ -128,6 +233,60 @@ def test_indeed_extracts_jk_and_removes_session_parameters() -> None:
     assert record.company == "Empresa Indeed"
 
 
+def test_indeed_extracts_current_h3_title_markup() -> None:
+    url = "https://br.indeed.com/jobs?q=java+junior"
+    page = _html_page(
+        """
+        <div class="job_seen_beacon">
+          <h3 class="jobTitle">
+            <a data-jk="current123" href="/rc/clk?jk=current123&amp;session=secret">
+              <span title="Desenvolvedor BackEnd Java Jr">Desenvolvedor BackEnd Java Jr</span>
+            </a>
+          </h3>
+          <span data-testid="company-name">Empresa Atual</span>
+          <div data-testid="text-location">Remoto</div>
+        </div>
+        """,
+        url,
+    )
+
+    parsed = IndeedAdapter().parse_page(
+        page,
+        _config(SourceKind.INDEED, code="indeed", url=url),
+    )
+
+    assert len(parsed.records) == 1
+    assert parsed.records[0].title == "Desenvolvedor BackEnd Java Jr"
+    assert parsed.records[0].source_job_id == "current123"
+    assert parsed.records[0].canonical_url == "https://br.indeed.com/viewjob?jk=current123"
+
+
+def test_indeed_discards_obvious_synthetic_job_keys() -> None:
+    url = "https://br.indeed.com/jobs?q=java+junior"
+    page = _html_page(
+        """
+        <div class="job_seen_beacon">
+          <h3><a data-jk="123456789abcdef0" href="/rc/clk?jk=123456789abcdef0"><span title="Vaga armadilha">Vaga armadilha</span></a></h3>
+        </div>
+        <div class="job_seen_beacon">
+          <h3><a data-jk="a1b2c3d4e5f67890" href="/rc/clk?jk=a1b2c3d4e5f67890"><span title="Vaga sintética">Vaga sintética</span></a></h3>
+        </div>
+        <div class="job_seen_beacon">
+          <h3><a data-jk="4e69f254a676b746" href="/rc/clk?jk=4e69f254a676b746"><span title="Java Junior real">Java Junior real</span></a></h3>
+        </div>
+        """,
+        url,
+    )
+
+    parsed = IndeedAdapter().parse_page(
+        page,
+        _config(SourceKind.INDEED, code="indeed", url=url),
+    )
+
+    assert parsed.cards_observed == 3
+    assert [record.source_job_id for record in parsed.records] == ["4e69f254a676b746"]
+
+
 def test_dynamic_extracts_visible_cards() -> None:
     url = "https://app.example.com/opportunities"
     result = DynamicAdapter().collect(
@@ -137,6 +296,39 @@ def test_dynamic_extracts_visible_cards() -> None:
 
     assert result.records[0].source_job_id == "DYN-42"
     assert result.records[0].canonical_url == "https://app.example.com/opportunities/DYN-42"
+
+
+def test_dynamic_uses_portal_specific_selectors_when_configured() -> None:
+    url = "https://app.example.com/opportunities"
+    page = _html_page(
+        """
+        <div data-testid="opportunities-list-card-42">
+          <a href="/vagas/42" aria-label="Estágio em Desenvolvimento Java">
+            <h3>Estágio em <mark>Desenvolvimento Java</mark></h3>
+          </a>
+          <span class="local">Remoto - Brasil</span>
+        </div>
+        """,
+        url,
+    )
+    config = _config(
+        SourceKind.DYNAMIC,
+        code="eureca",
+        url=url,
+        selectors={
+            "card": "[data-testid^='opportunities-list-card-']",
+            "title": "h3::all-text",
+            "url": "a[href^='/vagas/']::attr(href)",
+            "location": ".local::all-text",
+        },
+    )
+
+    parsed = DynamicAdapter().parse_page(page, config)
+
+    assert parsed.cards_observed == 1
+    assert parsed.records[0].title == "Estágio em Desenvolvimento Java"
+    assert parsed.records[0].canonical_url == "https://app.example.com/vagas/42"
+    assert parsed.records[0].location == "Remoto - Brasil"
 
 
 def test_login_block_becomes_auth_handoff() -> None:
@@ -157,6 +349,40 @@ def test_login_block_becomes_auth_handoff() -> None:
     assert result.visited_urls == (url,)
 
 
+def test_login_block_after_records_preserves_partial_coverage() -> None:
+    first_url = "https://example.com/jobs"
+    second_url = "https://example.com/jobs?page=2"
+    blocked = FetchResult(
+        CollectionStatus.BLOCKED,
+        block_reason=BlockReason.LOGIN_REQUIRED,
+        error="LOGIN_REQUIRED em https://example.com/jobs",
+        attempts=1,
+    )
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={
+            "card": "article.job",
+            "title": "h2",
+            "url": "a::attr(href)",
+            "next": "a.next::attr(href)",
+        },
+    )
+
+    result = GenericListAdapter().collect(
+        config,
+        FixtureFetcher(
+            {
+                first_url: _page("generic-page-1.html", first_url),
+                second_url: blocked,
+            }
+        ),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "LOGIN_REQUIRED"
+    assert len(result.records) == 1
+
+
 def test_missing_expected_cards_is_explicit_layout_error() -> None:
     url = "https://example.com/jobs"
     config = _config(
@@ -171,6 +397,79 @@ def test_missing_expected_cards_is_explicit_layout_error() -> None:
 
     assert result.status is CollectionStatus.ERROR
     assert result.stop_reason == "LAYOUT_CHANGED"
+    assert result.records == ()
+
+
+def test_observed_cards_without_valid_records_is_parse_error() -> None:
+    url = "https://example.com/jobs"
+    malformed_page = _html_page(
+        '<article class="job"><h2>Vaga sem link</h2></article>',
+        url,
+    )
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={"card": "article.job", "title": "h2", "url": "a::attr(href)"},
+    )
+
+    result = GenericListAdapter().collect(
+        config,
+        FixtureFetcher({url: malformed_page}),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.ERROR
+    assert result.stop_reason == "PARSE_ZERO_RECORDS"
+    assert result.cards_observed == 1
+    assert result.records == ()
+
+
+def test_observed_cards_without_records_after_valid_page_is_partial() -> None:
+    first_url = "https://example.com/jobs"
+    second_url = "https://example.com/jobs?page=2"
+    malformed_page = _html_page(
+        '<article class="job"><h2>Vaga sem link</h2></article>',
+        second_url,
+    )
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={
+            "card": "article.job",
+            "title": "h2",
+            "url": "a::attr(href)",
+            "next": "a.next::attr(href)",
+        },
+    )
+
+    result = GenericListAdapter().collect(
+        config,
+        FixtureFetcher(
+            {
+                first_url: _page("generic-page-1.html", first_url),
+                second_url: malformed_page,
+            }
+        ),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "PARSE_ZERO_RECORDS"
+    assert result.cards_observed == 2
+    assert len(result.records) == 1
+
+
+def test_explicit_empty_marker_remains_empty() -> None:
+    url = "https://example.com/jobs"
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={"card": "article.job", "title": "h2", "url": "a::attr(href)"},
+    )
+
+    result = GenericListAdapter().collect(
+        config,
+        FixtureFetcher({url: _html_page("<p>No jobs found</p>", url)}),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.EMPTY
+    assert result.stop_reason == "NO_RESULTS"
+    assert result.cards_observed == 0
     assert result.records == ()
 
 

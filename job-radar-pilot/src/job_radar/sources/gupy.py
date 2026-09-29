@@ -6,7 +6,9 @@ from job_radar.sources.base import PaginatedAdapter, ParsedPage, make_record
 
 class GupyAdapter(PaginatedAdapter):
     def parse_page(self, page: object, config: SourceConfig) -> ParsedPage:
-        cards = page.css("[data-testid='job-card']")  # type: ignore[attr-defined]
+        legacy_cards = page.css("[data-testid='job-card']")  # type: ignore[attr-defined]
+        current_cards = page.css("a[href*='/job/']") if not legacy_cards else ()  # type: ignore[attr-defined]
+        cards = legacy_cards or current_cards
         records = tuple(
             record
             for card in cards
@@ -15,10 +17,10 @@ class GupyAdapter(PaginatedAdapter):
                     config=config,
                     page=page,
                     card=card,
-                    id_selector="::attr(data-job-id)",
-                    title_selector="h2",
-                    url_selector="a::attr(href)",
-                    company_selector="[data-testid='company-name']",
+                    id_selector=(None if current_cards else "::attr(data-job-id)"),
+                    title_selector=("h3" if current_cards else "h2"),
+                    url_selector=("::attr(href)" if current_cards else "a::attr(href)"),
+                    company_selector=("p" if current_cards else "[data-testid='company-name']"),
                     location_selector="[data-testid='job-location']",
                 )
             )

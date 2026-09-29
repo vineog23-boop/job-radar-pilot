@@ -17,10 +17,24 @@ const elements = {
   summaryDate: document.querySelector("#summary-date"),
   summaryTime: document.querySelector("#summary-time"),
   footerVersion: document.querySelector("#footer-version"),
+  preferencesButton: document.querySelector("#preferences-button"),
+  preferencesPanel: document.querySelector("#preferences-panel"),
+  closePreferences: document.querySelector("#close-preferences"),
+  preferencesForm: document.querySelector("#preferences-form"),
+  preferencesStatus: document.querySelector("#preferences-status"),
+  searchTerms: document.querySelector("#search-terms"),
+  locationScopes: document.querySelector("#location-scopes"),
+  seniorityInternship: document.querySelector("#seniority-internship"),
+  seniorityJunior: document.querySelector("#seniority-junior"),
+  workplaceRemote: document.querySelector("#workplace-remote"),
+  workplaceHybrid: document.querySelector("#workplace-hybrid"),
+  workplaceOnsite: document.querySelector("#workplace-onsite"),
+  downloadReport: document.querySelector("#download-report"),
 };
 
 let dashboardState = { jobs: [], report: {}, status: "IDLE", sources: {} };
 let refreshTimer;
+let preferencesLoaded = false;
 
 function normalized(value) {
   return String(value ?? "")
@@ -29,10 +43,33 @@ function normalized(value) {
     .toLowerCase();
 }
 
-function hasMismatch(job) {
-  return (job.match_labels ?? []).some((label) =>
-    String(label).startsWith("SENIORITY_MISMATCH")
+function fitState(job) {
+  const label = (job.match_labels ?? []).find((item) =>
+    /^FIT:(READY|CONDITIONAL|EXCLUDE|AMBIGUOUS)$/.test(String(item))
   );
+  return label ? String(label).slice(4) : "AMBIGUOUS";
+}
+
+function fitScore(job) {
+  const label = (job.match_labels ?? []).find((item) =>
+    /^FIT_SCORE:-?\d+$/.test(String(item))
+  );
+  return label ? Number(String(label).slice("FIT_SCORE:".length)) : Number.NEGATIVE_INFINITY;
+}
+
+function fitLabel(state) {
+  return {
+    READY: "Mais compatível",
+    CONDITIONAL: "A revisar",
+    EXCLUDE: "Fora do perfil",
+    AMBIGUOUS: "Dados insuficientes",
+  }[state] || "Dados insuficientes";
+}
+
+function searchValues(value) {
+  if (Array.isArray(value)) return value.flatMap(searchValues);
+  if (value && typeof value === "object") return Object.values(value).flatMap(searchValues);
+  return [value];
 }
 
 function filteredJobs() {
@@ -47,12 +84,23 @@ function filteredJobs() {
       job.location,
       ...(job.technologies ?? []),
       ...(job.match_labels ?? []),
+      ...searchValues(job.description_summary),
+      ...searchValues(job.requirements),
+      ...searchValues(job.evidence_snippets),
+      job.seniority,
+      job.remote_scope,
     ].join(" "));
     if (text && !haystack.includes(text)) return false;
     if (source && job.source !== source) return false;
-    if (match === "compatible" && hasMismatch(job)) return false;
-    if (match === "mismatch" && !hasMismatch(job)) return false;
+    const state = fitState(job);
+    if (match === "ready" && state !== "READY") return false;
+    if (match === "review" && !["CONDITIONAL", "AMBIGUOUS"].includes(state)) return false;
+    if (match === "exclude" && state !== "EXCLUDE") return false;
     return true;
+  }).sort((left, right) => {
+    const order = { READY: 0, CONDITIONAL: 1, AMBIGUOUS: 2, EXCLUDE: 3 };
+    const byState = order[fitState(left)] - order[fitState(right)];
+    return byState || fitScore(right) - fitScore(left);
   });
 }
 
@@ -90,8 +138,8 @@ function renderTable() {
     matchCell.appendChild(
       textElement(
         "span",
-        `match-pill ${hasMismatch(job) ? "warn" : "good"}`,
-        hasMismatch(job) ? "Com ressalva" : "Mais compatível"
+        `match-pill ${fitState(job).toLowerCase()}`,
+        fitLabel(fitState(job))
       )
     );
     row.appendChild(matchCell);
@@ -111,6 +159,12 @@ function renderTable() {
 
   elements.visibleCount.textContent = `${jobs.length} ${jobs.length === 1 ? "vaga" : "vagas"}`;
   elements.emptyState.hidden = jobs.length !== 0;
+  const reportParameters = new URLSearchParams();
+  if (elements.textFilter.value.trim()) reportParameters.set("text", elements.textFilter.value.trim());
+  if (elements.sourceFilter.value) reportParameters.set("source", elements.sourceFilter.value);
+  if (elements.matchFilter.value) reportParameters.set("match", elements.matchFilter.value);
+  const reportQuery = reportParameters.toString();
+  elements.downloadReport.href = `/api/export/markdown${reportQuery ? `?${reportQuery}` : ""}`;
 }
 
 function updateSourceFilter() {
@@ -128,7 +182,7 @@ function renderSummary() {
   const productiveSources = new Set(jobs.map((job) => job.source).filter(Boolean));
   elements.summaryJobs.textContent = String(jobs.length);
   elements.summarySources.textContent = String(productiveSources.size);
-  elements.summaryMatches.textContent = String(jobs.filter((job) => !hasMismatch(job)).length);
+  elements.summaryMatches.textContent = String(jobs.filter((job) => fitState(job) === "READY").length);
 
   const finishedAt = dashboardState.report?.finished_at || dashboardState.finished_at;
   if (finishedAt) {
@@ -253,7 +307,106 @@ async function startSearch() {
   }
 }
 
+function setChecked(element, values) {
+  element.checked = values.includes(element.value);
+}
+
+function showPreferences(show) {
+  elements.preferencesPanel.hidden = !show;
+  elements.preferencesButton.setAttribute("aria-expanded", String(show));
+}
+
+async function loadPreferences() {
+  if (preferencesLoaded) return true;
+  const controls = [...elements.preferencesForm.querySelectorAll("input, textarea, button")];
+  controls.forEach((control) => { control.disabled = true; });
+  elements.preferencesStatus.textContent = "Carregando configurações…";
+  try {
+    const response = await fetch("/api/preferences", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
+    elements.locationScopes.value = (payload.location_scopes ?? []).join("\n");
+    setChecked(elements.seniorityInternship, payload.seniority_levels ?? []);
+    setChecked(elements.seniorityJunior, payload.seniority_levels ?? []);
+    setChecked(elements.workplaceRemote, payload.workplace_models ?? []);
+    setChecked(elements.workplaceHybrid, payload.workplace_models ?? []);
+    setChecked(elements.workplaceOnsite, payload.workplace_models ?? []);
+    preferencesLoaded = true;
+    elements.preferencesStatus.textContent = "Configurações atuais carregadas.";
+    return true;
+  } catch (error) {
+    elements.preferencesStatus.textContent = `Não foi possível carregar: ${error.message}`;
+    return false;
+  } finally {
+    controls.forEach((control) => { control.disabled = false; });
+  }
+}
+
+function linesFrom(element) {
+  return element.value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function checkedValues(elementsList) {
+  return elementsList.filter((element) => element.checked).map((element) => element.value);
+}
+
+async function savePreferences(event) {
+  event.preventDefault();
+  const saveButton = document.querySelector("#save-preferences");
+  saveButton.disabled = true;
+  elements.preferencesStatus.textContent = "Salvando configurações…";
+  const payload = {
+    search_terms: linesFrom(elements.searchTerms),
+    seniority_levels: checkedValues([
+      elements.seniorityInternship,
+      elements.seniorityJunior,
+    ]),
+    workplace_models: checkedValues([
+      elements.workplaceRemote,
+      elements.workplaceHybrid,
+      elements.workplaceOnsite,
+    ]),
+    location_scopes: linesFrom(elements.locationScopes),
+  };
+  if (payload.seniority_levels.length === 0) {
+    elements.preferencesStatus.textContent = "Selecione Estágio e/ou Júnior.";
+    saveButton.disabled = false;
+    return;
+  }
+  if (payload.location_scopes.length === 0) {
+    elements.preferencesStatus.textContent = "Informe ao menos uma localidade.";
+    saveButton.disabled = false;
+    return;
+  }
+  try {
+    const response = await fetch("/api/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const saved = await response.json();
+    if (!response.ok) throw new Error(saved.error || `HTTP ${response.status}`);
+    preferencesLoaded = true;
+    elements.preferencesStatus.textContent = "Configurações salvas. Clique em Buscar vagas agora quando quiser.";
+  } catch (error) {
+    elements.preferencesStatus.textContent = `Não foi possível salvar: ${error.message}`;
+  } finally {
+    saveButton.disabled = false;
+  }
+}
+
 elements.searchButton.addEventListener("click", startSearch);
+elements.preferencesButton.addEventListener("click", async () => {
+  const willShow = elements.preferencesPanel.hidden;
+  showPreferences(willShow);
+  if (willShow) await loadPreferences();
+});
+elements.closePreferences.addEventListener("click", () => showPreferences(false));
+elements.preferencesForm.addEventListener("submit", savePreferences);
 [elements.textFilter, elements.sourceFilter, elements.matchFilter].forEach((filter) => {
   filter.addEventListener("input", renderTable);
   filter.addEventListener("change", renderTable);

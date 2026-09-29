@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from hashlib import sha256
+import re
 from typing import Iterable
+import unicodedata
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from job_radar.models import VacancyRecord
@@ -13,9 +15,18 @@ _SENSITIVE_OR_TRACKING_PARAMETERS = {
     "auth",
     "authorization",
     "iauid",
+    "jobboardsource",
     "session",
     "sessionid",
     "token",
+}
+
+_GENERIC_TITLES = {
+    "aprendiz",
+    "estagio",
+    "estagiario",
+    "pcd",
+    "programa de estagio",
 }
 
 
@@ -49,6 +60,7 @@ def canonicalize_url(url: str) -> str:
         if normalized_key in _SENSITIVE_OR_TRACKING_PARAMETERS:
             continue
         kept_parameters.append((key, value))
+    kept_parameters.sort(key=lambda item: (item[0].casefold(), item[1]))
 
     path = parsed.path or "/"
     if path != "/":
@@ -74,6 +86,48 @@ def identity_key(record: VacancyRecord) -> tuple[str, str]:
         (record.company or "", record.title or "", record.location or "")
     ).casefold()
     return "FALLBACK_HASH", sha256(fallback_material.encode("utf-8")).hexdigest()
+
+
+def _semantic_text(value: str | None) -> str:
+    decomposed = unicodedata.normalize("NFKD", (value or "").casefold())
+    without_accents = "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    )
+    return " ".join(re.findall(r"[a-z0-9]+", without_accents))
+
+
+def _semantic_key(record: VacancyRecord) -> tuple[str, str, str] | None:
+    title = _semantic_text(record.title)
+    company = _semantic_text(record.company)
+    location = _semantic_text(record.location)
+    if not title or not company or not location or title in _GENERIC_TITLES:
+        return None
+    return title, company, location
+
+
+def _annotate_cross_source_semantic_candidates(
+    records: list[VacancyRecord],
+) -> list[VacancyRecord]:
+    result = list(records)
+    groups: dict[tuple[str, str, str], list[int]] = {}
+    for index, record in enumerate(records):
+        key = _semantic_key(record)
+        if key is not None:
+            groups.setdefault(key, []).append(index)
+
+    for indexes in groups.values():
+        sources = {records[index].source for index in indexes}
+        if len(sources) < 2:
+            continue
+        for index in indexes:
+            record = result[index]
+            other_sources = sources.difference((record.source,))
+            labels = set(record.match_labels)
+            labels.update(
+                f"POSSIBLE_DUPLICATE:{source}" for source in other_sources
+            )
+            result[index] = replace(record, match_labels=tuple(sorted(labels)))
+    return result
 
 
 def deduplicate(records: Iterable[VacancyRecord]) -> DeduplicationResult:
@@ -117,4 +171,9 @@ def deduplicate(records: Iterable[VacancyRecord]) -> DeduplicationResult:
             seen_url[canonical_url] = record
         unique.append(record)
 
-    return DeduplicationResult(tuple(unique), tuple(ambiguous), duplicate_count)
+    unique = _annotate_cross_source_semantic_candidates(unique)
+    return DeduplicationResult(
+        tuple(unique),
+        tuple(ambiguous),
+        duplicate_count,
+    )

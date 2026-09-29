@@ -8,6 +8,7 @@ job-radar-pilot/output/
 *.py[cod]
 .pytest_cache/
 .tmp-tests*/
+job-radar-pilot/.tmp-*/
 debug.log
 .ruff_cache/
 *.egg-info/

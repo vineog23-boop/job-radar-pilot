@@ -6,10 +6,15 @@ import sys
 from typing import Sequence
 
 from job_radar.config import ConfigError, load_profile, load_sources
-from job_radar.fetching import FetchPolicy
+from job_radar.fetching import FetchPolicy, ProfileInUseError, bootstrap_auth
 from job_radar.models import CollectionStatus
 from job_radar.output import validate_jsonl, write_outputs
 from job_radar.pipeline import JobRadarPipeline
+from job_radar.preferences import (
+    PreferencesError,
+    apply_preferences,
+    load_preferences,
+)
 
 
 def _project_root() -> Path:
@@ -45,6 +50,10 @@ def _parser() -> argparse.ArgumentParser:
         "validate-output", help="Validar um JSONL contra o schema local."
     )
     validate.add_argument("path", type=Path)
+    auth = commands.add_parser(
+        "auth", help="Abrir login manual e preservar a sessao local de um portal."
+    )
+    auth.add_argument("source", metavar="SOURCE")
     return parser
 
 
@@ -62,7 +71,14 @@ def _collect(args: argparse.Namespace) -> int:
     try:
         profile = load_profile(project / "config" / "profile.yaml")
         sources = load_sources(project / "config" / "sources.yaml")
-    except ConfigError as exc:
+        preferences = load_preferences(
+            default_profile=profile,
+            default_search_terms=(
+                query for source in sources for query in source.queries
+            ),
+        )
+        profile = apply_preferences(profile, preferences)
+    except (ConfigError, PreferencesError) as exc:
         print(f"CONFIG_ERROR: {exc}", file=sys.stderr)
         return 2
 
@@ -76,18 +92,22 @@ def _collect(args: argparse.Namespace) -> int:
         source for source in enabled if not args.sources or source.code in args.sources
     )
     if args.dry_run:
-        print(f"DRY_RUN: {len(selected)} fontes selecionadas; {len(enabled)} fontes habilitadas")
+        print(
+            f"DRY_RUN: {len(selected)} fontes selecionadas; "
+            f"{len(enabled)} fontes habilitadas; {len(sources)} fontes configuradas"
+        )
         for source in selected:
             auth = "auth-manual" if source.requires_auth else "publica"
             print(f"- {source.code}: {source.kind.value}, {auth}, max_pages={source.max_pages}")
         return 0
 
-    pipeline = JobRadarPipeline(
-        sources,
-        profile,
-        fetcher=FetchPolicy(),
-    )
-    result = pipeline.run(args.sources)
+    with FetchPolicy() as fetcher:
+        pipeline = JobRadarPipeline(
+            sources,
+            profile,
+            fetcher=fetcher,
+        )
+        result = pipeline.run(args.sources)
     manifest = write_outputs(result, args.output.resolve())
     for source in result.source_results:
         print(
@@ -114,10 +134,46 @@ def _validate(path: Path) -> int:
     return 1
 
 
+def _auth(args: argparse.Namespace) -> int:
+    project = _project_root()
+    try:
+        sources = load_sources(project / "config" / "sources.yaml")
+    except ConfigError as exc:
+        print(f"CONFIG_ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    source = next(
+        (item for item in sources if item.enabled and item.code == args.source),
+        None,
+    )
+    if source is None:
+        print(f"Fonte desconhecida: {args.source}", file=sys.stderr)
+        return 2
+
+    print(
+        "AUTH_MANUAL: conclua login, CAPTCHA ou 2FA somente na janela do navegador."
+    )
+    try:
+        bootstrap_auth(source)
+    except ProfileInUseError:
+        print(f"AUTH_BUSY: o perfil de {source.code} ja esta em uso", file=sys.stderr)
+        return 3
+    except Exception as exc:
+        print(f"AUTH_ERROR: {type(exc).__name__}", file=sys.stderr)
+        return 3
+    print(
+        f"AUTH_PROFILE_SAVED_UNVERIFIED: {source.code}; "
+        "o login sera confirmado pela proxima coleta"
+    )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "collect":
         return _collect(args)
+    if args.command == "auth":
+        return _auth(args)
     return _validate(args.path)
 
 

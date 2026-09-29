@@ -122,6 +122,149 @@ def test_pipeline_filters_sources_and_rejects_unknown_codes() -> None:
         pipeline.run(["unknown"])
 
 
+def test_pipeline_retries_dynamic_layout_once_for_transient_rendering() -> None:
+    source = replace(_source("dynamic"), kind=SourceKind.DYNAMIC)
+    calls = 0
+
+    class TransientDynamicAdapter:
+        def collect(self, config: SourceConfig, fetcher: object) -> SourceRunResult:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return SourceRunResult(
+                    config.code,
+                    CollectionStatus.ERROR,
+                    stop_reason="LAYOUT_CHANGED",
+                )
+            return SourceRunResult(
+                config.code,
+                CollectionStatus.PARTIAL,
+                (_record(config.code, "https://ats.example.com/recovered"),),
+                stop_reason="PAGINATION_UNVERIFIED",
+            )
+
+    result = JobRadarPipeline(
+        (source,),
+        PROFILE,
+        fetcher=object(),
+        adapter_factory=lambda config: TransientDynamicAdapter(),
+    ).run()
+
+    assert calls == 2
+    assert result.source_results[0].status is CollectionStatus.PARTIAL
+    assert len(result.records) == 1
+
+
+def test_pipeline_sweeps_supported_search_queries_and_combines_one_source_result() -> None:
+    source = replace(
+        _source("indeed"),
+        kind=SourceKind.INDEED,
+        start_url="https://br.indeed.com/jobs?q=java+junior",
+        queries=("java junior", "estagio desenvolvimento"),
+    )
+    calls: list[str] = []
+
+    class QueryAdapter:
+        def collect(self, config: SourceConfig, fetcher: object) -> SourceRunResult:
+            calls.append(config.start_url)
+            suffix = str(len(calls))
+            return SourceRunResult(
+                config.code,
+                CollectionStatus.SUCCESS,
+                (_record(config.code, f"https://ats.example.com/{suffix}"),),
+                pages_observed=1,
+                cards_observed=1,
+                visited_urls=(config.start_url,),
+            )
+
+    result = JobRadarPipeline(
+        (source,),
+        PROFILE,
+        fetcher=object(),
+        adapter_factory=lambda config: QueryAdapter(),
+    ).run()
+
+    assert calls == [
+        "https://br.indeed.com/jobs?q=java+junior",
+        "https://br.indeed.com/jobs?q=estagio+desenvolvimento",
+    ]
+    assert len(result.source_results) == 1
+    assert result.source_results[0].status is CollectionStatus.SUCCESS
+    assert result.source_results[0].pages_observed == 2
+    assert len(result.source_results[0].records) == 2
+
+
+def test_pipeline_prefers_editable_search_terms_for_supported_search_sources() -> None:
+    sources = (
+        replace(
+            _source("gupy"),
+            kind=SourceKind.GUPY,
+            start_url="https://portal.gupy.io/job-search/term%3Dconfig-antiga",
+            queries=("config antiga",),
+        ),
+        replace(
+            _source("indeed"),
+            kind=SourceKind.INDEED,
+            start_url="https://br.indeed.com/jobs?q=config+antiga",
+            queries=("config antiga",),
+        ),
+        replace(
+            _source("casado-dev"),
+            start_url="https://casado.dev/vagas?search=config+antiga",
+            queries=("config antiga",),
+        ),
+    )
+    profile = replace(PROFILE, search_terms=("java remoto junior", "estagio backend"))
+    calls: list[str] = []
+
+    class QueryAdapter:
+        def collect(self, config: SourceConfig, fetcher: object) -> SourceRunResult:
+            calls.append(config.start_url)
+            return SourceRunResult(config.code, CollectionStatus.EMPTY)
+
+    JobRadarPipeline(
+        sources,
+        profile,
+        fetcher=object(),
+        adapter_factory=lambda config: QueryAdapter(),
+    ).run()
+
+    assert calls == [
+        "https://portal.gupy.io/job-search/term%3Djava%20remoto%20junior",
+        "https://portal.gupy.io/job-search/term%3Destagio%20backend",
+        "https://br.indeed.com/jobs?q=java+remoto+junior",
+        "https://br.indeed.com/jobs?q=estagio+backend",
+        "https://casado.dev/vagas?search=java+remoto+junior",
+        "https://casado.dev/vagas?search=estagio+backend",
+    ]
+
+
+def test_pipeline_builds_casado_dev_search_urls() -> None:
+    source = replace(
+        _source("casado-dev"),
+        start_url="https://casado.dev/vagas",
+        queries=("java", "spring boot"),
+    )
+    calls: list[str] = []
+
+    class EmptyAdapter:
+        def collect(self, config: SourceConfig, fetcher: object) -> SourceRunResult:
+            calls.append(config.start_url)
+            return SourceRunResult(config.code, CollectionStatus.EMPTY)
+
+    JobRadarPipeline(
+        (source,),
+        PROFILE,
+        fetcher=object(),
+        adapter_factory=lambda config: EmptyAdapter(),
+    ).run()
+
+    assert calls == [
+        "https://casado.dev/vagas?search=java",
+        "https://casado.dev/vagas?search=spring+boot",
+    ]
+
+
 def test_pipeline_deduplicates_across_sources_and_reconciles_counts() -> None:
     sources = (_source("one"), _source("two"))
     shared_url = "https://ats.example.com/jobs/42"
@@ -149,6 +292,28 @@ def test_pipeline_deduplicates_across_sources_and_reconciles_counts() -> None:
     assert result.raw_record_count == (
         len(result.records) + result.duplicate_count + len(result.ambiguous)
     )
+
+
+def test_pipeline_propagates_partial_source_status_to_its_records() -> None:
+    source = _source("partial")
+    record = _record("partial", "https://ats.example.com/jobs/partial")
+    pipeline = JobRadarPipeline(
+        (source,),
+        PROFILE,
+        fetcher=object(),
+        adapter_factory=lambda config: StaticAdapter(
+            SourceRunResult(
+                config.code,
+                CollectionStatus.PARTIAL,
+                (record,),
+                stop_reason="PAGINATION_UNVERIFIED",
+            )
+        ),
+    )
+
+    result = pipeline.run()
+
+    assert result.records[0].collection_status is CollectionStatus.PARTIAL
 
 
 class HtmlFetcher:

@@ -33,7 +33,17 @@ class ParsedPage:
 def extract_value(node: object, selector: str | None) -> str | None:
     if not selector:
         return None
-    if selector.startswith("::attr(") and selector.endswith(")"):
+    if selector.endswith("::all-text"):
+        element_selector = selector.removesuffix("::all-text")
+        if element_selector:
+            matches = node.css(element_selector)  # type: ignore[attr-defined]
+            if not matches:
+                return None
+            selected = matches[0]
+        else:
+            selected = node
+        value = " ".join(selected.css("::text").getall())  # type: ignore[attr-defined]
+    elif selector.startswith("::attr(") and selector.endswith(")"):
         attribute = selector[7:-1]
         value = getattr(node, "attrib", {}).get(attribute)
     else:
@@ -101,10 +111,10 @@ class PaginatedAdapter:
                     BlockReason.TWO_FACTOR,
                 }
                 status = (
-                    CollectionStatus.AUTH_REQUIRED
-                    if fetched.block_reason in auth_reasons
-                    else CollectionStatus.PARTIAL
+                    CollectionStatus.PARTIAL
                     if records
+                    else CollectionStatus.AUTH_REQUIRED
+                    if fetched.block_reason in auth_reasons
                     else fetched.status
                 )
                 return SourceRunResult(
@@ -126,6 +136,21 @@ class PaginatedAdapter:
             parsed = self.parse_page(fetched.response, config)
             cards_observed += parsed.cards_observed
             records.extend(parsed.records)
+            if parsed.cards_observed > 0 and not parsed.records:
+                return SourceRunResult(
+                    source_code=config.code,
+                    status=(
+                        CollectionStatus.PARTIAL
+                        if records
+                        else CollectionStatus.ERROR
+                    ),
+                    records=tuple(records),
+                    pages_observed=len(visited),
+                    cards_observed=cards_observed,
+                    has_more=bool(parsed.next_url),
+                    stop_reason="PARSE_ZERO_RECORDS",
+                    visited_urls=tuple(visited),
+                )
             if parsed.cards_observed == 0 and not records:
                 text = " ".join(str(fetched.response.text).casefold().split())
                 status = (
@@ -142,11 +167,21 @@ class PaginatedAdapter:
                     stop_reason=("NO_RESULTS" if status is CollectionStatus.EMPTY else "LAYOUT_CHANGED"),
                     visited_urls=tuple(visited),
                 )
+            if parsed.cards_observed == 0 and records:
+                return SourceRunResult(
+                    source_code=config.code,
+                    status=CollectionStatus.PARTIAL,
+                    records=tuple(records),
+                    pages_observed=len(visited),
+                    cards_observed=cards_observed,
+                    has_more=bool(parsed.next_url),
+                    stop_reason="EMPTY_PAGE_AFTER_RECORDS",
+                    visited_urls=tuple(visited),
+                )
             if (
                 parsed.records
                 and not parsed.next_url
                 and not parsed.pagination_observable
-                and config.max_pages > len(visited)
             ):
                 return SourceRunResult(
                     source_code=config.code,
@@ -191,6 +226,7 @@ def make_record(
     url_selector: str,
     company_selector: str | None,
     location_selector: str | None,
+    description_selector: str | None = None,
 ) -> VacancyRecord | None:
     title = extract_value(card, title_selector)
     raw_url = extract_value(card, url_selector)
@@ -204,6 +240,7 @@ def make_record(
         canonical_url=canonical_url,
         title=title,
         company=extract_value(card, company_selector),
+        description_summary=extract_value(card, description_selector),
         location=extract_value(card, location_selector),
         observed_at=datetime.now(timezone.utc).isoformat(),
         evidence_snippets=(title,),

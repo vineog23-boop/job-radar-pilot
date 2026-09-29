@@ -34,6 +34,8 @@ class SearchProfile:
     seniority_levels: tuple[str, ...]
     location_scopes: tuple[str, ...]
     excluded_terms: tuple[str, ...] = ()
+    search_terms: tuple[str, ...] = ()
+    workplace_models: tuple[WorkplaceModel, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

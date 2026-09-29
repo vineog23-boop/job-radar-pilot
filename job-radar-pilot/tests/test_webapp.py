@@ -179,6 +179,116 @@ def test_http_server_serves_dashboard_and_state_api(tmp_path) -> None:
     assert state["jobs"] == []
 
 
+def test_export_api_downloads_markdown_from_fixed_output(tmp_path) -> None:
+    from job_radar.webapp import SearchController, create_server
+
+    output = tmp_path / "output"
+    output.mkdir()
+    (output / "vagas.jsonl").write_text(
+        "".join(
+            json.dumps(job) + "\n"
+            for job in [
+                {
+                "title": "Desenvolvedor Java Junior",
+                "company": "Acme",
+                "location": "Remoto",
+                "source": "gupy",
+                "canonical_url": "https://example.com/vaga/1",
+                "match_labels": ["FIT:READY"],
+                },
+                {
+                    "title": "Analista Python Senior",
+                    "company": "Beta",
+                    "location": "Sao Paulo",
+                    "source": "indeed",
+                    "canonical_url": "https://example.com/vaga/2",
+                    "match_labels": ["FIT:EXCLUDE"],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (output / "relatorio-execucao.json").write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "source": "gupy",
+                        "status": "PARTIAL",
+                        "stop_reason": "PAGINATION_UNVERIFIED",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    static_dir = tmp_path / "web"
+    static_dir.mkdir()
+    controller = SearchController(output, runner=lambda *_: 0)
+    server = create_server("127.0.0.1", 0, controller, static_dir)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        with urlopen(
+            f"http://127.0.0.1:{server.server_port}/api/export/markdown?text=java&source=gupy&match=ready",
+            timeout=2,
+        ) as response:
+            status = response.status
+            disposition = response.headers["Content-Disposition"]
+            content_type = response.headers["Content-Type"]
+            document = response.read().decode("utf-8-sig")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status == 200
+    assert disposition == 'attachment; filename="relatorio-vagas.md"'
+    assert content_type == "text/markdown; charset=utf-8"
+    assert "## Mais compativeis (1)" in document
+    assert "Desenvolvedor Java Junior" in document
+    assert "Analista Python Senior" not in document
+    assert "Filtros aplicados:" in document
+    assert "gupy: PARTIAL" in document
+
+
+def test_export_api_rejects_corrupt_local_output_instead_of_returning_empty_report(tmp_path) -> None:
+    from job_radar.webapp import SearchController, create_server
+
+    output = tmp_path / "output"
+    output.mkdir()
+    (output / "vagas.jsonl").write_text('{"title":"Java Junior"}\n', encoding="utf-8")
+    (output / "relatorio-execucao.json").write_text("{invalid", encoding="utf-8")
+    static_dir = tmp_path / "web"
+    static_dir.mkdir()
+    server = create_server(
+        "127.0.0.1", 0, SearchController(output, runner=lambda *_: 0), static_dir
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        try:
+            urlopen(
+                f"http://127.0.0.1:{server.server_port}/api/export/markdown",
+                timeout=2,
+            )
+        except HTTPError as exc:
+            status = exc.code
+            payload = json.loads(exc.read())
+        else:
+            raise AssertionError("Saida corrompida nao pode gerar download")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status == 500
+    assert "error" in payload
+    assert "Total: 0 vagas" not in json.dumps(payload)
+
+
 def test_search_api_starts_collection_and_rejects_duplicate(tmp_path) -> None:
     from job_radar.webapp import SearchController, create_server
 
@@ -234,6 +344,139 @@ def test_search_api_starts_collection_and_rejects_duplicate(tmp_path) -> None:
     assert received_sources == [["programathor"]]
 
 
+def test_preferences_api_saves_validated_search_configuration(tmp_path) -> None:
+    from job_radar.webapp import SearchController, create_server
+
+    static_dir = tmp_path / "web"
+    static_dir.mkdir()
+    preferences_path = tmp_path / "search-preferences.json"
+    controller = SearchController(tmp_path / "output", runner=lambda *_: 0)
+    server = create_server(
+        "127.0.0.1",
+        0,
+        controller,
+        static_dir,
+        preferences_path=preferences_path,
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    endpoint = f"http://127.0.0.1:{server.server_port}/api/preferences"
+    payload = {
+        "search_terms": ["java junior", "estagio backend"],
+        "seniority_levels": ["estagio", "junior"],
+        "workplace_models": ["REMOTE", "HYBRID"],
+        "location_scopes": ["sao-carlos-sp", "florianopolis-sc"],
+    }
+
+    try:
+        request = Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        with urlopen(request, timeout=2) as response:
+            saved = json.loads(response.read())
+            saved_status = response.status
+        with urlopen(endpoint, timeout=2) as response:
+            loaded = json.loads(response.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert saved_status == 200
+    assert saved == payload
+    assert loaded == payload
+    assert preferences_path.exists()
+
+
+def test_preferences_api_rejects_unknown_fields_without_overwriting(tmp_path) -> None:
+    from job_radar.webapp import SearchController, create_server
+
+    static_dir = tmp_path / "web"
+    static_dir.mkdir()
+    preferences_path = tmp_path / "search-preferences.json"
+    controller = SearchController(tmp_path / "output", runner=lambda *_: 0)
+    server = create_server(
+        "127.0.0.1",
+        0,
+        controller,
+        static_dir,
+        preferences_path=preferences_path,
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    endpoint = f"http://127.0.0.1:{server.server_port}/api/preferences"
+    invalid = {
+        "search_terms": ["java"],
+        "seniority_levels": ["junior"],
+        "workplace_models": ["REMOTE"],
+        "location_scopes": ["brasil"],
+        "output_path": "C:/fora-do-radar",
+    }
+
+    try:
+        request = Request(
+            endpoint,
+            data=json.dumps(invalid).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        try:
+            urlopen(request, timeout=2)
+            status = 200
+        except HTTPError as exc:
+            status = exc.code
+            error = json.loads(exc.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status == 400
+    assert "error" in error
+    assert preferences_path.exists() is False
+
+
+def test_preferences_api_rejects_body_over_16kb(tmp_path) -> None:
+    from job_radar.webapp import SearchController, create_server
+
+    static_dir = tmp_path / "web"
+    static_dir.mkdir()
+    controller = SearchController(tmp_path / "output", runner=lambda *_: 0)
+    server = create_server(
+        "127.0.0.1",
+        0,
+        controller,
+        static_dir,
+        preferences_path=tmp_path / "search-preferences.json",
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    endpoint = f"http://127.0.0.1:{server.server_port}/api/preferences"
+    oversized = json.dumps({"search_terms": ["x" * 16_384]}).encode("utf-8")
+
+    try:
+        request = Request(
+            endpoint,
+            data=oversized,
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        try:
+            urlopen(request, timeout=2)
+            status = 200
+        except HTTPError as exc:
+            status = exc.code
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status == 400
+
+
 def test_project_dashboard_exposes_expected_controls(tmp_path) -> None:
     from job_radar.webapp import SearchController, create_server
 
@@ -261,6 +504,9 @@ def test_project_dashboard_exposes_expected_controls(tmp_path) -> None:
     parser.feed(html)
     assert {
         "search-button",
+        "preferences-button",
+        "preferences-panel",
+        "download-report",
         "text-filter",
         "source-filter",
         "match-filter",
@@ -269,6 +515,88 @@ def test_project_dashboard_exposes_expected_controls(tmp_path) -> None:
         "jobs-table-body",
         "live-status",
     }.issubset(parser.ids)
+
+
+def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from job_radar.webapp import SearchController, create_server
+
+    searches: list[list[str] | None] = []
+
+    def runner(output_dir, sources, on_line):
+        searches.append(sources)
+        return 0
+
+    output = tmp_path / "output"
+    static_dir = Path(__file__).resolve().parents[1] / "src" / "job_radar" / "web"
+    preferences_path = tmp_path / "search-preferences.json"
+    server = create_server(
+        "127.0.0.1",
+        0,
+        SearchController(output, runner=runner),
+        static_dir,
+        preferences_path=preferences_path,
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.get_by_role("button", name="Configurar busca").click()
+            assert page.locator("#preferences-panel").is_visible() is True
+
+            page.locator("#search-terms").fill("java junior\nestagio backend")
+            page.locator("#seniority-internship").check()
+            page.locator("#seniority-junior").check()
+            page.locator("#workplace-remote").check()
+            page.locator("#workplace-hybrid").check()
+            page.locator("#workplace-onsite").uncheck()
+            page.locator("#location-scopes").fill(
+                "sao-carlos-sp\nflorianopolis-sc"
+            )
+            with page.expect_response(
+                lambda response: response.url.endswith("/api/preferences")
+                and response.request.method == "PUT"
+            ) as response_info:
+                page.get_by_role("button", name="Salvar configurações").click()
+            assert response_info.value.status == 200
+            page.get_by_text("Configurações salvas").wait_for()
+            assert searches == []
+
+            page.locator("#seniority-internship").uncheck()
+            page.locator("#seniority-junior").uncheck()
+            page.get_by_role("button", name="Salvar configurações").click()
+            page.get_by_text("Selecione Estágio e/ou Júnior.").wait_for()
+
+            page.locator("#seniority-junior").check()
+            page.locator("#location-scopes").fill("")
+            page.get_by_role("button", name="Salvar configurações").click()
+            page.get_by_text("Informe ao menos uma localidade.").wait_for()
+            assert searches == []
+
+            page.get_by_role("button", name="Buscar vagas agora").click()
+            page.wait_for_function("() => document.querySelector('#search-button').disabled === false")
+            assert searches == [None]
+            assert page.locator("#download-report").get_attribute("href") == (
+                "/api/export/markdown"
+            )
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    saved = json.loads(preferences_path.read_text(encoding="utf-8"))
+    assert saved == {
+        "search_terms": ["java junior", "estagio backend"],
+        "seniority_levels": ["estagio", "junior"],
+        "workplace_models": ["REMOTE", "HYBRID"],
+        "location_scopes": ["sao-carlos-sp", "florianopolis-sc"],
+    }
 
 
 def test_dashboard_browser_renders_local_jobs(tmp_path) -> None:
@@ -395,6 +723,83 @@ def test_dashboard_browser_filters_jobs_by_text(tmp_path) -> None:
             assert page.locator("#jobs-table-body tr").count() == 1
             assert page.locator("#visible-count").inner_text() == "1 vaga"
             assert "Desenvolvedor Java Junior" in page.locator("#jobs-table-body").inner_text()
+            assert page.locator("#download-report").get_attribute("href") == (
+                "/api/export/markdown?text=java"
+            )
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_dashboard_browser_uses_fit_state_for_labels_filter_and_order(tmp_path) -> None:
+    """A missing FIT label must not be presented as a positive match."""
+    from playwright.sync_api import sync_playwright
+
+    from job_radar.webapp import SearchController, create_server
+
+    output = tmp_path / "output"
+    output.mkdir()
+    jobs = [
+        {
+            "title": "Android Developer",
+            "company": "Mobile Co",
+            "canonical_url": "https://example.com/android",
+            "source": "example",
+            "match_labels": ["TECH_MATCH:android"],
+            "description_summary": "Android nativo",
+        },
+        {
+            "title": "Java Ready score menor",
+            "company": "Acme",
+            "canonical_url": "https://example.com/ready-low",
+            "source": "example",
+            "match_labels": ["FIT:READY", "FIT_SCORE:67"],
+        },
+        {
+            "title": "Java A revisar",
+            "company": "Beta",
+            "canonical_url": "https://example.com/review",
+            "source": "example",
+            "match_labels": ["FIT:CONDITIONAL", "FIT_SCORE:93"],
+        },
+        {
+            "title": "Java Ready score maior",
+            "company": "Gamma",
+            "canonical_url": "https://example.com/ready-high",
+            "source": "example",
+            "match_labels": ["FIT:READY", "FIT_SCORE:88"],
+        },
+    ]
+    (output / "vagas.jsonl").write_text(
+        "".join(json.dumps(job) + "\n" for job in jobs), encoding="utf-8"
+    )
+    static_dir = Path(__file__).resolve().parents[1] / "src" / "job_radar" / "web"
+    server = create_server(
+        "127.0.0.1",
+        0,
+        SearchController(output, runner=lambda *_: 0),
+        static_dir,
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.wait_for_selector("#jobs-table-body tr")
+
+            android_row = page.locator("#jobs-table-body tr").filter(has_text="Android Developer")
+            assert "Dados insuficientes" in android_row.inner_text()
+            assert "Mais compatível" not in android_row.inner_text()
+            assert page.locator("#summary-matches").inner_text() == "2"
+
+            page.locator("#match-filter").select_option("ready")
+            visible_titles = page.locator("#jobs-table-body .job-title").all_inner_texts()
+            assert visible_titles == ["Java Ready score maior", "Java Ready score menor"]
             browser.close()
     finally:
         server.shutdown()

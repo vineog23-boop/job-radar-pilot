@@ -25,6 +25,8 @@ _VOLATILE_HASH_CLASS = re.compile(
     r"(?:css|emotion|jsx|sc)[-_][a-z0-9]{12,}",
     re.IGNORECASE,
 )
+_LONG_HEX_TOKEN = re.compile(r"[0-9a-f]{20,}", re.IGNORECASE)
+_LOWERCASE_OPAQUE_TOKEN = re.compile(r"[a-z0-9]{24,}")
 _HTML_TAGS = frozenset(
     "a abbr address area article aside audio b base bdi bdo blockquote body br "
     "button canvas caption cite code col colgroup data datalist dd del details dfn "
@@ -56,13 +58,23 @@ def _element(node: object) -> Any:
 
 def _looks_high_entropy(value: str) -> bool:
     compact = "".join(character for character in value if character.isalnum())
-    return (
-        len(compact) >= 24
-        and any(character.islower() for character in compact)
+    if len(compact) < 24 or len(set(compact)) / len(compact) < 0.5:
+        return False
+    if (
+        any(character.islower() for character in compact)
         and any(character.isupper() for character in compact)
         and any(character.isdigit() for character in compact)
-        and len(set(compact)) / len(compact) >= 0.5
+    ):
+        return True
+    if _LOWERCASE_OPAQUE_TOKEN.fullmatch(value) is None:
+        return False
+    digit_count = sum(character.isdigit() for character in compact)
+    letter_count = len(compact) - digit_count
+    kind_transitions = sum(
+        left.isdigit() != right.isdigit()
+        for left, right in zip(compact, compact[1:])
     )
+    return digit_count >= 6 and letter_count >= 6 and kind_transitions >= 8
 
 
 def _safe_token(value: str) -> bool:
@@ -70,6 +82,7 @@ def _safe_token(value: str) -> bool:
         _SAFE_CLASS.fullmatch(value) is not None
         and _SENSITIVE_CLASS.search(value) is None
         and _VOLATILE_HASH_CLASS.fullmatch(value) is None
+        and _LONG_HEX_TOKEN.fullmatch(value) is None
         and not _looks_high_entropy(value)
     )
 

@@ -239,6 +239,48 @@ def test_remember_removes_origin_credentials_and_sensitive_class_tokens(
     assert "sk_live_123456" not in caplog.text
 
 
+@pytest.mark.parametrize(
+    "volatile_token",
+    (
+        "d41d8cd98f00b204e9800998ecf8427e",
+        "f4g3k9m2p7q8r1s6t5u0v9w4x3y",
+    ),
+)
+def test_remember_removes_lowercase_hashes_from_classes_and_roles(
+    tmp_path: Path,
+    volatile_token: str,
+) -> None:
+    database = tmp_path / "adaptive.db"
+    locator = AdaptiveCardLocator(database)
+    page = Adaptor(
+        f'<main class="jobs-list"><article class="job-card vaga opacity-60p {volatile_token}" role="{volatile_token}"></article></main>',
+        url=URL,
+    )
+    locator.remember(page, "volatile", "article")
+    semantic_page = Adaptor(
+        '<main class="jobs-list"><article class="job-card vaga opacity-60p" role="listitem"></article></main>',
+        url=URL,
+    )
+    locator.remember(semantic_page, "semantic", "article")
+
+    with sqlite3.connect(database) as connection:
+        payloads = {
+            source_code: json.loads(raw_fingerprint)
+            for source_code, raw_fingerprint in connection.execute(
+                "SELECT source_code, fingerprint FROM adaptive_fingerprints"
+            )
+        }
+
+    assert volatile_token not in json.dumps(payloads["volatile"], sort_keys=True)
+    assert payloads["volatile"]["element"]["attributes"] == {
+        "class": "job-card opacity-60p vaga"
+    }
+    assert payloads["semantic"]["element"]["attributes"] == {
+        "class": "job-card opacity-60p vaga",
+        "role": "listitem",
+    }
+
+
 def test_remember_sanitizes_role_and_custom_tag_names_in_all_structure_fields(
     tmp_path: Path,
 ) -> None:

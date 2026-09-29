@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 from job_radar.adaptive import AdaptiveCardLocator, CardSelection, select_cards
 from job_radar.fetching import BlockReason, FetchPolicy, _visible_response_text
 from job_radar.identity import canonicalize_url
+from job_radar.text_cleaning import clean_title
 from job_radar.models import (
     CollectionStatus,
     SourceConfig,
@@ -417,7 +418,7 @@ def make_record(
     location_selector: str | None,
     description_selector: str | None = None,
 ) -> VacancyRecord | None:
-    title = extract_value(card, title_selector)
+    title = clean_title(extract_value(card, title_selector))
     raw_url = extract_value(card, url_selector)
     canonical_url = absolute_url(page, raw_url)
     if not title or not canonical_url:

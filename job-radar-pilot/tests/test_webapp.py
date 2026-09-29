@@ -720,7 +720,7 @@ def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:
             page.wait_for_function("() => document.querySelector('#search-button').disabled === false")
             assert searches == [None]
             assert page.locator("#download-report").get_attribute("href") == (
-                "/api/export/markdown"
+                "/api/export/markdown?tracked=active"
             )
             browser.close()
     finally:
@@ -864,7 +864,7 @@ def test_dashboard_browser_filters_jobs_by_text(tmp_path) -> None:
             assert page.locator("#visible-count").inner_text() == "1 vaga"
             assert "Desenvolvedor Java Junior" in page.locator("#jobs-table-body").inner_text()
             assert page.locator("#download-report").get_attribute("href") == (
-                "/api/export/markdown?text=java"
+                "/api/export/markdown?text=java&tracked=active"
             )
             browser.close()
     finally:
@@ -1124,3 +1124,176 @@ def test_dashboard_browser_shows_source_count_warnings(tmp_path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def _tracking_server(tmp_path, jobs):
+    from job_radar.webapp import SearchController, create_server
+
+    output = tmp_path / "output"
+    output.mkdir(exist_ok=True)
+    (output / "vagas.jsonl").write_text(
+        "".join(json.dumps(job, ensure_ascii=False) + "\n" for job in jobs),
+        encoding="utf-8",
+    )
+    static_dir = Path(__file__).resolve().parents[1] / "src" / "job_radar" / "web"
+    server = create_server(
+        "127.0.0.1",
+        0,
+        SearchController(output, runner=lambda *_: 0),
+        static_dir,
+        tracking_path=tmp_path / "tracking.json",
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread
+
+
+def _put_json(url: str, payload: dict) -> tuple[int, dict]:
+    request = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="PUT",
+    )
+    try:
+        with urlopen(request, timeout=2) as response:
+            return response.status, json.loads(response.read())
+    except HTTPError as error:
+        return error.code, json.loads(error.read())
+
+
+_TRACKING_JOBS = [
+    {
+        "title": "Java Júnior; Remoto",
+        "company": "Acme",
+        "canonical_url": "https://example.com/a",
+        "source": "gupy",
+        "location": "Brasil",
+        "workplace_model": "REMOTE",
+        "technologies": ["java", "spring boot"],
+        "published_at": "2026-09-28T12:00:00+00:00",
+        "match_labels": ["FIT:READY"],
+    },
+    {
+        "title": "Estágio Backend",
+        "company": "Beta",
+        "canonical_url": "https://example.com/b",
+        "source": "nube",
+        "match_labels": ["FIT:CONDITIONAL"],
+    },
+]
+
+
+def test_tracking_api_saves_and_clears_job_status(tmp_path) -> None:
+    server, thread = _tracking_server(tmp_path, _TRACKING_JOBS)
+    base = f"http://127.0.0.1:{server.server_port}"
+    try:
+        status, saved = _put_json(
+            f"{base}/api/tracking",
+            {"url": "https://example.com/a", "status": "APPLIED", "note": "Enviado"},
+        )
+        with urlopen(f"{base}/api/tracking", timeout=2) as response:
+            loaded = json.loads(response.read())
+        bad_status, bad = _put_json(
+            f"{base}/api/tracking", {"url": "javascript:x", "status": "SAVED"}
+        )
+        cleared_status, cleared = _put_json(
+            f"{base}/api/tracking", {"url": "https://example.com/a", "status": None}
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status == 200
+    assert saved["jobs"]["https://example.com/a"]["status"] == "APPLIED"
+    assert loaded["jobs"]["https://example.com/a"]["note"] == "Enviado"
+    assert bad_status == 400 and "error" in bad
+    assert cleared_status == 200 and cleared == {"jobs": {}}
+
+
+def test_csv_export_respects_filters_and_tracking(tmp_path) -> None:
+    import csv
+    import io
+
+    server, thread = _tracking_server(tmp_path, _TRACKING_JOBS)
+    base = f"http://127.0.0.1:{server.server_port}"
+    try:
+        _put_json(f"{base}/api/tracking", {"url": "https://example.com/b", "status": "DISCARDED"})
+        _put_json(f"{base}/api/tracking", {"url": "https://example.com/a", "status": "SAVED"})
+        with urlopen(f"{base}/api/export/csv?tracked=active", timeout=2) as response:
+            content_type = response.headers["Content-Type"]
+            disposition = response.headers["Content-Disposition"]
+            body = response.read().decode("utf-8-sig")
+        with urlopen(f"{base}/api/export/csv?tracked=discarded", timeout=2) as response:
+            discarded = response.read().decode("utf-8-sig")
+        with urlopen(f"{base}/api/export/csv?match=review", timeout=2) as response:
+            review = response.read().decode("utf-8-sig")
+        try:
+            urlopen(f"{base}/api/export/csv?tracked=bogus", timeout=2)
+            bogus_status = 200
+        except HTTPError as error:
+            bogus_status = error.code
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert content_type.startswith("text/csv")
+    assert "vagas.csv" in disposition
+    rows = list(csv.DictReader(io.StringIO(body), delimiter=";"))
+    assert [row["url"] for row in rows] == ["https://example.com/a"]
+    assert rows[0]["titulo"] == "Java Júnior; Remoto"
+    assert rows[0]["aderencia"] == "Mais compatível"
+    assert rows[0]["acompanhamento"] == "Salva"
+    assert rows[0]["tecnologias"] == "java, spring boot"
+    assert rows[0]["publicada_em"] == "2026-09-28T12:00:00+00:00"
+    assert "https://example.com/b" in discarded and "https://example.com/a" not in discarded
+    assert "https://example.com/b" in review and "https://example.com/a" not in review
+    assert bogus_status == 400
+
+
+def test_dashboard_browser_marks_jobs_and_hides_discarded(tmp_path) -> None:
+    from playwright.sync_api import sync_playwright
+
+    server, thread = _tracking_server(tmp_path, _TRACKING_JOBS)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.wait_for_selector("#jobs-table-body tr")
+
+            row_b = page.locator("#jobs-table-body tr").filter(has_text="Estágio Backend")
+            with page.expect_response(lambda r: r.url.endswith("/api/tracking")):
+                row_b.locator("select.tracking-select").select_option("DISCARDED")
+            page.wait_for_function(
+                "() => document.querySelectorAll('#jobs-table-body tr').length === 1"
+            )
+
+            row_a = page.locator("#jobs-table-body tr").filter(has_text="Java Júnior")
+            with page.expect_response(lambda r: r.url.endswith("/api/tracking")):
+                row_a.locator("select.tracking-select").select_option("APPLIED")
+
+            page.locator("#tracking-filter").select_option("discarded")
+            titles = page.locator("#jobs-table-body .job-title").all_inner_texts()
+            assert titles == ["Estágio Backend"]
+
+            page.locator("#tracking-filter").select_option("applied")
+            titles = page.locator("#jobs-table-body .job-title").all_inner_texts()
+            assert titles == ["Java Júnior; Remoto"]
+            assert "tracked=applied" in page.locator("#download-csv").get_attribute("href")
+
+            page.reload()
+            page.wait_for_selector("#jobs-table-body tr")
+            page.locator("#tracking-filter").select_option("applied")
+            row = page.locator("#jobs-table-body tr").filter(has_text="Java Júnior")
+            assert row.locator("select.tracking-select").input_value() == "APPLIED"
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    saved = json.loads((tmp_path / "tracking.json").read_text(encoding="utf-8"))
+    assert saved["jobs"]["https://example.com/a"]["status"] == "APPLIED"

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
 from job_radar.export_document import build_markdown_report
+from job_radar.tracking import TrackingError, TrackingStore
 
 
 _PROGRESS_LINE = re.compile(
@@ -87,18 +90,88 @@ def _fit_state(job: dict[str, Any]) -> str:
     return "AMBIGUOUS"
 
 
+# Filtro de acompanhamento: "" = todas, "active" = oculta descartadas.
+_TRACKED_FILTERS = {
+    "active": None,
+    "saved": "SAVED",
+    "applied": "APPLIED",
+    "discarded": "DISCARDED",
+}
+_FIT_NAMES = {
+    "READY": "Mais compatível",
+    "CONDITIONAL": "Condicional",
+    "AMBIGUOUS": "Dados insuficientes",
+    "EXCLUDE": "Fora do perfil",
+}
+_TRACKING_NAMES = {"SAVED": "Salva", "APPLIED": "Aplicada", "DISCARDED": "Descartada"}
+_CSV_COLUMNS = (
+    "aderencia",
+    "acompanhamento",
+    "titulo",
+    "empresa",
+    "local",
+    "modalidade",
+    "senioridade",
+    "tecnologias",
+    "publicada_em",
+    "fonte",
+    "url",
+    "nota",
+)
+
+
+def build_jobs_csv(
+    jobs: Sequence[dict[str, Any]],
+    tracking: dict[str, dict[str, str]],
+) -> bytes:
+    """CSV com ';' e BOM para abrir direto no Excel em pt-BR."""
+    buffer = io.StringIO()
+    writer = csv.DictWriter(
+        buffer, fieldnames=_CSV_COLUMNS, delimiter=";", lineterminator="\r\n"
+    )
+    writer.writeheader()
+    for job in jobs:
+        entry = tracking.get(str(job.get("canonical_url")), {})
+        writer.writerow(
+            {
+                "aderencia": _FIT_NAMES.get(_fit_state(job), "Dados insuficientes"),
+                "acompanhamento": _TRACKING_NAMES.get(entry.get("status", ""), ""),
+                "titulo": job.get("title") or "",
+                "empresa": job.get("company") or "",
+                "local": job.get("location") or job.get("remote_scope") or "",
+                "modalidade": job.get("workplace_model") or "",
+                "senioridade": job.get("seniority") or "",
+                "tecnologias": ", ".join(job.get("technologies") or []),
+                "publicada_em": job.get("published_at") or "",
+                "fonte": job.get("source") or "",
+                "url": job.get("canonical_url") or "",
+                "nota": entry.get("note", ""),
+            }
+        )
+    return buffer.getvalue().encode("utf-8-sig")
+
+
 def filter_jobs_for_export(
     jobs: Sequence[dict[str, Any]],
     *,
     text: str = "",
     source: str = "",
     match: str = "",
+    tracked: str = "",
+    tracking: dict[str, dict[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     normalized_filter = _normalized_search_text(text)
+    tracking = tracking or {}
     result: list[dict[str, Any]] = []
     for job in jobs:
         if source and job.get("source") != source:
             continue
+        tracked_status = tracking.get(str(job.get("canonical_url")), {}).get("status")
+        if tracked == "active" and tracked_status == "DISCARDED":
+            continue
+        if tracked in _TRACKED_FILTERS and tracked != "active":
+            if tracked_status != _TRACKED_FILTERS[tracked]:
+                continue
         state = _fit_state(job)
         if match == "ready" and state != "READY":
             continue
@@ -281,13 +354,13 @@ class SearchController:
         text: str = "",
         source: str = "",
         match: str = "",
+        tracked: str = "",
+        tracking: dict[str, dict[str, str]] | None = None,
     ) -> bytes:
-        output = load_output(self._output_dir)
-        if output["read_error"]:
-            raise OutputReadError(f"Nao foi possivel ler a saida local: {output['read_error']}")
-        jobs = filter_jobs_for_export(
-            output["jobs"], text=text, source=source, match=match
+        jobs = self._filtered_jobs(
+            text=text, source=source, match=match, tracked=tracked, tracking=tracking
         )
+        output = load_output(self._output_dir)
         generated_at = datetime.now().astimezone().strftime("%d/%m/%Y %H:%M")
         report = output["report"] if isinstance(output["report"], dict) else {}
         sources = report.get("sources", [])
@@ -300,12 +373,49 @@ class SearchController:
             applied_filters={"text": text, "source": source, "match": match},
         ).encode("utf-8-sig")
 
+    def _filtered_jobs(
+        self,
+        *,
+        text: str,
+        source: str,
+        match: str,
+        tracked: str,
+        tracking: dict[str, dict[str, str]] | None,
+    ) -> list[dict[str, Any]]:
+        output = load_output(self._output_dir)
+        if output["read_error"]:
+            raise OutputReadError(f"Nao foi possivel ler a saida local: {output['read_error']}")
+        return filter_jobs_for_export(
+            output["jobs"],
+            text=text,
+            source=source,
+            match=match,
+            tracked=tracked,
+            tracking=tracking,
+        )
+
+    def export_csv(
+        self,
+        *,
+        text: str = "",
+        source: str = "",
+        match: str = "",
+        tracked: str = "",
+        tracking: dict[str, dict[str, str]] | None = None,
+    ) -> bytes:
+        jobs = self._filtered_jobs(
+            text=text, source=source, match=match, tracked=tracked, tracking=tracking
+        )
+        return build_jobs_csv(jobs, tracking or {})
+
 
 def _dashboard_handler(
     controller: SearchController,
     static_dir: Path,
     preferences_path: Path | None,
+    tracking_path: Path | None = None,
 ) -> type[BaseHTTPRequestHandler]:
+    tracking_store = TrackingStore(tracking_path)
     static_files = {
         "/": ("index.html", "text/html; charset=utf-8"),
         "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -345,6 +455,23 @@ def _dashboard_handler(
             if not isinstance(payload, dict):
                 raise ValueError("O corpo deve ser um objeto JSON.")
             return payload
+
+        @staticmethod
+        def _export_filters(query: str) -> dict[str, str] | str:
+            parameters = parse_qs(query, keep_blank_values=True)
+            filters = {
+                name: parameters.get(name, [""])[-1]
+                for name in ("text", "source", "match", "tracked")
+            }
+            if len(filters["text"]) > 200:
+                return "Filtro de texto excede o limite."
+            if filters["source"] and not re.fullmatch(r"[a-z0-9-]+", filters["source"]):
+                return "Filtro de portal invalido."
+            if filters["match"] not in {"", "ready", "review", "exclude"}:
+                return "Filtro de aderencia invalido."
+            if filters["tracked"] and filters["tracked"] not in _TRACKED_FILTERS:
+                return "Filtro de acompanhamento invalido."
+            return filters
 
         def _load_preferences_payload(self) -> dict[str, Any]:
             from job_radar.config import load_profile, load_sources
@@ -397,37 +524,42 @@ def _dashboard_handler(
                     return
                 self._json(200, payload)
                 return
-            if path == "/api/export/markdown":
-                parameters = parse_qs(request_url.query, keep_blank_values=True)
-                text_filter = parameters.get("text", [""])[-1]
-                source_filter = parameters.get("source", [""])[-1]
-                match_filter = parameters.get("match", [""])[-1]
-                if len(text_filter) > 200:
-                    self._json(400, {"error": "Filtro de texto excede o limite."})
-                    return
-                if source_filter and not re.fullmatch(r"[a-z0-9-]+", source_filter):
-                    self._json(400, {"error": "Filtro de portal invalido."})
-                    return
-                if match_filter not in {"", "ready", "review", "exclude"}:
-                    self._json(400, {"error": "Filtro de aderencia invalido."})
+            if path == "/api/tracking":
+                try:
+                    self._json(200, {"jobs": tracking_store.load()})
+                except TrackingError as exc:
+                    self._json(500, {"error": str(exc)})
+                return
+            exports = {
+                "/api/export/markdown": (
+                    controller.export_markdown,
+                    "text/markdown; charset=utf-8",
+                    "relatorio-vagas.md",
+                ),
+                "/api/export/csv": (
+                    controller.export_csv,
+                    "text/csv; charset=utf-8",
+                    "vagas.csv",
+                ),
+            }
+            if path in exports:
+                exporter, content_type, filename = exports[path]
+                filters = self._export_filters(request_url.query)
+                if isinstance(filters, str):
+                    self._json(400, {"error": filters})
                     return
                 try:
-                    document = controller.export_markdown(
-                        text=text_filter,
-                        source=source_filter,
-                        match=match_filter,
-                    )
-                except OutputReadError as exc:
+                    tracking = tracking_store.load()
+                    document = exporter(**filters, tracking=tracking)
+                except (OutputReadError, TrackingError) as exc:
                     self._json(500, {"error": str(exc)})
                     return
                 self._write(
                     200,
-                    "text/markdown; charset=utf-8",
+                    content_type,
                     document,
                     headers={
-                        "Content-Disposition": (
-                            'attachment; filename="relatorio-vagas.md"'
-                        )
+                        "Content-Disposition": f'attachment; filename="{filename}"'
                     },
                 )
                 return
@@ -474,6 +606,23 @@ def _dashboard_handler(
 
         def do_PUT(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
             path = self.path.split("?", maxsplit=1)[0]
+            if path == "/api/tracking":
+                try:
+                    payload = self._read_json_body()
+                    entries = tracking_store.set_status(
+                        payload.get("url"),
+                        payload.get("status"),
+                        note=payload.get("note"),
+                        now=datetime.now(timezone.utc),
+                    )
+                except TypeError as exc:
+                    self._json(415, {"error": str(exc)})
+                    return
+                except (ValueError, json.JSONDecodeError) as exc:
+                    self._json(400, {"error": str(exc)})
+                    return
+                self._json(200, {"jobs": entries})
+                return
             if path != "/api/preferences":
                 self._json(404, {"error": "Recurso nao encontrado."})
                 return
@@ -508,10 +657,11 @@ def create_server(
     static_dir: Path,
     *,
     preferences_path: Path | None = None,
+    tracking_path: Path | None = None,
 ) -> ThreadingHTTPServer:
     return ThreadingHTTPServer(
         (host, port),
-        _dashboard_handler(controller, static_dir, preferences_path),
+        _dashboard_handler(controller, static_dir, preferences_path, tracking_path),
     )
 
 

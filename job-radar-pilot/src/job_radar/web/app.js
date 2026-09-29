@@ -7,6 +7,8 @@ const elements = {
   sourceFilter: document.querySelector("#source-filter"),
   matchFilter: document.querySelector("#match-filter"),
   sortOrder: document.querySelector("#sort-order"),
+  trackingFilter: document.querySelector("#tracking-filter"),
+  downloadCsv: document.querySelector("#download-csv"),
   tableBody: document.querySelector("#jobs-table-body"),
   emptyState: document.querySelector("#empty-state"),
   visibleCount: document.querySelector("#visible-count"),
@@ -43,6 +45,14 @@ const elements = {
 let dashboardState = { jobs: [], report: {}, status: "IDLE", sources: {} };
 let refreshTimer;
 let preferencesLoaded = false;
+let trackingState = {};
+const TRACKING_OPTIONS = [
+  ["", "—"],
+  ["SAVED", "Salva"],
+  ["APPLIED", "Aplicada"],
+  ["DISCARDED", "Descartada"],
+];
+const TRACKED_FILTER_STATUS = { saved: "SAVED", applied: "APPLIED", discarded: "DISCARDED" };
 let linkedinLoaded = false;
 
 function normalized(value) {
@@ -85,8 +95,12 @@ function filteredJobs() {
   const text = normalized(elements.textFilter.value.trim());
   const source = elements.sourceFilter.value;
   const match = elements.matchFilter.value;
+  const tracked = elements.trackingFilter.value;
 
   return (dashboardState.jobs ?? []).filter((job) => {
+    const trackedStatus = trackingStatus(job);
+    if (tracked === "active" && trackedStatus === "DISCARDED") return false;
+    if (TRACKED_FILTER_STATUS[tracked] && trackedStatus !== TRACKED_FILTER_STATUS[tracked]) return false;
     const haystack = normalized([
       job.title,
       job.company,
@@ -115,6 +129,54 @@ function filteredJobs() {
   });
 }
 
+function trackingStatus(job) {
+  return trackingState[job.canonical_url]?.status ?? "";
+}
+
+async function loadTracking() {
+  try {
+    const response = await fetch("/api/tracking", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    trackingState = payload.jobs ?? {};
+  } catch (error) {
+    elements.liveStatus.textContent = `Acompanhamento indisponível: ${error.message}`;
+  }
+  renderTable();
+}
+
+async function updateTracking(job, status, select) {
+  select.disabled = true;
+  try {
+    const response = await fetch("/api/tracking", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: job.canonical_url, status: status || null }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    trackingState = payload.jobs ?? {};
+  } catch (error) {
+    elements.liveStatus.textContent = `Não foi possível salvar o acompanhamento: ${error.message}`;
+  } finally {
+    select.disabled = false;
+    renderTable();
+  }
+}
+
+function trackingCell(job) {
+  const cell = document.createElement("td");
+  const select = document.createElement("select");
+  select.className = "tracking-select";
+  select.setAttribute("aria-label", `Acompanhamento da vaga ${job.title || ""}`);
+  TRACKING_OPTIONS.forEach(([value, label]) => select.appendChild(new Option(label, value)));
+  select.value = trackingStatus(job);
+  select.disabled = !/^https?:\/\//.test(job.canonical_url ?? "");
+  select.addEventListener("change", () => updateTracking(job, select.value, select));
+  cell.appendChild(select);
+  return cell;
+}
+
 function publishedTime(job) {
   const time = Date.parse(job.published_at ?? "");
   return Number.isNaN(time) ? -Infinity : time;
@@ -139,6 +201,8 @@ function renderTable() {
 
   jobs.forEach((job) => {
     const row = document.createElement("tr");
+    const trackedStatus = trackingStatus(job);
+    if (trackedStatus) row.className = `tracked-${trackedStatus.toLowerCase()}`;
     const titleCell = document.createElement("td");
     titleCell.append(
       textElement("div", "job-title", job.title || "Cargo não informado"),
@@ -171,6 +235,7 @@ function renderTable() {
       matchCell.appendChild(textElement("span", "match-pill new", "Nova"));
     }
     row.appendChild(matchCell);
+    row.appendChild(trackingCell(job));
 
     const actionCell = document.createElement("td");
     const link = document.createElement("a");
@@ -191,8 +256,10 @@ function renderTable() {
   if (elements.textFilter.value.trim()) reportParameters.set("text", elements.textFilter.value.trim());
   if (elements.sourceFilter.value) reportParameters.set("source", elements.sourceFilter.value);
   if (elements.matchFilter.value) reportParameters.set("match", elements.matchFilter.value);
+  if (elements.trackingFilter.value) reportParameters.set("tracked", elements.trackingFilter.value);
   const reportQuery = reportParameters.toString();
   elements.downloadReport.href = `/api/export/markdown${reportQuery ? `?${reportQuery}` : ""}`;
+  elements.downloadCsv.href = `/api/export/csv${reportQuery ? `?${reportQuery}` : ""}`;
 }
 
 function updateSourceFilter() {
@@ -510,7 +577,13 @@ elements.linkedinButton.addEventListener("click", async () => {
   if (willShow) await loadLinkedinSearches();
 });
 elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
-[elements.textFilter, elements.sourceFilter, elements.matchFilter, elements.sortOrder].forEach((filter) => {
+[
+  elements.textFilter,
+  elements.sourceFilter,
+  elements.matchFilter,
+  elements.sortOrder,
+  elements.trackingFilter,
+].forEach((filter) => {
   filter.addEventListener("input", renderTable);
   filter.addEventListener("change", renderTable);
 });
@@ -521,3 +594,4 @@ elements.toggleSources.addEventListener("click", () => {
 });
 
 refreshState();
+loadTracking();

@@ -37,6 +37,7 @@
           <div class="secondary-actions">
             <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
             <a id="download-report" class="ghost-button action-button" href="/api/export/markdown" download>Baixar relatório</a>
+            <a id="download-csv" class="ghost-button action-button" href="/api/export/csv?tracked=active" download>Exportar CSV</a>
           </div>
           <button id="linkedin-button" class="linkedin-button" type="button" aria-expanded="false" aria-controls="linkedin-panel">Pesquisar no LinkedIn</button>
           <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
@@ -138,11 +139,21 @@
               <option value="recent">Mais recentes primeiro</option>
             </select>
           </label>
+          <label>
+            <span class="sr-only">Acompanhamento</span>
+            <select id="tracking-filter">
+              <option value="active">Ocultar descartadas</option>
+              <option value="">Todas, inclusive descartadas</option>
+              <option value="saved">Salvas</option>
+              <option value="applied">Aplicadas</option>
+              <option value="discarded">Descartadas</option>
+            </select>
+          </label>
         </div>
 
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Vaga</th><th>Empresa</th><th>Local</th><th>Origem</th><th>Aderência</th><th><span class="sr-only">Abrir</span></th></tr></thead>
+            <thead><tr><th>Vaga</th><th>Empresa</th><th>Local</th><th>Origem</th><th>Aderência</th><th>Acompanhamento</th><th><span class="sr-only">Abrir</span></th></tr></thead>
             <tbody id="jobs-table-body"></tbody>
           </table>
           <div id="empty-state" class="empty-state" hidden>

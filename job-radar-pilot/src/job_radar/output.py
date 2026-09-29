@@ -62,8 +62,17 @@ def _workspace_root() -> Path:
 
 
 def _upstream_commit() -> str:
+    repository = (_workspace_root() / "vendor" / "Scrapling").resolve()
     result = subprocess.run(
-        ["git", "-C", str(_workspace_root() / "vendor" / "Scrapling"), "rev-parse", "HEAD"],
+        [
+            "git",
+            "-c",
+            f"safe.directory={repository}",
+            "-C",
+            str(repository),
+            "rev-parse",
+            "HEAD",
+        ],
         check=True,
         capture_output=True,
         text=True,

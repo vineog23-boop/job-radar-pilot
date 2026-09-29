@@ -17,9 +17,13 @@ test = ["pytest>=9,<10"]
 
 [project.scripts]
 job-radar = "job_radar.cli:main"
+job-radar-ui = "job_radar.webapp:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+job_radar = ["web/*.html", "web/*.css", "web/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Radar de Vagas</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <main class="shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Radar de Vagas — início">
+          <span class="brand-mark" aria-hidden="true">R</span>
+          <span>
+            <strong>Radar de Vagas</strong>
+            <small>Busca local com Scrapling</small>
+          </span>
+        </a>
+        <div class="local-badge"><span></span> Rodando neste PC</div>
+      </header>
+
+      <section class="hero">
+        <div>
+          <p class="eyebrow">PAINEL DE OPORTUNIDADES</p>
+          <h1>Encontre as vagas.<br><em>Decida com contexto.</em></h1>
+          <p class="hero-copy">Pesquise os portais configurados e reúna tudo em uma visão organizada para sua análise.</p>
+        </div>
+        <div class="search-action">
+          <button id="search-button" class="primary-button" type="button">
+            <span class="button-icon" aria-hidden="true">↻</span>
+            <span class="button-copy"><strong>Buscar vagas agora</strong><small>Consultar todos os portais</small></span>
+          </button>
+          <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
+        </div>
+      </section>
+
+      <section id="summary-cards" class="summary-grid" aria-label="Resumo da busca">
+        <article class="summary-card accent-card"><span>Vagas coletadas</span><strong id="summary-jobs">—</strong><small>registros estruturados</small></article>
+        <article class="summary-card"><span>Portais com resultado</span><strong id="summary-sources">—</strong><small>fontes nesta execução</small></article>
+        <article class="summary-card"><span>Compatíveis</span><strong id="summary-matches">—</strong><small>sem conflito de senioridade</small></article>
+        <article class="summary-card"><span>Última busca</span><strong id="summary-date" class="summary-date">—</strong><small id="summary-time">aguardando dados</small></article>
+      </section>
+
+      <section class="workspace">
+        <div class="section-heading">
+          <div><p class="eyebrow">RESULTADOS</p><h2>Vagas encontradas</h2></div>
+          <span id="visible-count" class="result-count">0 vagas</span>
+        </div>
+
+        <div class="filters" aria-label="Filtros das vagas">
+          <label class="search-field">
+            <span aria-hidden="true">⌕</span>
+            <input id="text-filter" type="search" placeholder="Buscar cargo, empresa ou tecnologia" autocomplete="off">
+          </label>
+          <label>
+            <span class="sr-only">Portal</span>
+            <select id="source-filter"><option value="">Todos os portais</option></select>
+          </label>
+          <label>
+            <span class="sr-only">Compatibilidade</span>
+            <select id="match-filter">
+              <option value="">Todas as vagas</option>
+              <option value="compatible">Mais compatíveis</option>
+              <option value="mismatch">Com ressalvas</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Vaga</th><th>Empresa</th><th>Local</th><th>Origem</th><th>Aderência</th><th><span class="sr-only">Abrir</span></th></tr></thead>
+            <tbody id="jobs-table-body"></tbody>
+          </table>
+          <div id="empty-state" class="empty-state" hidden>
+            <span>⌕</span><strong>Nenhuma vaga neste filtro</strong><p>Tente remover um filtro ou faça uma nova busca.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="sources-panel">
+        <div class="section-heading compact">
+          <div><p class="eyebrow">COBERTURA</p><h2>Situação dos portais</h2></div>
+          <button id="toggle-sources" class="ghost-button" type="button">Ver detalhes</button>
+        </div>
+        <div id="source-statuses" class="source-statuses" hidden></div>
+      </section>
+
+      <footer><span>Radar local · nenhum dado é enviado para fora</span><span id="footer-version">Scrapling</span></footer>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

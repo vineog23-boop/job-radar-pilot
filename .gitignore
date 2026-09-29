@@ -7,5 +7,7 @@ job-radar-pilot/output/
 **/__pycache__/
 *.py[cod]
 .pytest_cache/
+.tmp-tests*/
+debug.log
 .ruff_cache/
 *.egg-info/

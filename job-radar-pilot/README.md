@@ -6,7 +6,18 @@ estruturado que outra IA possa ler e filtrar. O projeto usa o Scrapling
 
 ## Uso rapido
 
-Na raiz da pasta, execute:
+Para abrir a interface local no navegador, execute na raiz da pasta:
+
+```powershell
+.\abrir-interface.ps1
+```
+
+O painel abre em `http://127.0.0.1:8765`, mostra os resultados existentes e
+permite iniciar uma nova busca pelo botão **Buscar vagas agora**. O servidor
+aceita conexões somente deste computador; pressione `Ctrl+C` no terminal para
+encerrar.
+
+Para executar somente pelo terminal:
 
 ```powershell
 .\buscar-vagas.ps1

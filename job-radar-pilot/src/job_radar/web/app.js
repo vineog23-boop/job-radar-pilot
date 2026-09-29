@@ -100,6 +100,7 @@ function filteredJobs() {
   return (dashboardState.jobs ?? []).filter((job) => {
     const trackedStatus = trackingStatus(job);
     if (tracked === "active" && trackedStatus === "DISCARDED") return false;
+    if (tracked === "new" && (trackedStatus || !(job.match_labels ?? []).includes("STATUS:NEW"))) return false;
     if (TRACKED_FILTER_STATUS[tracked] && trackedStatus !== TRACKED_FILTER_STATUS[tracked]) return false;
     const haystack = normalized([
       job.title,

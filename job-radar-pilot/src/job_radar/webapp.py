@@ -93,6 +93,7 @@ def _fit_state(job: dict[str, Any]) -> str:
 # Filtro de acompanhamento: "" = todas, "active" = oculta descartadas.
 _TRACKED_FILTERS = {
     "active": None,
+    "new": None,
     "saved": "SAVED",
     "applied": "APPLIED",
     "discarded": "DISCARDED",
@@ -169,7 +170,11 @@ def filter_jobs_for_export(
         tracked_status = tracking.get(str(job.get("canonical_url")), {}).get("status")
         if tracked == "active" and tracked_status == "DISCARDED":
             continue
-        if tracked in _TRACKED_FILTERS and tracked != "active":
+        if tracked == "new" and (
+            tracked_status or "STATUS:NEW" not in (job.get("match_labels") or [])
+        ):
+            continue
+        if tracked in _TRACKED_FILTERS and tracked not in {"active", "new"}:
             if tracked_status != _TRACKED_FILTERS[tracked]:
                 continue
         state = _fit_state(job)

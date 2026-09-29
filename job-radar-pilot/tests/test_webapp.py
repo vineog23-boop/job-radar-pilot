@@ -1298,3 +1298,18 @@ def test_dashboard_browser_marks_jobs_and_hides_discarded(tmp_path) -> None:
 
     saved = json.loads((tmp_path / "tracking.json").read_text(encoding="utf-8"))
     assert saved["jobs"]["https://example.com/a"]["status"] == "APPLIED"
+
+
+def test_new_untracked_filter_keeps_only_fresh_unmarked_jobs() -> None:
+    from job_radar.webapp import filter_jobs_for_export
+
+    jobs = [
+        {"canonical_url": "https://example.com/1", "match_labels": ["STATUS:NEW"]},
+        {"canonical_url": "https://example.com/2", "match_labels": ["STATUS:NEW"]},
+        {"canonical_url": "https://example.com/3", "match_labels": []},
+    ]
+    tracking = {"https://example.com/2": {"status": "SAVED"}}
+
+    result = filter_jobs_for_export(jobs, tracked="new", tracking=tracking)
+
+    assert [job["canonical_url"] for job in result] == ["https://example.com/1"]

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.job-radar.invalid/schemas/vagas.schema.json",
+  "title": "Vaga coletada pelo Job Radar Pilot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source",
+    "source_job_id",
+    "canonical_url",
+    "title",
+    "company",
+    "description_summary",
+    "seniority",
+    "employment_type",
+    "technologies",
+    "location",
+    "workplace_model",
+    "remote_scope",
+    "published_at",
+    "observed_at",
+    "application_deadline",
+    "requirements",
+    "eligibility_notes",
+    "evidence_snippets",
+    "match_labels",
+    "collection_status",
+    "content_hash",
+    "identity_strength"
+  ],
+  "properties": {
+    "source": {"type": "string", "minLength": 1},
+    "source_job_id": {"type": ["string", "null"]},
+    "canonical_url": {
+      "oneOf": [
+        {"type": "string", "format": "uri", "pattern": "^https://"},
+        {"type": "null"}
+      ]
+    },
+    "title": {"type": ["string", "null"]},
+    "company": {"type": ["string", "null"]},
+    "description_summary": {"type": ["string", "null"]},
+    "seniority": {"type": ["string", "null"]},
+    "employment_type": {"type": ["string", "null"]},
+    "technologies": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "location": {"type": ["string", "null"]},
+    "workplace_model": {"enum": ["REMOTE", "HYBRID", "ONSITE", "UNKNOWN"]},
+    "remote_scope": {"type": ["string", "null"]},
+    "published_at": {
+      "oneOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]
+    },
+    "observed_at": {
+      "oneOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]
+    },
+    "application_deadline": {
+      "oneOf": [
+        {"type": "string", "format": "date-time"},
+        {"type": "string", "format": "date"},
+        {"type": "null"}
+      ]
+    },
+    "requirements": {"type": "array", "items": {"type": "string"}},
+    "eligibility_notes": {"type": "array", "items": {"type": "string"}},
+    "evidence_snippets": {"type": "array", "items": {"type": "string"}},
+    "match_labels": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "collection_status": {
+      "enum": ["SUCCESS", "EMPTY", "PARTIAL", "BLOCKED", "AUTH_REQUIRED", "ERROR"]
+    },
+    "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "identity_strength": {"enum": ["STRONG", "WEAK"]}
+  }
+}

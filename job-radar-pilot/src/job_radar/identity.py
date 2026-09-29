@@ -105,29 +105,57 @@ def _semantic_key(record: VacancyRecord) -> tuple[str, str, str] | None:
     return title, company, location
 
 
-def _annotate_cross_source_semantic_candidates(
+def _source_priority(record: VacancyRecord) -> int:
+    """Menor = mais confiável: ATS/site da empresa antes de agregadores."""
+    host = (urlsplit(record.canonical_url).hostname or "").casefold()
+    if record.source == "gupy" or host.endswith(".gupy.io"):
+        return 0
+    return 1
+
+
+def _merge_cross_source_semantic_duplicates(
     records: list[VacancyRecord],
-) -> list[VacancyRecord]:
-    result = list(records)
+) -> tuple[list[VacancyRecord], int]:
+    """Une a mesma vaga vista em portais diferentes (cargo+empresa+local iguais).
+
+    Mantém o registro da fonte mais confiável (empate: o primeiro observado) e
+    registra as demais fontes em ALSO_SEEN_IN:<fonte>.
+    """
     groups: dict[tuple[str, str, str], list[int]] = {}
     for index, record in enumerate(records):
         key = _semantic_key(record)
         if key is not None:
             groups.setdefault(key, []).append(index)
 
+    dropped: set[int] = set()
+    replacements: dict[int, VacancyRecord] = {}
     for indexes in groups.values():
-        sources = {records[index].source for index in indexes}
-        if len(sources) < 2:
+        if len({records[index].source for index in indexes}) < 2:
             continue
-        for index in indexes:
-            record = result[index]
-            other_sources = sources.difference((record.source,))
-            labels = set(record.match_labels)
-            labels.update(
-                f"POSSIBLE_DUPLICATE:{source}" for source in other_sources
+        keeper = min(indexes, key=lambda index: (_source_priority(records[index]), index))
+        kept = records[keeper]
+        other_sources = sorted(
+            {records[index].source for index in indexes} - {kept.source}
+        )
+        merged_indexes = [
+            index for index in indexes
+            if index != keeper and records[index].source != kept.source
+        ]
+        labels = dict.fromkeys(
+            (
+                *kept.match_labels,
+                *(f"ALSO_SEEN_IN:{source}" for source in other_sources),
             )
-            result[index] = replace(record, match_labels=tuple(sorted(labels)))
-    return result
+        )
+        replacements[keeper] = replace(kept, match_labels=tuple(sorted(labels)))
+        dropped.update(merged_indexes)
+
+    merged = [
+        replacements.get(index, record)
+        for index, record in enumerate(records)
+        if index not in dropped
+    ]
+    return merged, len(dropped)
 
 
 def _merge_labels(first: VacancyRecord, duplicate: VacancyRecord) -> VacancyRecord:
@@ -223,9 +251,9 @@ def deduplicate(records: Iterable[VacancyRecord]) -> DeduplicationResult:
             seen_url[canonical_url] = record
         unique.append(record)
 
-    unique = _annotate_cross_source_semantic_candidates(unique)
+    unique, merged_count = _merge_cross_source_semantic_duplicates(unique)
     return DeduplicationResult(
         tuple(unique),
         tuple(ambiguous),
-        duplicate_count,
+        duplicate_count + merged_count,
     )

@@ -29,6 +29,18 @@ reais de 29/09/2026 (2.990 vagas únicas, 21 fontes) e na revisão do código.
   `PYTHONPATH=job-radar-pilot/src python -m pytest job-radar-pilot/tests -q`.
 - Testes do painel (`test_webapp`) usam Playwright/Chromium.
 
+## Status após a sessão na nuvem (29/09/2026, branch `claude/elegant-hypatia-2rg9ix`)
+
+Feito (com testes): 1.1, 1.2, 1.3, limpeza de título de 1.4, 2.1, 2.2 (conversão e
+seletor opcional `published`), 2.4, 3.2, 3.3, 4.5 (CI), 4.6 (README). Extras pedidos pelo
+usuário: stacks e termos de exclusão editáveis no painel; acompanhamento de vagas
+(salva/aplicada/descartada) e exportação CSV filtrada.
+
+Ainda aberto — **depende de acesso aos portais** (a rede da nuvem bloqueou todos):
+1.4 (títulos descritivos de CIEE/Nube), seletores `published` e `company` reais (2.2/2.3),
+3.1, 3.5, 3.6 e 4.4 (fixtures reais). Também abertos: 3.4 (notificação do Windows) e
+4.1/4.2 (refatoração sem mudança de comportamento).
+
 ---
 
 ## P1 — Qualidade do filtro (`src/job_radar/classifier.py`) — maior impacto

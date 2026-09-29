@@ -37,6 +37,7 @@
           <div class="secondary-actions">
             <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
             <a id="download-report" class="ghost-button action-button" href="/api/export/markdown" download>Baixar relatório</a>
+            <a id="download-csv" class="ghost-button action-button" href="/api/export/csv?tracked=active" download>Exportar CSV</a>
           </div>
           <button id="linkedin-button" class="linkedin-button" type="button" aria-expanded="false" aria-controls="linkedin-panel">Pesquisar no LinkedIn</button>
           <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
@@ -83,6 +84,16 @@
             <small>Uma por linha. Informe ao menos uma cidade, estado ou Brasil.</small>
             <textarea id="location-scopes" rows="4" maxlength="1212"></textarea>
           </label>
+          <label class="wide-field" for="technologies">
+            <strong>Stacks e tecnologias</strong>
+            <small>Uma por linha (ex.: java, spring boot, sql). Pesam na aderência; em branco usa o perfil padrão.</small>
+            <textarea id="technologies" rows="4" maxlength="2440"></textarea>
+          </label>
+          <label class="wide-field" for="excluded-terms">
+            <strong>Termos de exclusão</strong>
+            <small>Um por linha (ex.: pleno, sênior, tech lead). Vagas com esses termos no cargo ficam fora do perfil.</small>
+            <textarea id="excluded-terms" rows="4" maxlength="2440"></textarea>
+          </label>
           <div class="preferences-footer">
             <p id="preferences-status" class="preferences-status" aria-live="polite"></p>
             <button id="save-preferences" class="primary-button compact-button" type="submit">Salvar configurações</button>
@@ -121,11 +132,29 @@
               <option value="exclude">Fora do perfil</option>
             </select>
           </label>
+          <label>
+            <span class="sr-only">Ordenar</span>
+            <select id="sort-order">
+              <option value="fit">Ordenar por aderência</option>
+              <option value="recent">Mais recentes primeiro</option>
+            </select>
+          </label>
+          <label>
+            <span class="sr-only">Acompanhamento</span>
+            <select id="tracking-filter">
+              <option value="active">Ocultar descartadas</option>
+              <option value="new">Novas ainda não marcadas</option>
+              <option value="">Todas, inclusive descartadas</option>
+              <option value="saved">Salvas</option>
+              <option value="applied">Aplicadas</option>
+              <option value="discarded">Descartadas</option>
+            </select>
+          </label>
         </div>
 
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Vaga</th><th>Empresa</th><th>Local</th><th>Origem</th><th>Aderência</th><th><span class="sr-only">Abrir</span></th></tr></thead>
+            <thead><tr><th>Vaga</th><th>Empresa</th><th>Local</th><th>Origem</th><th>Aderência</th><th>Acompanhamento</th><th><span class="sr-only">Abrir</span></th></tr></thead>
             <tbody id="jobs-table-body"></tbody>
           </table>
           <div id="empty-state" class="empty-state" hidden>

@@ -7,12 +7,20 @@ $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = Join-Path $workspaceRoot 'job-radar-pilot'
 $upstreamRoot = Join-Path $workspaceRoot 'vendor\Scrapling'
 $venvRoot = Join-Path $projectRoot '.venv'
-$python313 = 'C:\Users\vine\AppData\Local\Programs\Python\Python313\python.exe'
+# Python 3.13: JOBRADAR_PYTHON, instalacao padrao do usuario ou o launcher "py -3.13".
+$python313 = $env:JOBRADAR_PYTHON
+if (-not $python313) {
+    $python313 = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe'
+}
+if (-not (Test-Path -LiteralPath $python313 -PathType Leaf) -and (Get-Command py -ErrorAction SilentlyContinue)) {
+    $resolved = (& py -3.13 -c 'import sys; print(sys.executable)' 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $resolved) { $python313 = $resolved.Trim() }
+}
 $expectedRemote = 'https://github.com/D4Vinci/Scrapling.git'
 $expectedTag = 'v0.4.15'
 
 if (-not (Test-Path -LiteralPath $python313 -PathType Leaf)) {
-    throw "Python 3.13 nao encontrado em $python313"
+    throw "Python 3.13 nao encontrado ($python313). Instale o Python 3.13 ou defina JOBRADAR_PYTHON."
 }
 
 $vendorRoot = Split-Path -Parent $upstreamRoot

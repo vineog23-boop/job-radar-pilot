@@ -6,6 +6,9 @@ const elements = {
   textFilter: document.querySelector("#text-filter"),
   sourceFilter: document.querySelector("#source-filter"),
   matchFilter: document.querySelector("#match-filter"),
+  sortOrder: document.querySelector("#sort-order"),
+  trackingFilter: document.querySelector("#tracking-filter"),
+  downloadCsv: document.querySelector("#download-csv"),
   tableBody: document.querySelector("#jobs-table-body"),
   emptyState: document.querySelector("#empty-state"),
   visibleCount: document.querySelector("#visible-count"),
@@ -24,6 +27,8 @@ const elements = {
   preferencesStatus: document.querySelector("#preferences-status"),
   searchTerms: document.querySelector("#search-terms"),
   locationScopes: document.querySelector("#location-scopes"),
+  technologies: document.querySelector("#technologies"),
+  excludedTerms: document.querySelector("#excluded-terms"),
   seniorityInternship: document.querySelector("#seniority-internship"),
   seniorityJunior: document.querySelector("#seniority-junior"),
   workplaceRemote: document.querySelector("#workplace-remote"),
@@ -40,6 +45,14 @@ const elements = {
 let dashboardState = { jobs: [], report: {}, status: "IDLE", sources: {} };
 let refreshTimer;
 let preferencesLoaded = false;
+let trackingState = {};
+const TRACKING_OPTIONS = [
+  ["", "—"],
+  ["SAVED", "Salva"],
+  ["APPLIED", "Aplicada"],
+  ["DISCARDED", "Descartada"],
+];
+const TRACKED_FILTER_STATUS = { saved: "SAVED", applied: "APPLIED", discarded: "DISCARDED" };
 let linkedinLoaded = false;
 
 function normalized(value) {
@@ -82,8 +95,13 @@ function filteredJobs() {
   const text = normalized(elements.textFilter.value.trim());
   const source = elements.sourceFilter.value;
   const match = elements.matchFilter.value;
+  const tracked = elements.trackingFilter.value;
 
   return (dashboardState.jobs ?? []).filter((job) => {
+    const trackedStatus = trackingStatus(job);
+    if (tracked === "active" && trackedStatus === "DISCARDED") return false;
+    if (tracked === "new" && (trackedStatus || !(job.match_labels ?? []).includes("STATUS:NEW"))) return false;
+    if (TRACKED_FILTER_STATUS[tracked] && trackedStatus !== TRACKED_FILTER_STATUS[tracked]) return false;
     const haystack = normalized([
       job.title,
       job.company,
@@ -106,8 +124,75 @@ function filteredJobs() {
   }).sort((left, right) => {
     const order = { READY: 0, CONDITIONAL: 1, AMBIGUOUS: 2, EXCLUDE: 3 };
     const byState = order[fitState(left)] - order[fitState(right)];
-    return byState || fitScore(right) - fitScore(left);
+    const byFit = byState || fitScore(right) - fitScore(left);
+    if (elements.sortOrder.value !== "recent") return byFit;
+    return publishedTime(right) - publishedTime(left) || byFit;
   });
+}
+
+function trackingStatus(job) {
+  return trackingState[job.canonical_url]?.status ?? "";
+}
+
+async function loadTracking() {
+  try {
+    const response = await fetch("/api/tracking", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    trackingState = payload.jobs ?? {};
+  } catch (error) {
+    elements.liveStatus.textContent = `Acompanhamento indisponível: ${error.message}`;
+  }
+  renderTable();
+}
+
+async function updateTracking(job, status, select) {
+  select.disabled = true;
+  try {
+    const response = await fetch("/api/tracking", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: job.canonical_url, status: status || null }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    trackingState = payload.jobs ?? {};
+  } catch (error) {
+    elements.liveStatus.textContent = `Não foi possível salvar o acompanhamento: ${error.message}`;
+  } finally {
+    select.disabled = false;
+    renderTable();
+  }
+}
+
+function trackingCell(job) {
+  const cell = document.createElement("td");
+  const select = document.createElement("select");
+  select.className = "tracking-select";
+  select.setAttribute("aria-label", `Acompanhamento da vaga ${job.title || ""}`);
+  TRACKING_OPTIONS.forEach(([value, label]) => select.appendChild(new Option(label, value)));
+  select.value = trackingStatus(job);
+  select.disabled = !/^https?:\/\//.test(job.canonical_url ?? "");
+  select.addEventListener("change", () => updateTracking(job, select.value, select));
+  cell.appendChild(select);
+  return cell;
+}
+
+function alsoSeenIn(job) {
+  return (job.match_labels ?? [])
+    .filter((label) => String(label).startsWith("ALSO_SEEN_IN:"))
+    .map((label) => String(label).slice("ALSO_SEEN_IN:".length));
+}
+
+function publishedTime(job) {
+  const time = Date.parse(job.published_at ?? "");
+  return Number.isNaN(time) ? -Infinity : time;
+}
+
+function publishedLabel(job) {
+  const time = publishedTime(job);
+  if (time === -Infinity) return "";
+  return new Date(time).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 
 function textElement(tag, className, text) {
@@ -123,13 +208,19 @@ function renderTable() {
 
   jobs.forEach((job) => {
     const row = document.createElement("tr");
+    const trackedStatus = trackingStatus(job);
+    if (trackedStatus) row.className = `tracked-${trackedStatus.toLowerCase()}`;
     const titleCell = document.createElement("td");
     titleCell.append(
       textElement("div", "job-title", job.title || "Cargo não informado"),
       textElement(
         "span",
         "job-meta",
-        (job.technologies ?? []).slice(0, 4).join(" · ") || "Tecnologias não informadas"
+        [
+          (job.technologies ?? []).slice(0, 4).join(" · ") || "Tecnologias não informadas",
+          publishedLabel(job) && `publicada em ${publishedLabel(job)}`,
+          alsoSeenIn(job).length && `também em ${alsoSeenIn(job).join(", ")}`,
+        ].filter(Boolean).join(" — ")
       )
     );
     row.appendChild(titleCell);
@@ -152,6 +243,7 @@ function renderTable() {
       matchCell.appendChild(textElement("span", "match-pill new", "Nova"));
     }
     row.appendChild(matchCell);
+    row.appendChild(trackingCell(job));
 
     const actionCell = document.createElement("td");
     const link = document.createElement("a");
@@ -172,8 +264,10 @@ function renderTable() {
   if (elements.textFilter.value.trim()) reportParameters.set("text", elements.textFilter.value.trim());
   if (elements.sourceFilter.value) reportParameters.set("source", elements.sourceFilter.value);
   if (elements.matchFilter.value) reportParameters.set("match", elements.matchFilter.value);
+  if (elements.trackingFilter.value) reportParameters.set("tracked", elements.trackingFilter.value);
   const reportQuery = reportParameters.toString();
   elements.downloadReport.href = `/api/export/markdown${reportQuery ? `?${reportQuery}` : ""}`;
+  elements.downloadCsv.href = `/api/export/csv${reportQuery ? `?${reportQuery}` : ""}`;
 }
 
 function updateSourceFilter() {
@@ -232,9 +326,19 @@ function statusLabel(status) {
   }[status] || status || "Pendente";
 }
 
+function countWarningText(warning) {
+  const match = /^SOURCE_COUNT_(DROP|ZERO):(\d+)<(\d+)$/.exec(String(warning));
+  if (!match) return "";
+  const [, kind, current, average] = match;
+  return kind === "ZERO"
+    ? `Coleta zerou (média anterior: ${average}); o portal pode ter mudado.`
+    : `Queda para ${current} vagas (média anterior: ${average}); confira o portal.`;
+}
+
 function renderSources() {
   const liveSources = Object.values(dashboardState.sources ?? {});
-  const sources = liveSources.length ? liveSources : (dashboardState.report?.sources ?? []);
+  const reportSources = dashboardState.report?.sources ?? [];
+  const sources = liveSources.length ? liveSources : reportSources;
   elements.sourceStatuses.replaceChildren();
   sources.forEach((source) => {
     const row = document.createElement("article");
@@ -248,6 +352,11 @@ function renderSources() {
         `${source.records ?? 0} registros · ${source.stop_reason || "concluído"}`
       )
     );
+    const reported = reportSources.find((item) => item.source === source.source);
+    (source.warnings ?? reported?.warnings ?? [])
+      .map(countWarningText)
+      .filter(Boolean)
+      .forEach((text) => copy.appendChild(textElement("small", "source-warning", text)));
     row.append(
       copy,
       textElement(
@@ -385,6 +494,8 @@ async function loadPreferences() {
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
     elements.locationScopes.value = (payload.location_scopes ?? []).join("\n");
+    elements.technologies.value = (payload.technologies ?? []).join("\n");
+    elements.excludedTerms.value = (payload.excluded_terms ?? []).join("\n");
     setChecked(elements.seniorityInternship, payload.seniority_levels ?? []);
     setChecked(elements.seniorityJunior, payload.seniority_levels ?? []);
     setChecked(elements.workplaceRemote, payload.workplace_models ?? []);
@@ -429,6 +540,8 @@ async function savePreferences(event) {
       elements.workplaceOnsite,
     ]),
     location_scopes: linesFrom(elements.locationScopes),
+    technologies: linesFrom(elements.technologies),
+    excluded_terms: linesFrom(elements.excludedTerms),
   };
   if (payload.seniority_levels.length === 0) {
     elements.preferencesStatus.textContent = "Selecione Estágio e/ou Júnior.";
@@ -472,7 +585,13 @@ elements.linkedinButton.addEventListener("click", async () => {
   if (willShow) await loadLinkedinSearches();
 });
 elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
-[elements.textFilter, elements.sourceFilter, elements.matchFilter].forEach((filter) => {
+[
+  elements.textFilter,
+  elements.sourceFilter,
+  elements.matchFilter,
+  elements.sortOrder,
+  elements.trackingFilter,
+].forEach((filter) => {
   filter.addEventListener("input", renderTable);
   filter.addEventListener("change", renderTable);
 });
@@ -483,3 +602,4 @@ elements.toggleSources.addEventListener("click", () => {
 });
 
 refreshState();
+loadTracking();

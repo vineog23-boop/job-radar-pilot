@@ -410,6 +410,15 @@ class JobRadarPipeline:
             by_code = {result.source_code: result for result in unordered_results}
             source_results = [by_code[source.code] for source in selected]
 
+        if self._history is not None:
+            count_warnings = self._history.check_source_counts(source_results)
+            source_results = [
+                replace(result, warnings=(*result.warnings, count_warnings[result.source_code]))
+                if result.source_code in count_warnings
+                else result
+                for result in source_results
+            ]
+
         raw_records = [
             replace(record, collection_status=result.status)
             for result in source_results

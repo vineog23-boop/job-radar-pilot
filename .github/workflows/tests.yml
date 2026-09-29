@@ -1,0 +1,40 @@
+name: testes
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    # Windows: é a plataforma real do projeto e os launchers .ps1 esperam .venv\Scripts.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        id: python
+        with:
+          python-version: "3.13"
+
+      - name: Clonar Scrapling fixado em v0.4.15
+        run: git clone --depth 1 --branch v0.4.15 https://github.com/D4Vinci/Scrapling vendor/Scrapling
+
+      - name: Criar venv isolada (mesmo local do setup.ps1)
+        run: |
+          & "${{ steps.python.outputs.python-path }}" -m venv job-radar-pilot\.venv
+          $py = "job-radar-pilot\.venv\Scripts\python.exe"
+          & $py -m pip install --upgrade pip
+          & $py -m pip install -e "vendor/Scrapling[fetchers]" -e "job-radar-pilot[test]"
+          & $py -m playwright install chromium
+
+      - name: Rodar testes (sem rede para os portais)
+        env:
+          PYTHONPATH: job-radar-pilot/src
+        run: job-radar-pilot\.venv\Scripts\python.exe -m pytest job-radar-pilot/tests -q

@@ -128,7 +128,7 @@ def test_deduplicate_preserves_conflicting_job_ids_as_ambiguous() -> None:
     assert result.ambiguous == (first, conflicting)
 
 
-def test_deduplicate_preserves_exact_semantic_match_across_sources_as_possible_duplicate() -> None:
+def test_deduplicate_merges_exact_semantic_match_keeping_most_reliable_source() -> None:
     aggregator = replace(
         _record(
             url="https://br.indeed.com/viewjob?jk=valid123",
@@ -150,10 +150,45 @@ def test_deduplicate_preserves_exact_semantic_match_across_sources_as_possible_d
 
     result = deduplicate([aggregator, ats])
 
+    assert len(result.unique) == 1
+    kept = result.unique[0]
+    assert kept.source == "gupy"
+    assert kept.canonical_url == "https://minsait.gupy.io/jobs/123"
+    assert "ALSO_SEEN_IN:indeed" in kept.match_labels
+    assert not any(label.startswith("POSSIBLE_DUPLICATE:") for label in kept.match_labels)
+    assert result.duplicate_count == 1
+
+
+def test_deduplicate_merge_keeps_first_record_when_sources_have_same_priority() -> None:
+    first = replace(
+        _record(url="https://nerdin.example.com/1", title="Dev Java Jr", company="Acme"),
+        source="nerdin",
+    )
+    second = replace(
+        _record(url="https://trampos.example.com/9", title="Dev Java Jr", company="Acme"),
+        source="trampos",
+    )
+    third = replace(
+        _record(url="https://remotar.example.com/5", title="Dev Java Jr", company="Acme"),
+        source="remotar",
+    )
+
+    result = deduplicate([first, second, third])
+
+    assert [record.source for record in result.unique] == ["nerdin"]
+    assert {"ALSO_SEEN_IN:remotar", "ALSO_SEEN_IN:trampos"} <= set(
+        result.unique[0].match_labels
+    )
+    assert result.duplicate_count == 2
+
+
+def test_deduplicate_does_not_merge_when_location_or_company_is_missing() -> None:
+    first = replace(_record(url="https://a.example.com/1", company=None), source="a")
+    second = replace(_record(url="https://b.example.com/1", company=None), source="b")
+
+    result = deduplicate([first, second])
+
     assert len(result.unique) == 2
-    assert {record.source for record in result.unique} == {"gupy", "indeed"}
-    assert "POSSIBLE_DUPLICATE:gupy" in result.unique[0].match_labels
-    assert "POSSIBLE_DUPLICATE:indeed" in result.unique[1].match_labels
     assert result.duplicate_count == 0
 
 

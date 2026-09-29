@@ -690,7 +690,7 @@ def test_parallel_completion_is_reordered_before_classification_and_callback_is_
             else:
                 second_finished.set()
             record = replace(
-                _record(config.code, f"https://ats.example.com/{config.code}"),
+                _record(config.code, f"https://ats.example.com/{config.code}", title=f"Java Junior {config.code}"),
                 location="Remoto",
                 workplace_model=WorkplaceModel.REMOTE,
             )
@@ -974,3 +974,38 @@ def test_workers_one_and_three_have_equivalent_source_and_record_contracts() -> 
 
     assert source_contract(sequential) == source_contract(parallel)
     assert record_contract(sequential) == record_contract(parallel)
+
+
+def test_pipeline_warns_when_source_count_drops_against_history(tmp_path) -> None:
+    from job_radar.history import SeenHistory
+
+    history = SeenHistory(tmp_path / "history.json")
+    source = _source("one")
+    counts = iter((4, 4, 1))
+
+    def adapter(config: SourceConfig) -> StaticAdapter:
+        total = next(counts)
+        return StaticAdapter(
+            SourceRunResult(
+                "one",
+                CollectionStatus.SUCCESS,
+                tuple(
+                    _record("one", f"https://one.example.com/jobs/{index}")
+                    for index in range(total)
+                ),
+            )
+        )
+
+    def run() -> SourceRunResult:
+        pipeline = JobRadarPipeline(
+            (source,),
+            PROFILE,
+            fetcher=object(),
+            adapter_factory=adapter,
+            history=history,
+        )
+        return pipeline.run().source_results[0]
+
+    assert run().warnings == ()
+    assert run().warnings == ()
+    assert run().warnings == ("SOURCE_COUNT_DROP:1<4",)

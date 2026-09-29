@@ -9,8 +9,16 @@ from job_radar.models import SearchProfile, VacancyRecord, WorkplaceModel
 
 _TERM_ALIASES: dict[str, tuple[str, ...]] = {
     "backend": ("backend", "back end"),
-    "estagio": ("estagio", "estagiario", "estagiaria", "intern"),
-    "junior": ("junior", "jr"),
+    "estagio": (
+        "estagio",
+        "estagiario",
+        "estagiaria",
+        "intern",
+        "internship",
+        "trainee",
+        "aprendiz",
+    ),
+    "junior": ("junior", "jr", "nivel 1", "entry level", "iniciante"),
     "senior": ("senior", "sr"),
 }
 
@@ -48,9 +56,34 @@ _REMOTE_SCOPE_NEUTRAL_TERMS = (
 
 _WORKPLACE_MARKERS: tuple[tuple[WorkplaceModel, tuple[str, ...]], ...] = (
     (WorkplaceModel.HYBRID, ("hibrido", "hybrid")),
-    (WorkplaceModel.REMOTE, ("remoto", "remote", "home office", "teletrabalho")),
+    (
+        WorkplaceModel.REMOTE,
+        ("remoto", "remota", "remote", "home office", "teletrabalho"),
+    ),
     (WorkplaceModel.ONSITE, ("presencial", "on site", "onsite")),
 )
+
+# "usa" fica de fora de propósito: em português é o verbo ("o time usa Java").
+_FOREIGN_REGION_TERMS = (
+    "eua",
+    "estados unidos",
+    "united states",
+    "canada",
+    "europa",
+    "europe",
+    "portugal",
+    "reino unido",
+)
+# "Junior/Pleno", "Jr ou Pl": faixa que inclui nível de entrada, não é exclusão.
+_RANGE_ENTRY = r"(?:junior|jr|estagio|estagiario|estagiaria)\.?"
+_RANGE_MID = r"(?:pleno|pl)(?![\w/])"
+_RANGE_SEPARATOR = r"\s*(?:/|-|,|\||\bou\b|\be\b|\ba\b|\bate\b)\s*"
+_ENTRY_MID_RANGE = re.compile(
+    rf"(?<!\w){_RANGE_ENTRY}{_RANGE_SEPARATOR}{_RANGE_MID}"
+    rf"|(?<!\w){_RANGE_MID}{_RANGE_SEPARATOR}{_RANGE_ENTRY}(?!\w)"
+)
+# Algarismo romano isolado depois do cargo ("Desenvolvedor Java I"), sem pegar "I/O".
+_ROMAN_ONE_LEVEL = re.compile(r"(?<=\w )i(?=\s*(?:$|[-|,(]))")
 
 _BRAZIL_STATE_UFS = {
     "acre": "ac",
@@ -108,6 +141,14 @@ def _contains_term(searchable_text: str, term: str) -> bool:
         if pattern and re.search(rf"(?<!\w){pattern}(?!\w)", searchable_text):
             return True
     return False
+
+
+def _is_entry_mid_range(explicit_seniority_text: str) -> bool:
+    return _ENTRY_MID_RANGE.search(explicit_seniority_text) is not None
+
+
+def _has_roman_one_level(explicit_seniority_text: str) -> bool:
+    return _ROMAN_ONE_LEVEL.search(explicit_seniority_text) is not None
 
 
 def _infer_workplaces(record: VacancyRecord) -> frozenset[WorkplaceModel]:
@@ -283,6 +324,8 @@ def classify(
         for canonical in ("estagio", "junior")
         if _contains_term(explicit_seniority_text, canonical)
     }
+    if _has_roman_one_level(explicit_seniority_text):
+        detected_entry_levels.add("junior")
     matching_entry_levels = detected_entry_levels.intersection(selected_seniority)
     for canonical in matching_entry_levels:
         labels.add(f"SENIORITY_MATCH:{canonical}")
@@ -290,8 +333,15 @@ def classify(
         for canonical in detected_entry_levels:
             labels.add(f"SENIORITY_MISMATCH:{canonical}")
 
+    entry_mid_range = bool(detected_entry_levels) and _is_entry_mid_range(
+        explicit_seniority_text
+    )
+    if entry_mid_range:
+        labels.add("SENIORITY_UNCLEAR:range")
     for excluded in profile.excluded_terms:
         canonical = _canonical_term(excluded)
+        if entry_mid_range and canonical == "pleno":
+            continue
         if canonical and _contains_term(explicit_seniority_text, canonical):
             labels.add(f"SENIORITY_MISMATCH:{canonical}")
 
@@ -303,6 +353,12 @@ def classify(
     inferred_workplaces = _infer_workplaces(record)
     is_remote = (
         WorkplaceModel.REMOTE in inferred_workplaces or explicit_remote_location
+    )
+    factual_text = _normalize(
+        " ".join(part for part in (record.title, record.description_summary) if part)
+    )
+    remote_abroad = any(
+        _contains_term(factual_text, region) for region in _FOREIGN_REGION_TERMS
     )
     if is_remote:
         normalized_scopes = tuple(
@@ -325,6 +381,7 @@ def classify(
         )
         if (
             all_scopes_support_brazil
+            and not remote_abroad
             and (has_explicit_brazil or default_country == "BR")
         ):
             labels.add("LOCATION_MATCH:remote_brazil")
@@ -408,6 +465,7 @@ def classify(
             and has_location
             and workplace_confirmed
             and not has_eligibility_unclear
+            and not entry_mid_range
         ):
             fit = "READY"
         elif has_core_technology:
@@ -415,7 +473,32 @@ def classify(
         else:
             fit = "AMBIGUOUS"
 
+    workplace_model = record.workplace_model
+    if workplace_model is WorkplaceModel.UNKNOWN and len(inferred_workplaces) == 1:
+        (workplace_model,) = inferred_workplaces
+        labels.add(f"WORKPLACE_INFERRED:{workplace_model.value}")
+
     labels.add(f"FIT:{fit}")
     labels.add(f"FIT_SCORE:{score}")
 
-    return replace(record, match_labels=tuple(sorted(labels)))
+    seniority = record.seniority
+    if not seniority and detected_entry_levels:
+        seniority = "estagio" if "estagio" in detected_entry_levels else "junior"
+    known_technologies = {technology.casefold() for technology in record.technologies}
+    technologies = record.technologies + tuple(
+        technology
+        for technology in sorted(
+            label.removeprefix("TECH_MATCH:")
+            for label in labels
+            if label.startswith("TECH_MATCH:")
+        )
+        if technology.casefold() not in known_technologies
+    )
+
+    return replace(
+        record,
+        match_labels=tuple(sorted(labels)),
+        workplace_model=workplace_model,
+        seniority=seniority,
+        technologies=technologies,
+    )

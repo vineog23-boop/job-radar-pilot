@@ -43,6 +43,8 @@ def test_missing_file_uses_profile_and_current_queries_as_defaults(tmp_path: Pat
         seniority_levels=("estagio", "junior"),
         workplace_models=(),
         location_scopes=("remoto-brasil", "sao-carlos-sp"),
+        technologies=("java", "spring boot"),
+        excluded_terms=("senior",),
     )
 
 
@@ -63,6 +65,8 @@ def test_save_is_atomic_and_round_trips_only_allowed_fields(tmp_path: Path) -> N
         "seniority_levels": ["junior"],
         "workplace_models": ["REMOTE", "HYBRID"],
         "location_scopes": ["remoto-brasil", "minas-gerais"],
+        "technologies": [],
+        "excluded_terms": [],
     }
     assert list(path.parent.glob("*.tmp")) == []
     assert load_preferences(
@@ -216,3 +220,80 @@ def test_preferences_require_at_least_one_seniority_and_location(
 
     with pytest.raises(PreferencesError, match=field):
         validate_preferences_payload(payload)
+
+
+def test_missing_file_exposes_profile_stacks_and_exclusions_as_defaults(
+    tmp_path: Path,
+) -> None:
+    preferences = load_preferences(
+        default_profile=PROFILE,
+        default_search_terms=("java",),
+        path=tmp_path / "missing.json",
+    )
+
+    assert preferences.technologies == ("java", "spring boot")
+    assert preferences.excluded_terms == ("senior",)
+
+
+def test_legacy_file_without_stacks_and_exclusions_still_loads(tmp_path: Path) -> None:
+    path = tmp_path / "search-preferences.json"
+    path.write_text(
+        json.dumps(
+            {
+                "search_terms": ["java"],
+                "seniority_levels": ["junior"],
+                "workplace_models": [],
+                "location_scopes": ["remoto-brasil"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    preferences = load_preferences(
+        default_profile=PROFILE, default_search_terms=("x",), path=path
+    )
+
+    assert preferences.technologies == ()
+    assert preferences.excluded_terms == ()
+    updated = apply_preferences(PROFILE, preferences)
+    assert updated.positive_keywords == PROFILE.positive_keywords
+    assert updated.excluded_terms == PROFILE.excluded_terms
+
+
+def test_stacks_and_exclusions_are_normalized_saved_and_applied(tmp_path: Path) -> None:
+    preferences = validate_preferences_payload(
+        {
+            "search_terms": ["java"],
+            "seniority_levels": ["junior"],
+            "workplace_models": [],
+            "location_scopes": ["remoto-brasil"],
+            "technologies": ["  Java ", "Spring Boot", "java", "Kotlin"],
+            "excluded_terms": ["Pleno", "Sênior", "PHP"],
+        }
+    )
+
+    assert preferences.technologies == ("java", "spring boot", "kotlin")
+    assert preferences.excluded_terms == ("pleno", "sênior", "php")
+
+    path = tmp_path / "prefs.json"
+    save_preferences(preferences, path=path)
+    loaded = load_preferences(default_profile=PROFILE, default_search_terms=(), path=path)
+    assert loaded == preferences
+
+    updated = apply_preferences(PROFILE, preferences)
+    assert updated.positive_keywords == ("java", "spring boot", "kotlin")
+    assert updated.excluded_terms == ("pleno", "sênior", "php")
+
+
+@pytest.mark.parametrize("field", ["technologies", "excluded_terms"])
+def test_stacks_and_exclusions_have_limits(field: str) -> None:
+    payload = {
+        "search_terms": ["java"],
+        "seniority_levels": ["junior"],
+        "workplace_models": [],
+        "location_scopes": ["remoto-brasil"],
+        field: [f"termo-{index}" for index in range(41)],
+    }
+
+    with pytest.raises(PreferencesError, match=field):
+        preferences_from_dict(payload)

@@ -88,6 +88,22 @@ def test_write_outputs_validates_complete_and_partial_records(tmp_path: Path) ->
     assert lines[1]["technologies"] == []
 
 
+def test_missing_git_metadata_does_not_abort_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def missing_git(*args, **kwargs):
+        raise FileNotFoundError("git indisponivel")
+
+    monkeypatch.setattr("job_radar.output.subprocess.run", missing_git)
+
+    manifest = write_outputs(_result(), tmp_path)
+    report = json.loads(manifest.report_path.read_text(encoding="utf-8"))
+
+    assert manifest.jsonl_path.exists()
+    assert manifest.csv_path.exists()
+    assert report["upstream_commit"] == "desconhecido"
+
+
 def _valid_payload() -> dict[str, object]:
     return {
         "source": "programathor",

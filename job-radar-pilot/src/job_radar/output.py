@@ -63,21 +63,24 @@ def _workspace_root() -> Path:
 
 def _upstream_commit() -> str:
     repository = (_workspace_root() / "vendor" / "Scrapling").resolve()
-    result = subprocess.run(
-        [
-            "git",
-            "-c",
-            f"safe.directory={repository}",
-            "-C",
-            str(repository),
-            "rev-parse",
-            "HEAD",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip()
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"safe.directory={repository}",
+                "-C",
+                str(repository),
+                "rev-parse",
+                "HEAD",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "desconhecido"
+    return result.stdout.strip() or "desconhecido"
 
 
 def _record_payload(record: VacancyRecord) -> dict[str, Any]:

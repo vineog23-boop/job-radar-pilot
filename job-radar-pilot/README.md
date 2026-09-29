@@ -102,10 +102,6 @@ anúncios também permanece desligado (`block_ads=false`). Ative bloqueios somen
 depois de comparar a coleta com e sem a opção e confirmar que status, motivo de
 parada, páginas, URLs únicas, campos e completude não regrediram.
 
-O InfoJobs é a única exceção configurada: `disable_resources: true` foi mantido
-após uma comparação controlada sem regressão nesses indicadores. Os domínios
-bloqueados continuam vazios.
-
 ## Coletar
 
 Uma fonte pública limitada:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 import re
 from typing import Any, Mapping
@@ -102,6 +103,8 @@ def load_profile(path: Path) -> SearchProfile:
 def _load_browser_options(value: Any, index: int) -> BrowserOptions:
     if not isinstance(value, Mapping):
         raise ConfigError(f"sources[{index}].browser deve ser um objeto.")
+    if not all(isinstance(key, str) for key in value):
+        raise ConfigError(f"sources[{index}].browser exige chaves de texto.")
     unknown = set(value) - _BROWSER_KEYS
     if unknown:
         raise ConfigError(
@@ -126,8 +129,17 @@ def _load_browser_options(value: Any, index: int) -> BrowserOptions:
         )
         if not isinstance(domain, str):
             raise ConfigError(f"{field_name} deve ser um hostname valido.")
-        normalized = domain.strip().casefold()
-        if not normalized or _HOSTNAME_PATTERN.fullmatch(normalized) is None:
+        stripped = domain.strip()
+        if not stripped or not stripped.isascii():
+            raise ConfigError(f"{field_name} deve ser um hostname valido.")
+        normalized = stripped.casefold()
+        try:
+            ipaddress.ip_address(normalized)
+        except ValueError:
+            pass
+        else:
+            raise ConfigError(f"{field_name} deve ser um hostname valido.")
+        if _HOSTNAME_PATTERN.fullmatch(normalized) is None:
             raise ConfigError(f"{field_name} deve ser um hostname valido.")
         normalized_domains.append(normalized)
 

@@ -606,24 +606,9 @@ def test_browser_session_keeps_resource_options_isolated_per_source() -> None:
     assert "blocked_domains" not in session.fetch_kwargs[1]
 
 
-def test_fetch_policy_true_block_ads_reaches_browser_session() -> None:
-    session = FakeSession()
-    factory_kwargs: list[dict[str, object]] = []
-
-    def factory(**kwargs: object) -> FakeSession:
-        factory_kwargs.append(dict(kwargs))
-        return session
-
-    with FetchPolicy(
-        block_ads=True,
-        browser_session_factory=factory,
-        robots_allowed=lambda url: True,
-        sleep=lambda seconds: None,
-    ) as policy:
-        result = policy.fetch("https://example.com/jobs", _source(SourceKind.DYNAMIC))
-
-    assert result.status is CollectionStatus.SUCCESS
-    assert factory_kwargs[0]["block_ads"] is True
+def test_fetch_policy_does_not_expose_block_ads_override() -> None:
+    with pytest.raises(TypeError, match="block_ads"):
+        FetchPolicy(block_ads=True)  # type: ignore[call-arg]
 
 
 def test_default_robots_policy_reads_plain_text_response_body(

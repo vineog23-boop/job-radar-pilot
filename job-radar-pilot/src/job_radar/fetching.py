@@ -410,7 +410,6 @@ class FetchPolicy:
         sleep: Callable[[float], None] = system_sleep,
         monotonic: Callable[[], float] = system_monotonic,
         max_attempts: int = 2,
-        block_ads: bool = False,
     ) -> None:
         self._http_get = http_get
         self._browser_fetch = browser_fetch
@@ -423,7 +422,6 @@ class FetchPolicy:
         self._sleep = sleep
         self._monotonic = monotonic
         self._max_attempts = max_attempts
-        self._block_ads = block_ads
         self._last_request_at: dict[str, float] = {}
         self._robots_policies: dict[
             tuple[str, str], Callable[[str], bool]
@@ -564,7 +562,7 @@ class FetchPolicy:
             "retries": 1,
             "locale": BROWSER_LOCALE,
             "timezone_id": BROWSER_TIMEZONE,
-            "block_ads": self._block_ads,
+            "block_ads": False,
         }
         with ExitStack() as opening:
             if profile_dir is not None:

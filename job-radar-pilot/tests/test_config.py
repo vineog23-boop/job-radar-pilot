@@ -62,15 +62,7 @@ def test_loads_complete_profile_and_sources() -> None:
     assert {
         source.code for source in sources if source.default_country == "BR"
     } == {"indeed", "casado-dev"}
-    browser_by_source = {source.code: source.browser for source in sources}
-    assert browser_by_source["infojobs"] == models.BrowserOptions(
-        disable_resources=True
-    )
-    assert all(
-        options == models.BrowserOptions()
-        for code, options in browser_by_source.items()
-        if code != "infojobs"
-    )
+    assert all(source.browser == models.BrowserOptions() for source in sources)
 
 
 def test_priority_sources_target_real_result_surfaces_and_current_selectors() -> None:
@@ -274,6 +266,27 @@ def test_rejects_non_mapping_source_browser(tmp_path: Path) -> None:
         load_sources(config)
 
 
+def test_rejects_non_string_source_browser_key_with_config_error(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "sources.yaml"
+    config.write_text(
+        "sources:\n"
+        "  - code: example\n"
+        "    kind: dynamic\n"
+        "    start_url: https://example.com/jobs\n"
+        "    enabled: true\n"
+        "    max_pages: 1\n"
+        "    min_interval_seconds: 1\n"
+        "    requires_auth: false\n"
+        "    browser: {1: true, unknown: true}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="browser exige chaves de texto"):
+        load_sources(config)
+
+
 @pytest.mark.parametrize(
     ("browser_yaml", "message"),
     (
@@ -293,6 +306,9 @@ def test_rejects_non_mapping_source_browser(tmp_path: Path) -> None:
         ("      blocked_domains: [bad_label.example.com]\n", r"blocked_domains\[0\].*hostname valido"),
         ("      blocked_domains: [-ads.example.com]\n", r"blocked_domains\[0\].*hostname valido"),
         ("      blocked_domains: [ads-.example.com]\n", r"blocked_domains\[0\].*hostname valido"),
+        ("      blocked_domains: ['faß.de']\n", r"blocked_domains\[0\].*hostname valido"),
+        ("      blocked_domains: ['K.example']\n", r"blocked_domains\[0\].*hostname valido"),
+        ("      blocked_domains: [127.0.0.1]\n", r"blocked_domains\[0\].*hostname valido"),
     ),
 )
 def test_rejects_invalid_source_browser_options(

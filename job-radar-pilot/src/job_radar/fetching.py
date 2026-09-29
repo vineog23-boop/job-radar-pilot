@@ -205,6 +205,12 @@ def _response_text(response: object) -> str:
         return str(text)
     body = getattr(response, "body", b"")
     if isinstance(body, bytes):
+        encoding = getattr(response, "encoding", None)
+        if isinstance(encoding, str) and encoding.strip():
+            try:
+                return body.decode(encoding)
+            except (LookupError, UnicodeError):
+                pass
         return body.decode("utf-8", errors="replace")
     return str(body or "")
 

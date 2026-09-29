@@ -17,6 +17,15 @@ class FakeResponse:
     url: str = "https://example.com/jobs"
 
 
+@dataclass
+class EncodedResponse:
+    status: int = 200
+    text: str = ""
+    body: bytes = b""
+    encoding: str | None = None
+    url: str = "https://example.com/robots.txt"
+
+
 def _source(kind: SourceKind = SourceKind.GENERIC) -> SourceConfig:
     return SourceConfig(
         code="example",
@@ -70,6 +79,25 @@ def test_linkedin_is_manual_only_even_under_source_alias(url: str) -> None:
     assert result.block_reason is BlockReason.ROBOTS_DENIED
     assert result.attempts == 0
     assert calls == []
+
+
+def test_response_body_respects_explicit_encoding() -> None:
+    response = EncodedResponse(
+        body="User-agent: *\nDisallow: /área-privada\n".encode("latin-1"),
+        encoding="latin-1",
+    )
+
+    assert "/área-privada" in fetching._response_text(response)
+
+
+@pytest.mark.parametrize("encoding", [None, "not-a-real-codec"])
+def test_response_body_falls_back_to_utf8(encoding: str | None) -> None:
+    response = EncodedResponse(
+        body="User-agent: *\nDisallow: /área-privada\n".encode("utf-8"),
+        encoding=encoding,
+    )
+
+    assert "/área-privada" in fetching._response_text(response)
 
 
 def test_linkedin_lookalike_domain_is_not_misclassified() -> None:

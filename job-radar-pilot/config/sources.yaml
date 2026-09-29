@@ -3,7 +3,7 @@ sources:
     kind: gupy
     start_url: https://portal.gupy.io/job-search/term%3Ddesenvolvedor%20junior
     enabled: true
-    max_pages: 9
+    max_pages: 3
     min_interval_seconds: 2
     requires_auth: false
     queries: [desenvolvedor java junior, backend junior, estagio desenvolvimento, estagio tecnologia, engenheiro de software junior]
@@ -11,7 +11,7 @@ sources:
     kind: indeed
     start_url: https://br.indeed.com/jobs?q=java+junior
     enabled: true
-    max_pages: 3
+    max_pages: 1
     min_interval_seconds: 3
     requires_auth: false
     queries: [Java junior, estagio desenvolvimento, backend junior, spring boot junior, estagio java, desenvolvedor software junior]
@@ -79,7 +79,7 @@ sources:
     max_pages: 1
     min_interval_seconds: 3
     requires_auth: false
-    selectors: {card: "#opportunities section.fr_opportunity.opportunity-collections", title: "h3::all-text", url: "a.btn.btn-block.btn-sort[href*='.99jobs.com/vagas/']::attr(href)", summary: "::all-text"}
+    selectors: {card: "#opportunities section.fr_opportunity.opportunity-collections", title: "h3::all-text", url: "a.btn.btn-block.btn-sort[href*='.99jobs.com/vagas/']::attr(href)", summary: "::all-text", declared_count: "#opportunities > p.text-center.qtd::all-text"}
   - code: cia-de-talentos
     kind: dynamic
     start_url: https://vagas.ciadetalentos.com.br/applicant/#/opportunities

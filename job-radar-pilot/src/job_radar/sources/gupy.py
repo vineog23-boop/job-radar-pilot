@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 from job_radar.models import SourceConfig
 from job_radar.sources.base import PaginatedAdapter, ParsedPage, make_record
 
@@ -25,4 +27,36 @@ class GupyAdapter(PaginatedAdapter):
                 )
             )
         )
-        return ParsedPage(records, len(cards), pagination_observable=False)
+        next_buttons = page.css("button[aria-label='Próxima página']")  # type: ignore[attr-defined]
+        page_buttons = page.css("button[aria-label^='Página ']")  # type: ignore[attr-defined]
+        next_enabled = bool(next_buttons) and all(
+            "disabled" not in getattr(button, "attrib", {})
+            and getattr(button, "attrib", {}).get("aria-disabled") != "true"
+            for button in next_buttons
+        )
+        next_url = self._next_page_url(str(page.url)) if next_enabled else None
+        return ParsedPage(
+            records,
+            len(cards),
+            next_url=next_url,
+            pagination_observable=bool(next_buttons or page_buttons),
+        )
+
+    @staticmethod
+    def _next_page_url(url: str) -> str:
+        parsed = urlsplit(url)
+        parameters = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        try:
+            current_page = int(parameters.get("page", "1"))
+        except ValueError:
+            current_page = 1
+        parameters["page"] = str(current_page + 1)
+        return urlunsplit(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                urlencode(parameters),
+                "",
+            )
+        )

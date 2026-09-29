@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import ExitStack
 from dataclasses import dataclass
 from enum import StrEnum
+from html.parser import HTMLParser
 import os
 from pathlib import Path
 import re
@@ -122,37 +123,63 @@ def _default_browser_session_factory(**kwargs: object) -> ContextManager[Any]:
     return DynamicSession(**kwargs)
 
 
-def _scroll_infojobs_until_stable(page: Any) -> None:
-    selector = ".js_vacanciesGridFragment > .js_rowCard"
+def _scroll_until_stable(
+    page: Any,
+    *,
+    selector: str,
+    max_iterations: int,
+    wait_milliseconds: int = 700,
+) -> None:
     previous = -1
     stable_rounds = 0
-    for _ in range(8):
+    for _ in range(max_iterations):
         count = page.locator(selector).count()
         if count == previous:
             stable_rounds += 1
         else:
             stable_rounds = 0
             previous = count
-        if stable_rounds >= 1:
+        if stable_rounds >= 2:
             break
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        page.wait_for_timeout(700)
+        page.wait_for_timeout(wait_milliseconds)
+
+
+def _scroll_infojobs_until_stable(page: Any) -> None:
+    _scroll_until_stable(
+        page,
+        selector=".js_vacanciesGridFragment > .js_rowCard",
+        max_iterations=12,
+    )
+
+
+def _wait_gupy_results(page: Any) -> None:
+    cards = page.locator("#job-listing-results li")
+    for _ in range(8):
+        if cards.count() > 0:
+            return
+        page.wait_for_timeout(500)
 
 
 def _load_ciee_until_stable(page: Any) -> None:
     card_selector = "a.vaga-row[href*='codigoVaga=']"
-    previous = -1
     for _ in range(12):
-        count = page.locator(card_selector).count()
+        count_before = page.locator(card_selector).count()
         button = page.locator(".btn-exibir-mais-vagas")
-        if count == previous or button.count() == 0 or not button.last.is_visible():
+        if button.count() == 0 or not button.last.is_visible():
             break
-        previous = count
         try:
             button.last.click(force=True, timeout=5_000)
         except Exception:
             break
-        page.wait_for_timeout(600)
+        grew = False
+        for _ in range(5):
+            page.wait_for_timeout(500)
+            if page.locator(card_selector).count() > count_before:
+                grew = True
+                break
+        if not grew:
+            break
 
 
 def _normalize(value: str) -> str:
@@ -167,6 +194,11 @@ def _safe_url(url: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
 
 
+def _is_linkedin_domain(url: str) -> bool:
+    hostname = (urlsplit(url).hostname or "").casefold().rstrip(".")
+    return hostname == "linkedin.com" or hostname.endswith(".linkedin.com")
+
+
 def _response_text(response: object) -> str:
     text = getattr(response, "text", "")
     if text:
@@ -177,50 +209,130 @@ def _response_text(response: object) -> str:
     return str(body or "")
 
 
-def detect_block(response: ResponseLike) -> BlockReason | None:
+class _VisibleTextParser(HTMLParser):
+    _HIDDEN_TAGS = {"head", "script", "style", "template", "noscript"}
+    _VOID_TAGS = {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._element_stack: list[tuple[str, bool]] = []
+        self.parts: list[str] = []
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        normalized_tag = tag.casefold()
+        attributes = {name.casefold(): (value or "") for name, value in attrs}
+        inherited = self._element_stack[-1][1] if self._element_stack else False
+        style = attributes.get("style", "").replace(" ", "").casefold()
+        hidden = inherited or normalized_tag in self._HIDDEN_TAGS or (
+            "hidden" in attributes
+            or attributes.get("aria-hidden", "").casefold() == "true"
+            or "display:none" in style
+            or "visibility:hidden" in style
+        )
+        if normalized_tag not in self._VOID_TAGS:
+            self._element_stack.append((normalized_tag, hidden))
+
+    def handle_startendtag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        return
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized_tag = tag.casefold()
+        for index in range(len(self._element_stack) - 1, -1, -1):
+            if self._element_stack[index][0] == normalized_tag:
+                del self._element_stack[index:]
+                break
+
+    def handle_data(self, data: str) -> None:
+        if not self._element_stack or not self._element_stack[-1][1]:
+            self.parts.append(data)
+
+
+def _visible_response_text(response: object) -> str:
+    raw = _response_text(response)
+    if "<" not in raw:
+        return raw
+    parser = _VisibleTextParser()
+    try:
+        parser.feed(raw)
+        parser.close()
+    except Exception:
+        return ""
+    return " ".join(parser.parts)
+
+
+def _detect_block_signal(
+    response: ResponseLike,
+) -> tuple[BlockReason | None, str | None]:
     if response.status == 429:
-        return BlockReason.RATE_LIMITED
+        return BlockReason.RATE_LIMITED, "http:429"
     if response.status in {401, 403}:
-        return BlockReason.ACCESS_DENIED
+        return BlockReason.ACCESS_DENIED, f"http:{response.status}"
 
     path = urlsplit(str(response.url)).path.casefold()
-    if any(segment in path for segment in ("/login", "/signin", "/sign-in")) or path in {
-        "/auth",
-        "/auth/",
-    }:
-        return BlockReason.LOGIN_REQUIRED
+    path_segments = {segment for segment in path.split("/") if segment}
+    for segment in ("login", "signin", "sign-in", "auth"):
+        if segment in path_segments:
+            return BlockReason.LOGIN_REQUIRED, f"/{segment}"
 
-    text = _normalize(_response_text(response))
-    if any(
-        marker in text
-        for marker in (
-            "captcha para continuar",
-            "complete o captcha",
-            "nao sou um robo",
-            "i am not a robot",
-        )
-    ):
-        return BlockReason.CAPTCHA
-    if any(
-        marker in text
-        for marker in (
-            "codigo de verificacao em duas etapas",
-            "autenticacao de dois fatores",
-            "two-factor authentication",
-        )
-    ) or re.search(r"(?<![a-z0-9])2fa(?![a-z0-9])", text):
-        return BlockReason.TWO_FACTOR
-    if any(
-        marker in text
-        for marker in (
-            "atividade incomum",
-            "atividade suspeita",
-            "unusual activity",
-            "suspicious activity",
-        )
-    ):
-        return BlockReason.ACTIVITY_ALERT
-    return None
+    text = _normalize(_visible_response_text(response))
+    marker_groups = (
+        (
+            BlockReason.CAPTCHA,
+            (
+                "captcha para continuar",
+                "complete o captcha",
+                "nao sou um robo",
+                "i am not a robot",
+            ),
+        ),
+        (
+            BlockReason.TWO_FACTOR,
+            (
+                "codigo de verificacao em duas etapas",
+                "autenticacao de dois fatores",
+                "two-factor authentication",
+            ),
+        ),
+        (
+            BlockReason.ACTIVITY_ALERT,
+            (
+                "atividade incomum",
+                "atividade suspeita",
+                "unusual activity",
+                "suspicious activity",
+            ),
+        ),
+    )
+    for reason, markers in marker_groups:
+        for marker in markers:
+            if marker in text:
+                return reason, marker
+    if re.search(r"(?<![a-z0-9])2fa(?![a-z0-9])", text):
+        return BlockReason.TWO_FACTOR, "2fa"
+    return None, None
+
+
+def detect_block(response: ResponseLike) -> BlockReason | None:
+    return _detect_block_signal(response)[0]
 
 
 def bootstrap_auth(
@@ -231,6 +343,9 @@ def bootstrap_auth(
     input_func: Callable[[str], str] = input,
 ) -> Path:
     """Abre login manual e preserva apenas o perfil local do navegador."""
+
+    if _is_linkedin_domain(source.start_url):
+        raise ValueError("LinkedIn aceita somente pesquisa manual no navegador.")
 
     profile_dir = _profile_directory(source.code, profile_root)
     factory = browser_session_factory or _default_browser_session_factory
@@ -432,7 +547,7 @@ class FetchPolicy:
         if self._browser_fetch is not None:
             return self._browser_fetch(url)
         wait_selector = (
-            "a[href*='/job/']"
+            "body"
             if source.kind is SourceKind.GUPY
             else source.selectors.get("card")
         )
@@ -443,7 +558,9 @@ class FetchPolicy:
         }
         if wait_selector:
             fetch_options["wait_selector"] = wait_selector
-        if source.code == "infojobs":
+        if source.kind is SourceKind.GUPY:
+            fetch_options["page_action"] = _wait_gupy_results
+        elif source.code == "infojobs":
             fetch_options["page_action"] = _scroll_infojobs_until_stable
         elif source.code == "ciee":
             fetch_options["page_action"] = _load_ciee_until_stable
@@ -453,6 +570,12 @@ class FetchPolicy:
 
     def fetch(self, url: str, source: SourceConfig) -> FetchResult:
         safe_url = _safe_url(url)
+        if _is_linkedin_domain(url):
+            return FetchResult(
+                status=CollectionStatus.BLOCKED,
+                block_reason=BlockReason.ROBOTS_DENIED,
+                error=f"ROBOTS_DENIED: LinkedIn exige pesquisa manual em {safe_url}",
+            )
         if not self._is_robots_allowed(url):
             return FetchResult(
                 status=CollectionStatus.BLOCKED,
@@ -485,13 +608,13 @@ class FetchPolicy:
                     attempts=attempt,
                 )
 
-            block = detect_block(response)
+            block, signal = _detect_block_signal(response)
             if block is not None:
                 return FetchResult(
                     status=CollectionStatus.BLOCKED,
                     response=None,
                     block_reason=block,
-                    error=f"{block.value} em {safe_url}",
+                    error=f"{block.value}; signal={signal}; url={safe_url}",
                     attempts=attempt,
                 )
             return FetchResult(

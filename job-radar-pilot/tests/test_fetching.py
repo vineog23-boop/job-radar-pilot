@@ -47,6 +47,46 @@ def test_robots_denial_prevents_request() -> None:
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://linkedin.com/jobs",
+        "https://www.linkedin.com/jobs",
+        "https://br.linkedin.com/jobs",
+    ],
+)
+def test_linkedin_is_manual_only_even_under_source_alias(url: str) -> None:
+    calls: list[str] = []
+    policy = FetchPolicy(
+        http_get=lambda target: calls.append(target),
+        browser_fetch=lambda target: calls.append(target),
+        robots_allowed=lambda target: calls.append(f"robots:{target}") or True,
+        sleep=lambda seconds: None,
+    )
+
+    result = policy.fetch(url, replace(_source(), code="portal-alias"))
+
+    assert result.status is CollectionStatus.BLOCKED
+    assert result.block_reason is BlockReason.ROBOTS_DENIED
+    assert result.attempts == 0
+    assert calls == []
+
+
+def test_linkedin_lookalike_domain_is_not_misclassified() -> None:
+    calls: list[str] = []
+    policy = FetchPolicy(
+        http_get=lambda url: calls.append(url) or FakeResponse(url=url),
+        browser_fetch=lambda url: FakeResponse(url=url),
+        robots_allowed=lambda url: True,
+        sleep=lambda seconds: None,
+    )
+
+    result = policy.fetch("https://linkedin.com.example.test/jobs", _source())
+
+    assert result.status is CollectionStatus.SUCCESS
+    assert calls == ["https://linkedin.com.example.test/jobs"]
+
+
 def test_timeout_retries_once_with_backoff() -> None:
     attempts = 0
     sleeps: list[float] = []
@@ -97,6 +137,9 @@ def test_http_429_stops_without_aggressive_retry() -> None:
     assert attempts == 1
     assert "secret" not in (result.error or "")
     assert "?" not in (result.error or "")
+    assert result.error == (
+        "RATE_LIMITED; signal=http:429; url=https://example.com/jobs"
+    )
 
 
 @pytest.mark.parametrize("status", [401, 403])
@@ -114,6 +157,9 @@ def test_http_auth_denial_is_typed_block(status: int) -> None:
     assert result.block_reason is not None
     assert result.block_reason.value == "ACCESS_DENIED"
     assert result.attempts == 1
+    assert result.error == (
+        f"ACCESS_DENIED; signal=http:{status}; url=https://example.com/jobs"
+    )
 
 
 @pytest.mark.parametrize(
@@ -132,6 +178,30 @@ def test_detects_interactive_blocks(
     assert detect_block(response) is reason
 
 
+@pytest.mark.parametrize("path", ["login", "signin", "sign-in", "auth"])
+def test_login_path_uses_exact_segment_and_reports_fixed_signal(path: str) -> None:
+    response = FakeResponse(url=f"https://example.com/jobs/{path}?token=secret")
+    policy = FetchPolicy(
+        http_get=lambda url: response,
+        browser_fetch=lambda url: response,
+        robots_allowed=lambda url: True,
+        sleep=lambda seconds: None,
+    )
+
+    result = policy.fetch(response.url, _source())
+
+    assert result.block_reason is BlockReason.LOGIN_REQUIRED
+    assert result.error == (
+        f"LOGIN_REQUIRED; signal=/{path}; url=https://example.com/jobs/{path}"
+    )
+
+
+def test_login_like_path_is_not_classified_as_authentication() -> None:
+    response = FakeResponse(url="https://example.com/jobs/login-help")
+
+    assert detect_block(response) is None
+
+
 def test_block_detection_ignores_tracking_hashes_and_inactive_captcha_widgets() -> None:
     response = FakeResponse(
         text=(
@@ -142,6 +212,81 @@ def test_block_detection_ignores_tracking_hashes_and_inactive_captcha_widgets() 
     )
 
     assert detect_block(response) is None
+
+
+def test_block_detection_ignores_two_factor_markers_inside_scripts() -> None:
+    response = FakeResponse(
+        text=(
+            '<script>window.routes={twoFactor:"/2fa", label:"two-factor authentication"}</script>'
+            '<main><h1>Vagas abertas</h1></main>'
+        )
+    )
+
+    assert detect_block(response) is None
+
+
+@pytest.mark.parametrize(
+    "hidden_markup",
+    [
+        '<style>.two-factor::after{content:"2fa"}</style>',
+        '<div hidden>Two-factor authentication</div>',
+        '<div aria-hidden="true">Two-factor authentication</div>',
+        '<div style="display: none">Two-factor authentication</div>',
+        '<div style="visibility: hidden">Two-factor authentication</div>',
+    ],
+)
+def test_block_detection_ignores_hidden_two_factor_markers(
+    hidden_markup: str,
+) -> None:
+    response = FakeResponse(
+        text=f"<html><body>{hidden_markup}<main>Vagas abertas</main></body></html>"
+    )
+
+    assert detect_block(response) is None
+
+
+def test_visible_parser_handles_void_tags_without_hiding_following_content() -> None:
+    response = FakeResponse(
+        text=(
+            '<html><head><meta charset="utf-8"></head><body>'
+            '<input type="hidden"><br>Two-factor authentication'
+            "</body></html>"
+        )
+    )
+
+    assert detect_block(response) is BlockReason.TWO_FACTOR
+
+
+def test_visible_two_factor_marker_remains_detectable() -> None:
+    response = FakeResponse(
+        text="<html><body><main>Use 2FA para continuar</main></body></html>"
+    )
+
+    assert detect_block(response) is BlockReason.TWO_FACTOR
+
+
+def test_fetch_reports_fixed_visible_block_signal_without_response_body() -> None:
+    response = FakeResponse(
+        text=(
+            '<script>const token="secret";</script>'
+            '<main>Two-factor authentication necessária</main>'
+        )
+    )
+    policy = FetchPolicy(
+        http_get=lambda url: response,
+        browser_fetch=lambda url: response,
+        robots_allowed=lambda url: True,
+        sleep=lambda seconds: None,
+    )
+
+    result = policy.fetch("https://example.com/jobs?token=secret", _source())
+
+    assert result.block_reason is BlockReason.TWO_FACTOR
+    assert result.error == (
+        "TWO_FACTOR; signal=two-factor authentication; "
+        "url=https://example.com/jobs"
+    )
+    assert "secret" not in result.error
 
 
 class FakeSession:
@@ -502,7 +647,21 @@ def test_bootstrap_auth_opens_headful_profile_waits_and_closes(
     assert session.exited == 1
 
 
-def test_gupy_session_waits_for_current_job_card_selector() -> None:
+def test_bootstrap_auth_rejects_linkedin_before_creating_profile(tmp_path: Path) -> None:
+    source = replace(
+        _source(SourceKind.DYNAMIC),
+        code="portal-alias",
+        start_url="https://www.linkedin.com/login",
+        requires_auth=True,
+    )
+
+    with pytest.raises(ValueError, match="manual"):
+        fetching.bootstrap_auth(source, profile_root=tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_gupy_session_uses_bounded_readiness_action_without_card_timeout() -> None:
     session = FakeSession()
     source = _source(SourceKind.GUPY)
 
@@ -514,13 +673,15 @@ def test_gupy_session_waits_for_current_job_card_selector() -> None:
         result = policy.fetch("https://portal.gupy.io/job-search/", source)
 
     assert result.status is CollectionStatus.SUCCESS
-    assert session.fetch_kwargs == [
-        {
-            "network_idle": False,
-            "timeout": 30_000,
-            "wait_selector": "a[href*='/job/']",
-        }
-    ]
+    assert len(session.fetch_kwargs) == 1
+    options = dict(session.fetch_kwargs[0])
+    action = options.pop("page_action")
+    assert getattr(action, "__name__") == "_wait_gupy_results"
+    assert options == {
+        "network_idle": False,
+        "timeout": 30_000,
+        "wait_selector": "body",
+    }
 
 
 def test_infojobs_session_receives_bounded_scroll_action() -> None:
@@ -549,7 +710,7 @@ def test_infojobs_session_receives_bounded_scroll_action() -> None:
 
 
 def test_infojobs_scroll_stops_when_card_count_stabilizes() -> None:
-    counts = iter((21, 41, 61, 66, 66))
+    counts = iter((21, 41, 41, 61, 61, 61))
     scrolls: list[str] = []
 
     class Locator:
@@ -569,7 +730,90 @@ def test_infojobs_scroll_stops_when_card_count_stabilizes() -> None:
 
     fetching._scroll_infojobs_until_stable(Page())
 
-    assert len(scrolls) == 4
+    assert len(scrolls) == 5
+
+
+def test_gupy_readiness_action_tolerates_delayed_cards() -> None:
+    counts = iter((0, 0, 2))
+    waits: list[int] = []
+
+    class Locator:
+        def __init__(self, selector: str) -> None:
+            self.selector = selector
+
+        def count(self) -> int:
+            assert self.selector == "#job-listing-results li"
+            return next(counts)
+
+    class Page:
+        def locator(self, selector: str) -> Locator:
+            return Locator(selector)
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            waits.append(milliseconds)
+
+    fetching._wait_gupy_results(Page())
+
+    assert waits == [500, 500]
+
+
+def test_gupy_readiness_action_stops_after_four_seconds_without_results() -> None:
+    waits: list[int] = []
+
+    class Locator:
+        def count(self) -> int:
+            return 0
+
+    class Page:
+        def locator(self, selector: str) -> Locator:
+            assert selector == "#job-listing-results li"
+            return Locator()
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            waits.append(milliseconds)
+
+    fetching._wait_gupy_results(Page())
+
+    assert waits == [500] * 8
+
+
+def test_ciee_load_more_waits_for_delayed_card_growth() -> None:
+    counts = iter((6, 6, 12, 12, 18, 18, 18, 18, 18, 18, 18))
+    clicks: list[bool] = []
+    waits: list[int] = []
+
+    class CardLocator:
+        def count(self) -> int:
+            return next(counts)
+
+    class ButtonLocator:
+        @property
+        def last(self) -> "ButtonLocator":
+            return self
+
+        def count(self) -> int:
+            return 1
+
+        def is_visible(self) -> bool:
+            return True
+
+        def click(self, **kwargs: object) -> None:
+            clicks.append(bool(kwargs.get("force")))
+
+    class Page:
+        def locator(self, selector: str) -> CardLocator | ButtonLocator:
+            if selector == "a.vaga-row[href*='codigoVaga=']":
+                return CardLocator()
+            assert selector == ".btn-exibir-mais-vagas"
+            return ButtonLocator()
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            waits.append(milliseconds)
+
+    fetching._load_ciee_until_stable(Page())
+
+    assert clicks == [True, True, True]
+    assert waits == [500] * 8
 
 
 def test_robots_parser_is_cached_per_origin_but_evaluates_each_path(

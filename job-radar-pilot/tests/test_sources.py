@@ -203,6 +203,97 @@ def test_generic_can_join_descendant_text_and_capture_summary() -> None:
     assert parsed.records[0].description_summary == "APIs Spring Boot"
 
 
+def test_generic_declared_count_proves_single_page_exhausted() -> None:
+    url = "https://example.com/collection"
+    cards = "".join(
+        f'<article class="job"><a href="/jobs/{index}"><h2>Vaga {index}</h2></a></article>'
+        for index in range(4)
+    )
+    page = _html_page(
+        f'<p class="count">4 oportunidades nesta coleção</p>{cards}',
+        url,
+    )
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={
+            "card": "article.job",
+            "title": "h2",
+            "url": "a::attr(href)",
+            "declared_count": ".count::all-text",
+        },
+    )
+
+    parsed = GenericListAdapter().parse_page(page, config)
+
+    assert parsed.pagination_observable is True
+    assert len(parsed.records) == 4
+
+
+def test_generic_declared_count_keeps_incomplete_page_partial() -> None:
+    url = "https://example.com/collection"
+    page = _html_page(
+        '<p class="count">33 oportunidades</p><article class="job"><a href="/jobs/1"><h2>Vaga 1</h2></a></article>',
+        url,
+    )
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={
+            "card": "article.job",
+            "title": "h2",
+            "url": "a::attr(href)",
+            "declared_count": ".count::all-text",
+        },
+    )
+
+    parsed = GenericListAdapter().parse_page(page, config)
+
+    assert parsed.pagination_observable is False
+
+
+def test_gupy_exposes_numeric_next_page_url() -> None:
+    url = "https://portal.gupy.io/job-search/term%3Destagio%20tecnologia"
+    page = _html_page(
+        """
+        <div id="job-listing-results">
+          <li><a href="https://acme.gupy.io/job/TOKEN-1"><h3>Estágio Java</h3></a></li>
+        </div>
+        <button aria-current="page" aria-label="Página 1">1</button>
+        <button aria-label="Próxima página">Próxima</button>
+        """,
+        url,
+    )
+
+    parsed = GupyAdapter().parse_page(
+        page,
+        _config(SourceKind.GUPY, code="gupy", url=url),
+    )
+
+    assert parsed.next_url == f"{url}?page=2"
+    assert parsed.pagination_observable is True
+
+
+def test_gupy_disabled_next_button_proves_last_page() -> None:
+    url = "https://portal.gupy.io/job-search/term%3Destagio%20tecnologia?page=2"
+    page = _html_page(
+        """
+        <div id="job-listing-results">
+          <li><a href="https://acme.gupy.io/job/TOKEN-2"><h3>Estágio Backend</h3></a></li>
+        </div>
+        <button aria-current="page" aria-label="Página 2">2</button>
+        <button aria-label="Próxima página" disabled>Próxima</button>
+        """,
+        url,
+    )
+
+    parsed = GupyAdapter().parse_page(
+        page,
+        _config(SourceKind.GUPY, code="gupy", url=url),
+    )
+
+    assert parsed.next_url is None
+    assert parsed.pagination_observable is True
+
+
 def test_gupy_extracts_strong_identity() -> None:
     url = "https://portal.gupy.io/"
     result = GupyAdapter().collect(

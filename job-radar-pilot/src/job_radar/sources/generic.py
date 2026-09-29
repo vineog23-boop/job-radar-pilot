@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from job_radar.models import SourceConfig
 from job_radar.sources.base import (
     PaginatedAdapter,
@@ -31,9 +33,21 @@ class GenericListAdapter(PaginatedAdapter):
             )
         )
         next_url = absolute_url(page, extract_value(page, config.selectors.get("next")))
+        declared_text = extract_value(page, config.selectors.get("declared_count"))
+        declared_match = re.search(r"\d[\d.,\s]*", declared_text or "")
+        declared_count = (
+            int("".join(character for character in declared_match.group() if character.isdigit()))
+            if declared_match
+            else None
+        )
+        declared_complete = (
+            declared_count is not None and declared_count <= len(records)
+        )
         return ParsedPage(
             records,
             len(cards),
             next_url or None,
-            pagination_observable="next" in config.selectors,
+            pagination_observable=(
+                "next" in config.selectors or declared_complete
+            ),
         )

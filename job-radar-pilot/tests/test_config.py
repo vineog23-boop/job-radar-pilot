@@ -56,7 +56,9 @@ def test_priority_sources_target_real_result_surfaces_and_current_selectors() ->
     }
 
     assert "/job-search/term%3D" in sources["gupy"].start_url
+    assert sources["gupy"].max_pages == 3
     assert "?q=" in sources["indeed"].start_url
+    assert sources["indeed"].max_pages == 1
     assert len(sources["gupy"].queries) >= 5
     assert len(sources["indeed"].queries) >= 5
     assert sources["programathor"].selectors["next"]
@@ -76,6 +78,7 @@ def test_priority_sources_target_real_result_surfaces_and_current_selectors() ->
     assert sources["nube"].requires_auth is False
     assert sources["nube"].selectors["card"].startswith("a.flex.flex-col")
     assert sources["99jobs"].kind is SourceKind.GENERIC
+    assert sources["99jobs"].selectors["declared_count"].startswith("#opportunities")
     assert sources["cia-de-talentos"].selectors["card"] == ".block-opportunities"
     assert sources["infojobs"].kind is SourceKind.DYNAMIC
     assert sources["infojobs"].selectors["card"].startswith(".js_vacanciesGridFragment")

@@ -194,6 +194,94 @@ def test_pipeline_sweeps_supported_search_queries_and_combines_one_source_result
     assert len(result.source_results[0].records) == 2
 
 
+@pytest.mark.parametrize(
+    "stop_reason",
+    [
+        "LOGIN_REQUIRED",
+        "TWO_FACTOR",
+        "CAPTCHA",
+        "ACTIVITY_ALERT",
+        "RATE_LIMITED",
+        "ACCESS_DENIED",
+    ],
+)
+def test_indeed_query_sweep_stops_after_interactive_block(stop_reason: str) -> None:
+    source = replace(
+        _source("indeed"),
+        kind=SourceKind.INDEED,
+        start_url="https://br.indeed.com/jobs?q=java",
+        queries=("java", "spring", "backend"),
+    )
+    profile = replace(PROFILE, search_terms=("java", "spring", "backend"))
+    calls: list[str] = []
+
+    class BlockedAdapter:
+        def collect(self, config: SourceConfig, fetcher: object) -> SourceRunResult:
+            calls.append(config.start_url)
+            return SourceRunResult(
+                config.code,
+                CollectionStatus.BLOCKED,
+                stop_reason=stop_reason,
+                visited_urls=(config.start_url,),
+            )
+
+    result = JobRadarPipeline(
+        (source,),
+        profile,
+        fetcher=object(),
+        adapter_factory=lambda config: BlockedAdapter(),
+    ).run()
+
+    assert calls == ["https://br.indeed.com/jobs?q=java"]
+    assert result.source_results[0].stop_reason == stop_reason
+
+
+def test_indeed_block_mid_sweep_preserves_records_and_stays_partial() -> None:
+    source = replace(
+        _source("indeed"),
+        kind=SourceKind.INDEED,
+        start_url="https://br.indeed.com/jobs?q=java",
+        queries=("java", "spring", "backend"),
+    )
+    profile = replace(PROFILE, search_terms=("java", "spring", "backend"))
+    calls: list[str] = []
+
+    class MixedAdapter:
+        def collect(self, config: SourceConfig, fetcher: object) -> SourceRunResult:
+            calls.append(config.start_url)
+            if len(calls) == 1:
+                return SourceRunResult(
+                    config.code,
+                    CollectionStatus.SUCCESS,
+                    (_record(config.code, "https://ats.example.com/java-1"),),
+                    pages_observed=1,
+                    cards_observed=1,
+                    visited_urls=(config.start_url,),
+                )
+            return SourceRunResult(
+                config.code,
+                CollectionStatus.BLOCKED,
+                stop_reason="LOGIN_REQUIRED",
+                visited_urls=(config.start_url,),
+            )
+
+    result = JobRadarPipeline(
+        (source,),
+        profile,
+        fetcher=object(),
+        adapter_factory=lambda config: MixedAdapter(),
+    ).run()
+
+    source_result = result.source_results[0]
+    assert calls == [
+        "https://br.indeed.com/jobs?q=java",
+        "https://br.indeed.com/jobs?q=spring",
+    ]
+    assert source_result.status is CollectionStatus.PARTIAL
+    assert source_result.stop_reason == "QUERY_SWEEP_PARTIAL"
+    assert len(source_result.records) == 1
+
+
 def test_pipeline_prefers_editable_search_terms_for_supported_search_sources() -> None:
     sources = (
         replace(

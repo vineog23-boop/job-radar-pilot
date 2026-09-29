@@ -169,6 +169,15 @@ class JobRadarPipeline:
                         errors=(f"Falha interna no adaptador {source.code}",),
                     )
                 query_results.append(query_result)
+                if source.code == "indeed" and query_result.stop_reason in {
+                    "LOGIN_REQUIRED",
+                    "TWO_FACTOR",
+                    "CAPTCHA",
+                    "ACTIVITY_ALERT",
+                    "RATE_LIMITED",
+                    "ACCESS_DENIED",
+                }:
+                    break
             result = _combine_query_results(source, query_results)
             source_results.append(result)
             raw_records.extend(

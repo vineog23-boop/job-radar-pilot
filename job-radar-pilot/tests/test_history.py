@@ -45,3 +45,66 @@ def test_corrupted_history_is_treated_as_empty(tmp_path: Path) -> None:
     result = SeenHistory(path).annotate([_record("1")], NOW)
     assert NEW_LABEL not in result[0].match_labels
     assert '"seen"' in path.read_text(encoding="utf-8")
+
+
+def _result(code: str, count: int, status=None):
+    from job_radar.models import CollectionStatus, SourceRunResult
+
+    return SourceRunResult(
+        source_code=code,
+        status=status or CollectionStatus.SUCCESS,
+        records=tuple(_record(f"{code}-{index}") for index in range(count)),
+    )
+
+
+def test_source_drop_warning_needs_previous_runs(tmp_path: Path) -> None:
+    history = SeenHistory(tmp_path / "h.json")
+
+    warnings = history.check_source_counts([_result("gupy", 0)])
+
+    assert warnings == {}
+
+
+def test_source_drop_over_half_of_average_warns(tmp_path: Path) -> None:
+    history = SeenHistory(tmp_path / "h.json")
+    history.check_source_counts([_result("gupy", 100), _result("nube", 40)])
+    history.check_source_counts([_result("gupy", 80), _result("nube", 40)])
+
+    warnings = history.check_source_counts([_result("gupy", 30), _result("nube", 25)])
+
+    assert warnings == {"gupy": "SOURCE_COUNT_DROP:30<90"}
+
+
+def test_source_dropping_to_zero_warns(tmp_path: Path) -> None:
+    history = SeenHistory(tmp_path / "h.json")
+    history.check_source_counts([_result("nube", 4)])
+    history.check_source_counts([_result("nube", 5)])
+
+    warnings = history.check_source_counts([_result("nube", 0)])
+
+    assert warnings == {"nube": "SOURCE_COUNT_ZERO:0<4"}
+
+
+def test_failed_runs_do_not_pollute_average(tmp_path: Path) -> None:
+    from job_radar.models import CollectionStatus
+
+    history = SeenHistory(tmp_path / "h.json")
+    history.check_source_counts([_result("gupy", 100)])
+    history.check_source_counts([_result("gupy", 0, CollectionStatus.ERROR)])
+    history.check_source_counts([_result("gupy", 100)])
+
+    assert history.check_source_counts([_result("gupy", 90)]) == {}
+
+
+def test_source_counts_and_seen_entries_coexist(tmp_path: Path) -> None:
+    history = SeenHistory(tmp_path / "h.json")
+    history.annotate([_record("1")], NOW)
+    history.check_source_counts([_result("gupy", 10)])
+    history.check_source_counts([_result("gupy", 10)])
+
+    result = history.annotate([_record("1"), _record("2")], NOW)
+
+    assert [NEW_LABEL in r.match_labels for r in result] == [False, True]
+    assert history.check_source_counts([_result("gupy", 1)]) == {
+        "gupy": "SOURCE_COUNT_DROP:1<10"
+    }

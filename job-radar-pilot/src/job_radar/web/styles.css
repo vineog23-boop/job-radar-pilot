@@ -121,6 +121,7 @@ tbody tr:hover { background: rgba(255,255,255,.025); }
 .source-row { background: #0d1119; border: 1px solid var(--line); border-radius: 11px; padding: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .source-row strong { font-size: 11px; }
 .source-row small { display: block; color: var(--muted); margin-top: 4px; font-size: 9px; }
+.source-row small.source-warning { color: var(--yellow); }
 .status-pill.success { color: var(--green); background: rgba(79,214,156,.1); }
 .status-pill.partial, .status-pill.empty { color: var(--yellow); background: rgba(244,201,93,.1); }
 .status-pill.error, .status-pill.blocked { color: var(--red); background: rgba(251,113,133,.1); }

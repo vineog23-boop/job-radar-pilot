@@ -187,6 +187,10 @@ def _collect(args: argparse.Namespace) -> int:
             enrich_limit=args.enrich_limit,
         )
         result = pipeline.run(args.sources)
+    for item in result.source_results:
+        for warning in item.warnings:
+            if warning.startswith("SOURCE_COUNT_"):
+                print(f"WARNING {item.source_code}: {warning}", flush=True)
     manifest = write_outputs(result, args.output.resolve())
     print(f"JSONL: {manifest.jsonl_path}")
     print(f"CSV: {manifest.csv_path}")

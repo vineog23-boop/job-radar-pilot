@@ -11,10 +11,20 @@ import tempfile
 from typing import Iterable
 
 from job_radar.identity import identity_key
-from job_radar.models import VacancyRecord
+from job_radar.models import CollectionStatus, SourceRunResult, VacancyRecord
 
 NEW_LABEL = "STATUS:NEW"
 _MAX_ENTRIES = 200_000
+# Contagens por fonte: guarda as últimas coletas válidas e exige um mínimo antes
+# de comparar, para uma única coleta atípica não virar referência.
+_MAX_COUNTS_PER_SOURCE = 10
+_MIN_PREVIOUS_COUNTS = 2
+_DROP_RATIO = 0.5
+_COUNTABLE_STATUSES = {
+    CollectionStatus.SUCCESS,
+    CollectionStatus.PARTIAL,
+    CollectionStatus.EMPTY,
+}
 
 
 def history_path() -> Path:
@@ -29,12 +39,15 @@ class SeenHistory:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or history_path()
 
-    def _load(self) -> dict[str, str]:
+    def _read_document(self) -> dict[str, object]:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
-        seen = data.get("seen") if isinstance(data, dict) else None
+        return data if isinstance(data, dict) else {}
+
+    def _load(self) -> dict[str, str]:
+        seen = self._read_document().get("seen")
         if not isinstance(seen, dict):
             return {}
         return {
@@ -43,23 +56,71 @@ class SeenHistory:
             if isinstance(key, str) and isinstance(value, str)
         }
 
-    def _save(self, seen: dict[str, str]) -> None:
+    def _load_source_counts(self) -> dict[str, list[int]]:
+        counts = self._read_document().get("source_counts")
+        if not isinstance(counts, dict):
+            return {}
+        return {
+            str(code): [value for value in values if isinstance(value, int) and value >= 0]
+            for code, values in counts.items()
+            if isinstance(values, list)
+        }
+
+    def _save(
+        self,
+        seen: dict[str, str] | None = None,
+        source_counts: dict[str, list[int]] | None = None,
+    ) -> None:
+        if seen is None:
+            seen = self._load()
+        if source_counts is None:
+            source_counts = self._load_source_counts()
         if len(seen) > _MAX_ENTRIES:
             ordered = sorted(seen.items(), key=lambda item: item[1])
             seen = dict(ordered[-_MAX_ENTRIES:])
+        self._write({"version": 1, "seen": seen, "source_counts": source_counts})
+
+    def _write(self, document: dict[str, object]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         handle, temp_name = tempfile.mkstemp(
             dir=self._path.parent, prefix="history-", suffix=".tmp"
         )
         try:
             with os.fdopen(handle, "w", encoding="utf-8") as stream:
-                json.dump({"version": 1, "seen": seen}, stream, ensure_ascii=False)
+                json.dump(document, stream, ensure_ascii=False)
             os.replace(temp_name, self._path)
         except OSError:
             try:
                 os.unlink(temp_name)
             except OSError:
                 pass
+
+    def check_source_counts(
+        self, results: Iterable[SourceRunResult]
+    ) -> dict[str, str]:
+        """Compara a contagem de cada fonte com a média das coletas anteriores.
+
+        Avisa quando a fonte cai mais de 50% ou zera; depois registra a
+        contagem atual (somente de coletas que terminaram sem erro/bloqueio).
+        """
+
+        counts = self._load_source_counts()
+        warnings: dict[str, str] = {}
+        for result in results:
+            current = len(result.records)
+            previous = counts.get(result.source_code, [])
+            if len(previous) >= _MIN_PREVIOUS_COUNTS:
+                average = sum(previous) / len(previous)
+                if average > 0 and current == 0:
+                    warnings[result.source_code] = f"SOURCE_COUNT_ZERO:0<{average:.0f}"
+                elif current < average * _DROP_RATIO:
+                    warnings[result.source_code] = (
+                        f"SOURCE_COUNT_DROP:{current}<{average:.0f}"
+                    )
+            if result.status in _COUNTABLE_STATUSES:
+                counts[result.source_code] = [*previous, current][-_MAX_COUNTS_PER_SOURCE:]
+        self._save(source_counts=counts)
+        return warnings
 
     @staticmethod
     def _key(record: VacancyRecord) -> str:
@@ -98,5 +159,5 @@ class SeenHistory:
                     )
                 )
         if items:
-            self._save(seen)
+            self._save(seen=seen)
         return tuple(result)

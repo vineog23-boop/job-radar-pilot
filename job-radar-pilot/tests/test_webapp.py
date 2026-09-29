@@ -1067,3 +1067,54 @@ def test_dashboard_browser_reveals_source_details_on_request(tmp_path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_dashboard_browser_shows_source_count_warnings(tmp_path) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from job_radar.webapp import SearchController, create_server
+
+    output = tmp_path / "output"
+    output.mkdir()
+    (output / "relatorio-execucao.json").write_text(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "source": "nube",
+                        "status": "SUCCESS",
+                        "records": 0,
+                        "warnings": ["SOURCE_COUNT_ZERO:0<900"],
+                    },
+                    {"source": "gupy", "status": "SUCCESS", "records": 50, "warnings": []},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    static_dir = Path(__file__).resolve().parents[1] / "src" / "job_radar" / "web"
+    server = create_server(
+        "127.0.0.1",
+        0,
+        SearchController(output, runner=lambda *_: 0),
+        static_dir,
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.get_by_role("button", name="Ver detalhes").click()
+            nube = page.locator(".source-row").filter(has_text="nube")
+            nube.locator(".source-warning").wait_for()
+            assert "zerou" in nube.inner_text()
+            gupy = page.locator(".source-row").filter(has_text="gupy")
+            assert gupy.locator(".source-warning").count() == 0
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

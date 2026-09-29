@@ -249,9 +249,19 @@ function statusLabel(status) {
   }[status] || status || "Pendente";
 }
 
+function countWarningText(warning) {
+  const match = /^SOURCE_COUNT_(DROP|ZERO):(\d+)<(\d+)$/.exec(String(warning));
+  if (!match) return "";
+  const [, kind, current, average] = match;
+  return kind === "ZERO"
+    ? `Coleta zerou (média anterior: ${average}); o portal pode ter mudado.`
+    : `Queda para ${current} vagas (média anterior: ${average}); confira o portal.`;
+}
+
 function renderSources() {
   const liveSources = Object.values(dashboardState.sources ?? {});
-  const sources = liveSources.length ? liveSources : (dashboardState.report?.sources ?? []);
+  const reportSources = dashboardState.report?.sources ?? [];
+  const sources = liveSources.length ? liveSources : reportSources;
   elements.sourceStatuses.replaceChildren();
   sources.forEach((source) => {
     const row = document.createElement("article");
@@ -265,6 +275,11 @@ function renderSources() {
         `${source.records ?? 0} registros · ${source.stop_reason || "concluído"}`
       )
     );
+    const reported = reportSources.find((item) => item.source === source.source);
+    (source.warnings ?? reported?.warnings ?? [])
+      .map(countWarningText)
+      .filter(Boolean)
+      .forEach((text) => copy.appendChild(textElement("small", "source-warning", text)));
     row.append(
       copy,
       textElement(

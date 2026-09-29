@@ -188,3 +188,34 @@ def test_rejects_pure_suggestion_when_similar_group_has_editorial_outlier() -> N
     )
 
     assert _suggest_api()(page, "Java Junior") is None
+
+
+def test_rejects_title_text_and_independent_cta_from_same_card() -> None:
+    page = Adaptor(
+        """
+        <ul class="jobs">
+          <li class="vaga x1"><span class="match">Java Junior</span><h3>Engenheiro de software</h3><a class="cta" href="/1">Ver vaga</a></li>
+          <li class="vaga x2"><span class="match">Estagio Java</span><h3>Desenvolvedor backend</h3><a class="cta" href="/2">Ver vaga</a></li>
+          <li class="vaga x3"><span class="match">Backend Junior</span><h3>Analista de sistemas</h3><a class="cta" href="/3">Ver vaga</a></li>
+        </ul>
+        """,
+        url="https://jobs.example.com/vagas",
+    )
+
+    assert _suggest_api()(page, "Java Junior") is None
+
+
+def test_rejects_mixed_job_and_editorial_cards_with_distinct_modifiers() -> None:
+    page = Adaptor(
+        """
+        <ul class="jobs">
+          <li class="vaga x1"><a href="/1"><h3>Java Junior</h3></a></li>
+          <li class="vaga x2"><a href="/2"><h3>Estagio Java</h3></a></li>
+          <li class="vaga x3"><a href="/3"><h3>Backend Junior</h3></a></li>
+          <li class="vaga promo"><a href="/guia"><h3>Guia de carreira</h3></a></li>
+        </ul>
+        """,
+        url="https://jobs.example.com/vagas",
+    )
+
+    assert _suggest_api()(page, "Java Junior") is None

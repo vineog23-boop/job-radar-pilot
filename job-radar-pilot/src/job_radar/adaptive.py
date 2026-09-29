@@ -9,6 +9,7 @@ import re
 import sqlite3
 from threading import RLock
 from typing import Any, Callable, Iterable
+import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
 from scrapling.parser import Adaptor
@@ -38,6 +39,15 @@ _HTML_TAGS = frozenset(
     "tfoot th thead time title tr track u ul var video wbr".split()
 )
 _UNKNOWN_TAG = "unknown"
+_UNSAFE_CARD_CLASS = re.compile(
+    r"(?:^|[-_])(?:closed|editorial|encerrad[ao]|event|evento|expired|promo(?:ted)?|sponsored)(?:$|[-_])",
+    re.IGNORECASE,
+)
+_UNSAFE_CARD_TITLE = re.compile(
+    r"^(?:conteudo editorial|evento(?: de tecnologia| tech)?|guia de carreira|publicidade)\b"
+    r"|\b(?:encerrad[ao]|expirad[ao])\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +288,47 @@ def _has_card_contract(node: object) -> bool:
     except (AttributeError, TypeError, ValueError):
         return False
     return has_title and has_link
+
+
+def adaptive_card_is_safe(node: object) -> bool:
+    current = _element(node)
+    for _ in range(5):
+        if current is None:
+            break
+        classes = str(getattr(current, "attrib", {}).get("class", "")).split()
+        if any(
+            class_name == "opacity-60p"
+            or _UNSAFE_CARD_CLASS.search(class_name) is not None
+            for class_name in classes
+        ):
+            return False
+        current = current.getparent()
+
+    try:
+        headings = tuple(node.css("h1, h2, h3, h4"))  # type: ignore[attr-defined]
+    except (AttributeError, TypeError, ValueError):
+        return False
+    if str(getattr(_element(node), "tag", "")).casefold() in {
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+    }:
+        headings = (node, *headings)
+    for heading in headings:
+        try:
+            raw_title = " ".join(heading.css("::text").getall())  # type: ignore[attr-defined]
+        except (AttributeError, TypeError, ValueError):
+            return False
+        normalized = "".join(
+            character
+            for character in unicodedata.normalize("NFKD", raw_title)
+            if not unicodedata.combining(character)
+        )
+        normalized = " ".join(normalized.split()).casefold()
+        if _UNSAFE_CARD_TITLE.search(normalized) is not None:
+            return False
+    return True
 
 
 def structurally_similar_nodes(

@@ -502,6 +502,33 @@ def test_generic_adapter_rejects_expired_relocated_seed_before_expansion() -> No
     assert parsed.records == ()
 
 
+def test_generic_collect_rejects_relocated_editorial_seed_and_similar_event() -> None:
+    page = Adaptor(
+        """
+        <main>
+          <section class="content-list">
+            <article class="card editorial"><h2><a href="/guia">Guia de carreira</a></h2></article>
+            <article class="card event"><h2><a href="/evento">Evento tech</a></h2></article>
+          </section>
+        </main>
+        """,
+        url=URL,
+    )
+
+    class EditorialSeedLocator:
+        def relocate(self, page: object, source_code: str, selector: str):
+            return (page.css("article.editorial")[0],)
+
+    result = GenericListAdapter(  # type: ignore[arg-type]
+        locator=EditorialSeedLocator()
+    ).collect(_config(), _Fetcher(page))
+
+    assert result.status is CollectionStatus.ERROR
+    assert result.stop_reason == "LAYOUT_CHANGED"
+    assert result.cards_observed == 0
+    assert result.records == ()
+
+
 def test_generic_adapter_remembers_only_valid_page_and_recovers_safe_records(
     tmp_path: Path,
 ) -> None:

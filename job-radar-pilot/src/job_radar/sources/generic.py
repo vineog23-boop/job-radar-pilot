@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from job_radar.adaptive import adaptive_card_is_safe
 from job_radar.models import SourceConfig
 from job_radar.sources.base import (
     PaginatedAdapter,
@@ -18,7 +19,10 @@ class GenericListAdapter(PaginatedAdapter):
         card_selector = config.selectors["card"]
 
         def record_for(card: object, card_method: str):
-            if card_method == "ADAPTIVE" and _is_excluded_card(config, card):
+            if card_method == "ADAPTIVE" and (
+                _is_excluded_card(config, card)
+                or not adaptive_card_is_safe(card)
+            ):
                 return None
             return make_record_with_fallback(
                 card_method=card_method,

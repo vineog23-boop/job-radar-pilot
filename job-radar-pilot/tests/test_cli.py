@@ -265,10 +265,16 @@ def test_suggest_selectors_rejects_unconfigured_raw_origin_before_fetch(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    resolver_calls: list[str] = []
+
+    def resolve(hostname: str) -> tuple[str, ...]:
+        resolver_calls.append(hostname)
+        return ("8.8.8.8",)
+
     monkeypatch.setattr(
         cli,
         "_resolved_addresses",
-        lambda hostname: ("8.8.8.8",),
+        resolve,
         raising=False,
     )
     monkeypatch.setattr(
@@ -288,6 +294,7 @@ def test_suggest_selectors_rejects_unconfigured_raw_origin_before_fetch(
 
     assert exit_code == 2
     assert "configurada" in capsys.readouterr().err.casefold()
+    assert resolver_calls == []
 
 
 def test_suggest_selectors_rejects_cross_origin_response(

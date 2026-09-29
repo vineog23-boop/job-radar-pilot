@@ -227,7 +227,7 @@ def _is_global_address(value: str) -> bool:
     )
 
 
-def _validate_raw_target(value: str) -> str:
+def _validate_raw_target_syntax(value: str) -> str:
     try:
         parsed = urlsplit(value)
         _ = parsed.port
@@ -247,13 +247,24 @@ def _validate_raw_target(value: str) -> str:
     if literal is not None:
         if not _is_global_address(str(literal)):
             raise ValueError("Endereco nao global nao e permitido")
-    else:
+    return hostname
+
+
+def _validate_raw_target_resolution(hostname: str) -> None:
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
         try:
             addresses = _resolved_addresses(hostname)
         except OSError as exc:
             raise ValueError("Nao foi possivel resolver o host") from exc
         if not addresses or any(not _is_global_address(item) for item in addresses):
             raise ValueError("DNS resolveu endereco nao global")
+
+
+def _validate_raw_target(value: str) -> str:
+    hostname = _validate_raw_target_syntax(value)
+    _validate_raw_target_resolution(hostname)
     return value
 
 
@@ -269,7 +280,8 @@ def _suggest_target(
         source = replace(configured, adaptive=False)
         return str(getattr(source, "start_url")), source, False
 
-    raw_url = _validate_raw_target(target)
+    hostname = _validate_raw_target_syntax(target)
+    raw_url = target
     raw_origin = _origin(raw_url)
     configured = next(
         (
@@ -288,6 +300,7 @@ def _suggest_target(
         raise ValueError(
             "URL crua nao e permitida para fonte com transporte de navegador"
         )
+    _validate_raw_target_resolution(hostname)
     source = replace(configured, start_url=raw_url, adaptive=False)
     return raw_url, source, True
 

@@ -5,6 +5,7 @@ from job_radar.adaptive import (
     _classes,
     _deduplicate_nodes,
     _structural_identity,
+    adaptive_card_is_safe,
     structurally_similar_nodes,
 )
 
@@ -65,22 +66,58 @@ def _card_group(anchor: object) -> tuple[object, tuple[object, ...]] | None:
             require_card_contract=True,
         )
         if len(similar) >= 2:
+            cards = _deduplicate_nodes((current, *similar))
+            if any(not adaptive_card_is_safe(card) for card in cards):
+                return None
             return current, similar
         current = getattr(current, "parent", None)
     return None
 
 
-def _selector_matches_text(card: object, selector: str) -> bool:
+def _title_nodes(card: object, selector: str) -> tuple[object, ...]:
     element_selector = selector.removesuffix("::all-text")
-    matches = card.css(element_selector)  # type: ignore[attr-defined]
-    return sum(bool(_normalized(_all_text(match))) for match in matches) == 1
+    return tuple(card.css(element_selector))  # type: ignore[attr-defined]
+
+
+def _url_nodes(card: object, selector: str) -> tuple[object, ...]:
+    if selector == "::attr(href)":
+        return (card,)
+    element_selector = selector.removesuffix("::attr(href)")
+    return tuple(card.css(element_selector))  # type: ignore[attr-defined]
+
+
+def _selector_matches_text(card: object, selector: str) -> bool:
+    matches = _title_nodes(card, selector)
+    return len(matches) == 1 and bool(_normalized(_all_text(matches[0])))
 
 
 def _selector_matches_url(card: object, selector: str) -> bool:
-    if selector == "::attr(href)":
-        return bool(str(getattr(card, "attrib", {}).get("href", "")).strip())
-    values = card.css(selector).getall()  # type: ignore[attr-defined]
-    return sum(bool(str(value).strip()) for value in values) == 1
+    matches = _url_nodes(card, selector)
+    return len(matches) == 1 and bool(
+        str(getattr(matches[0], "attrib", {}).get("href", "")).strip()
+    )
+
+
+def _contains(ancestor: object, descendant: object) -> bool:
+    ancestor_identity = _structural_identity(ancestor)
+    current = getattr(descendant, "_root", descendant)
+    while current is not None:
+        if _structural_identity(current) == ancestor_identity:
+            return True
+        current = current.getparent()
+    return False
+
+
+def _selectors_form_linked_record(
+    card: object,
+    title_selector: str,
+    url_selector: str,
+) -> bool:
+    titles = _title_nodes(card, title_selector)
+    links = _url_nodes(card, url_selector)
+    if len(titles) != 1 or len(links) != 1:
+        return False
+    return _contains(links[0], titles[0]) or _contains(titles[0], links[0])
 
 
 def _title_selector(anchor: object, cards: tuple[object, ...]) -> str | None:
@@ -95,12 +132,14 @@ def _title_selector(anchor: object, cards: tuple[object, ...]) -> str | None:
             selector
             for selector in candidates
             if all(_selector_matches_text(card, selector) for card in cards)
+            if _structural_identity(_title_nodes(cards[0], selector)[0])
+            == _structural_identity(anchor)
         ),
         None,
     )
 
 
-def _url_selector(cards: tuple[object, ...]) -> str | None:
+def _url_selector(cards: tuple[object, ...], title: str) -> str | None:
     first_tag = str(getattr(cards[0], "tag", "")).casefold()
     candidates = (
         ("::attr(href)", "a::attr(href)")
@@ -112,6 +151,10 @@ def _url_selector(cards: tuple[object, ...]) -> str | None:
             selector
             for selector in candidates
             if all(_selector_matches_url(card, selector) for card in cards)
+            and all(
+                _selectors_form_linked_record(card, title, selector)
+                for card in cards
+            )
         ),
         None,
     )
@@ -222,9 +265,11 @@ def suggest_from_page(page: object, text: str) -> SelectorSuggestion | None:
     if _has_mixed_class_modifiers(cards):
         return None
     title = _title_selector(anchor, cards)
-    url = _url_selector(cards)
+    if title is None:
+        return None
+    url = _url_selector(cards, title)
     card = _card_selector(page, cards)
-    if card is None or title is None or url is None:
+    if card is None or url is None:
         return None
     title_matches = sum(_selector_matches_text(card, title) for card in cards)
     url_matches = sum(_selector_matches_url(card, url) for card in cards)

@@ -835,3 +835,113 @@ def test_classify_matches_full_state_scope_to_full_state_location() -> None:
 
     assert "LOCATION_MATCH:santa-catarina" in classified.match_labels
     assert "FIT:READY" in classified.match_labels
+
+
+ENTRY_PROFILE = SearchProfile(
+    positive_keywords=("java", "backend"),
+    seniority_levels=("estagio", "junior"),
+    location_scopes=("remoto-brasil", "sao-carlos-sp"),
+    excluded_terms=("pleno", "senior"),
+)
+
+
+def _labels(**overrides: object) -> tuple[str, ...]:
+    base: dict[str, object] = {
+        "title": "Desenvolvedor Java Júnior",
+        "description_summary": None,
+        "location": None,
+        "workplace_model": WorkplaceModel.UNKNOWN,
+        "evidence_snippets": (),
+    }
+    base.update(overrides)
+    return classify(_record(**base), ENTRY_PROFILE, default_country="BR").match_labels
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "Vaga 100% remota para todo o Brasil",
+        "Vaga 100% remoto",
+        "Atuação em home office",
+        "Trabalho remoto",
+        "Modalidade: remoto (Brasil)",
+    ],
+)
+def test_remote_text_overrides_headquarters_city_in_location(summary: str) -> None:
+    labels = _labels(location="Curitiba, PR", description_summary=summary)
+
+    assert "LOCATION_MATCH:remote_brazil" in labels
+    assert "LOCATION_MISMATCH:outside_scope" not in labels
+    assert "FIT:EXCLUDE" not in labels
+
+
+def test_onsite_vacancy_in_other_city_is_still_excluded() -> None:
+    labels = _labels(location="Lajeado, RS", description_summary="Vaga presencial - Lajeado/RS")
+
+    assert "LOCATION_MISMATCH:outside_scope" in labels
+    assert "FIT:EXCLUDE" in labels
+
+
+def test_remote_abroad_is_not_remote_brazil() -> None:
+    labels = _labels(location="Curitiba, PR", description_summary="Remoto EUA/Canadá")
+
+    assert "LOCATION_MATCH:remote_brazil" not in labels
+    assert "LOCATION_UNCLEAR:remote_scope" in labels
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Desenvolvedor Java I",
+        "Desenvolvedor Java - Nível 1",
+        "Java Developer Entry Level",
+        "Desenvolvedor Java Jr.",
+        "Desenvolvedor Java Iniciante",
+        "Programa Trainee Java",
+        "Jovem Aprendiz Java",
+    ],
+)
+def test_entry_level_synonyms_are_recognized(title: str) -> None:
+    labels = _labels(title=title, location="São Carlos, SP")
+
+    assert any(label.startswith("SENIORITY_MATCH:") for label in labels)
+    assert "FIT:EXCLUDE" not in labels
+
+
+@pytest.mark.parametrize(
+    "title", ["Desenvolvedor Java Júnior/Pleno", "Desenvolvedor Java Jr/Pl", "Java Junior ou Pleno"]
+)
+def test_junior_pleno_range_is_conditional_not_excluded(title: str) -> None:
+    labels = _labels(title=title, location="São Carlos, SP")
+
+    assert "SENIORITY_MATCH:junior" in labels
+    assert not any(label.startswith("SENIORITY_MISMATCH:") for label in labels)
+    assert "FIT:CONDITIONAL" in labels
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Desenvolvedor Java Pleno",
+        "Desenvolvedor Java Sênior",
+        "Analista Java II",
+        "Engenheiro Java I/O Senior",
+        "PL/SQL Developer Pleno",
+    ],
+)
+def test_non_entry_titles_do_not_become_junior(title: str) -> None:
+    labels = _labels(title=title, location="São Carlos, SP")
+
+    assert not any(label.startswith("SENIORITY_MATCH:") for label in labels)
+
+
+@pytest.mark.parametrize("title", ["Desenvolvedor Java Pleno", "Desenvolvedor Java Sênior"])
+def test_pleno_and_senior_alone_stay_excluded(title: str) -> None:
+    assert "FIT:EXCLUDE" in _labels(title=title, location="São Carlos, SP")
+
+
+def test_pl_sql_is_not_treated_as_pleno_in_junior_title() -> None:
+    labels = _labels(title="Desenvolvedor PL/SQL Júnior", location="São Carlos, SP")
+
+    assert "SENIORITY_MATCH:junior" in labels
+    assert not any(label.startswith("SENIORITY_MISMATCH:") for label in labels)

@@ -15,11 +15,17 @@ Para abrir a interface local no navegador, execute na raiz da pasta:
 O painel abre em `http://127.0.0.1:8765`, mostra os resultados existentes e
 permite:
 
-- configurar termos de busca, estágio/júnior, remoto/híbrido/presencial e
-  cidades, estados ou Brasil;
+- configurar termos de busca, estágio/júnior, remoto/híbrido/presencial,
+  cidades, estados ou Brasil, **stacks** (pesam na aderência) e **termos de
+  exclusão** (ex.: pleno, sênior, tech lead);
 - salvar essas preferências somente neste computador;
 - iniciar uma nova busca pelo botão **Buscar vagas agora**;
-- baixar as vagas em um relatório Markdown, separado por aderência.
+- filtrar por texto, portal e aderência, e ordenar por aderência ou por data de
+  publicação;
+- marcar cada vaga como **Salva**, **Aplicada** ou **Descartada** (descartadas
+  somem da lista por padrão);
+- baixar as vagas visíveis em relatório Markdown ou em **CSV** (`;` e UTF-8 com
+  BOM, abre direto no Excel).
 
 Salvar a configuração não inicia uma busca automaticamente. O servidor aceita
 conexões somente deste computador; pressione `Ctrl+C` no terminal para encerrar.
@@ -49,6 +55,15 @@ Na CLI, a opção equivalente é `collect --workers 3`. A interface local també
 aceita `--workers 3` ao iniciar o módulo `job_radar.webapp`. Os resultados são
 sempre restaurados à ordem das fontes configuradas antes da classificação e da
 deduplicação.
+
+## Acompanhamento e exportação
+
+O estado de cada vaga (salva, aplicada, descartada e uma nota curta) fica em
+`%LOCALAPPDATA%\JobRadar\tracking.json`, fora do repositório e do funil
+canônico; a chave é a URL da vaga. **Exportar CSV** e **Baixar relatório**
+respeitam exatamente os filtros ativos, inclusive o de acompanhamento. O CSV
+traz aderência, acompanhamento, cargo, empresa, local, modalidade,
+senioridade, tecnologias, data de publicação, fonte, URL e nota.
 
 ## Limites de segurança
 
@@ -207,6 +222,49 @@ Quero Vagas Tech, VagasPraJr e EmpregosTech (domínio não resolve).
 - Agendamento diário no Windows (Agendador de Tarefas):
   `schtasks /Create /SC DAILY /ST 08:00 /TN "JobRadar" /TR "powershell -NoProfile -File \"<pasta>\buscar-vagas.ps1\" -Workers 3"`
 
+## Qualidade dos dados e avisos
+
+- **Classificação:** texto que indica remoto no Brasil ("100% remota", "home
+  office") prevalece sobre a cidade-sede do campo local; remoto no exterior
+  (EUA, Canadá, Europa) não conta como Brasil. Júnior também reconhece `jr`,
+  `nível 1`, `entry level`, `iniciante` e algarismo romano `I` ("Java I");
+  estágio reconhece `trainee` e `aprendiz`. Faixas "Júnior/Pleno" e "Jr/Pl"
+  ficam `CONDITIONAL` com `SENIORITY_UNCLEAR:range`.
+- **Campos preenchidos com evidência:** `workplace_model` quando o texto indica
+  uma única modalidade (`WORKPLACE_INFERRED:*`), `seniority` e `technologies`
+  a partir do que o classificador detectou. Nada é inventado.
+- **Data de publicação:** a fonte pode declarar o seletor opcional
+  `published` (ex.: `"time::attr(datetime)"`). São aceitos ISO 8601,
+  `dd/mm/aaaa` e datas relativas ("há 3 dias", "ontem", "3 days ago");
+  sem evidência, `published_at` fica `null`.
+- **Títulos:** o selo "Nova"/"Novo" e sufixos depois de `|` são removidos,
+  exceto quando o sufixo informa senioridade ("Java | Júnior").
+- **Duplicatas entre portais:** a mesma vaga (cargo, empresa e local iguais,
+  após normalização) vista em portais diferentes vira um registro só; fica a
+  versão do Gupy/ATS quando existir e as demais fontes aparecem em
+  `ALSO_SEEN_IN:<fonte>` ("também em …" no painel).
+- **Portal quebrado:** o histórico guarda as últimas 10 contagens por fonte.
+  Com ao menos duas coletas anteriores, uma queda de mais de 50% gera
+  `SOURCE_COUNT_DROP:atual<média` e uma coleta zerada gera
+  `SOURCE_COUNT_ZERO`; o aviso vai para `warnings` do relatório, para o
+  terminal e para os detalhes dos portais no painel. Coletas com erro ou
+  bloqueio não entram na média.
+
+## Opções de `config/sources.yaml`
+
+| Chave | Efeito |
+| --- | --- |
+| `selectors.card/title/url` | Obrigatórios em fontes `generic`. |
+| `selectors.company/location/summary/id` | Opcionais; ausência vira `null`. |
+| `selectors.published` | Opcional; data de publicação (ver acima). |
+| `selectors.next` | Link da próxima página. |
+| `single_page` | Portal verificado sem página 2. |
+| `browser.scroll_to_load` | Rola até a quantidade de cards estabilizar. |
+| `browser.disable_resources`, `browser.blocked_domains` | Bloqueios opcionais por fonte. |
+| `query_path` / `query_param` | Habilita a varredura de termos de busca. |
+| `default_country` | País assumido para vagas remotas sem país explícito. |
+| `adaptive` | Liga/desliga o fallback adaptativo (padrão `true`). |
+
 ## Fallback adaptativo de cards
 
 Cada fonte aceita `adaptive: true|false` em `config/sources.yaml`; a ausência da
@@ -297,6 +355,13 @@ Definir o `PYTHONPATH` dessa forma garante que os testes usem o código deste
 workspace, mesmo quando a instalação editável da `.venv` ainda aponta para
 outro checkout. Os launchers `run-job-radar.ps1` e `abrir-interface.ps1` fazem
 essa priorização automaticamente.
+
+No Linux/macOS: `PYTHONPATH=job-radar-pilot/src python -m pytest job-radar-pilot/tests -q`.
+O GitHub Actions (`.github/workflows/tests.yml`) roda a suíte completa a cada
+push com Python 3.13, Scrapling `v0.4.15` e Chromium do Playwright.
+
+Pastas `job-radar-pilot/.tmp-*` e `debug.log` são descartáveis (ignoradas pelo
+Git) e podem ser apagadas a qualquer momento.
 
 Os testes de extratores usam fixtures locais sanitizadas. Apenas o smoke test
 explicitamente executado acessa uma fonte pública.

@@ -235,20 +235,59 @@ class JobRadarPipeline:
             errors=("Falha interna no worker",),
         )
 
+    @staticmethod
+    def _with_worker_error(result: SourceRunResult) -> SourceRunResult:
+        return replace(
+            result,
+            status=(
+                CollectionStatus.PARTIAL
+                if result.records
+                else CollectionStatus.ERROR
+            ),
+            stop_reason="WORKER_ERROR",
+            errors=(*result.errors, "Falha interna no worker"),
+        )
+
+    @staticmethod
+    def _claim_fetcher(
+        fetcher: FetchPolicy,
+        claimed_fetchers: list[FetchPolicy],
+        claim_lock: Lock,
+    ) -> bool:
+        with claim_lock:
+            if any(existing is fetcher for existing in claimed_fetchers):
+                return False
+            claimed_fetchers.append(fetcher)
+            return True
+
     def _collect_batch(
         self,
         sources: Sequence[SourceConfig],
         adaptive_locator: AdaptiveCardLocator,
+        claimed_fetchers: list[FetchPolicy] | None = None,
+        claim_lock: Lock | None = None,
     ) -> tuple[SourceRunResult, ...]:
         results: list[SourceRunResult] = []
         try:
             factory = self._fetcher_factory or FetchPolicy
-            with factory() as fetcher:
+            fetcher_candidate = factory()
+            if (
+                claimed_fetchers is not None
+                and claim_lock is not None
+                and not self._claim_fetcher(
+                    fetcher_candidate,
+                    claimed_fetchers,
+                    claim_lock,
+                )
+            ):
+                raise RuntimeError("fetcher reutilizado entre workers")
+            with fetcher_candidate as fetcher:
                 for source in sources:
                     results.append(
                         self._collect_source(source, fetcher, adaptive_locator)
                     )
         except Exception:
+            results = [self._with_worker_error(result) for result in results]
             completed_codes = {result.source_code for result in results}
             results.extend(
                 self._worker_error(source)
@@ -305,16 +344,33 @@ class JobRadarPipeline:
             source_results = list(self._collect_batch(selected, adaptive_locator))
         else:
             batches = self._parallel_batches(selected, self._workers)
+            claimed_fetchers: list[FetchPolicy] = []
+            claim_lock = Lock()
             with ThreadPoolExecutor(
                 max_workers=len(batches),
                 thread_name_prefix="job-radar-source",
             ) as executor:
-                futures = [
-                    executor.submit(self._collect_batch, batch, adaptive_locator)
+                futures = {
+                    executor.submit(
+                        self._collect_batch,
+                        batch,
+                        adaptive_locator,
+                        claimed_fetchers,
+                        claim_lock,
+                    ): batch
                     for batch in batches
-                ]
+                }
                 for future in as_completed(futures):
-                    unordered_results.extend(future.result())
+                    batch = futures[future]
+                    try:
+                        batch_results = future.result()
+                    except Exception:
+                        batch_results = tuple(
+                            self._worker_error(source) for source in batch
+                        )
+                        for result in batch_results:
+                            self._notify_source_done(result)
+                    unordered_results.extend(batch_results)
             by_code = {result.source_code: result for result in unordered_results}
             source_results = [by_code[source.code] for source in selected]
 

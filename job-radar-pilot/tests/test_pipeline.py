@@ -769,6 +769,137 @@ def test_worker_initialization_failure_becomes_ordered_source_result() -> None:
     assert all(item.errors == ("Falha interna no worker",) for item in failed)
 
 
+def test_parallel_factory_cannot_reuse_the_same_fetcher_instance() -> None:
+    sources = (_source("one"), _source("two"))
+    shared_fetcher = _NoopContext()
+
+    result = JobRadarPipeline(
+        sources,
+        PROFILE,
+        fetcher_factory=lambda: shared_fetcher,
+        workers=2,
+        adapter_factory=lambda config: StaticAdapter(
+            SourceRunResult(config.code, CollectionStatus.EMPTY)
+        ),
+    ).run()
+
+    assert [item.source_code for item in result.source_results] == ["one", "two"]
+    assert sorted(item.status.value for item in result.source_results) == [
+        CollectionStatus.EMPTY.value,
+        CollectionStatus.ERROR.value,
+    ]
+    failed = next(
+        item for item in result.source_results if item.status is CollectionStatus.ERROR
+    )
+    assert failed.stop_reason == "WORKER_ERROR"
+    assert failed.errors == ("Falha interna no worker",)
+
+
+def test_fetcher_close_failure_preserves_records_and_marks_worker_partial() -> None:
+    source = _source("one")
+
+    class CloseFailureContext(_NoopContext):
+        def __exit__(self, *_args: object) -> None:
+            raise RuntimeError("segredo do navegador")
+
+    collected = SourceRunResult(
+        source.code,
+        CollectionStatus.SUCCESS,
+        (_record(source.code, "https://ats.example.com/one"),),
+        pages_observed=1,
+        visited_urls=(source.start_url,),
+    )
+    result = JobRadarPipeline(
+        (source,),
+        PROFILE,
+        fetcher_factory=CloseFailureContext,
+        workers=1,
+        adapter_factory=lambda _config: StaticAdapter(collected),
+    ).run()
+
+    source_result = result.source_results[0]
+    assert source_result.status is CollectionStatus.PARTIAL
+    assert source_result.stop_reason == "WORKER_ERROR"
+    assert source_result.errors == ("Falha interna no worker",)
+    assert source_result.records == collected.records
+    assert [record.source for record in result.records] == [source.code]
+
+
+def test_unexpected_parallel_future_failure_isolated_per_batch() -> None:
+    sources = (_source("broken"), _source("ok"))
+    callbacks: list[str] = []
+
+    class UnexpectedFuturePipeline(JobRadarPipeline):
+        def _collect_batch(self, batch, *args, **kwargs):
+            if batch[0].code == "broken":
+                raise RuntimeError("segredo interno do worker")
+            return super()._collect_batch(batch, *args, **kwargs)
+
+    result = UnexpectedFuturePipeline(
+        sources,
+        PROFILE,
+        fetcher_factory=lambda: _NoopContext(),
+        workers=2,
+        adapter_factory=lambda config: StaticAdapter(
+            SourceRunResult(config.code, CollectionStatus.EMPTY)
+        ),
+        on_source_done=lambda item: callbacks.append(item.source_code),
+    ).run()
+
+    assert [item.source_code for item in result.source_results] == ["broken", "ok"]
+    assert result.source_results[0].status is CollectionStatus.ERROR
+    assert result.source_results[0].stop_reason == "WORKER_ERROR"
+    assert result.source_results[0].errors == ("Falha interna no worker",)
+    assert result.source_results[1].status is CollectionStatus.EMPTY
+    assert sorted(callbacks) == ["broken", "ok"]
+
+
+def test_fetcher_close_failure_marks_completed_sources_once_and_in_order() -> None:
+    callbacks: list[SourceRunResult] = []
+
+    class CloseFailureFetcher(_NoopContext):
+        def __exit__(self, *_args: object) -> None:
+            raise RuntimeError("falha ao fechar recurso")
+
+    result = JobRadarPipeline(
+        (_source("a"), _source("b")),
+        PROFILE,
+        fetcher_factory=CloseFailureFetcher,
+        workers=1,
+        adapter_factory=lambda config: StaticAdapter(
+            SourceRunResult(
+                config.code,
+                CollectionStatus.SUCCESS,
+                (_record("b", "https://ats.example.com/b"),),
+            )
+            if config.code == "b"
+            else SourceRunResult(config.code, CollectionStatus.EMPTY)
+        ),
+        on_source_done=callbacks.append,
+    ).run()
+
+    assert [item.source_code for item in result.source_results] == ["a", "b"]
+    assert [item.source_code for item in callbacks] == ["a", "b"]
+    assert [item.status for item in callbacks] == [
+        CollectionStatus.ERROR,
+        CollectionStatus.PARTIAL,
+    ]
+    assert [item.stop_reason for item in callbacks] == [
+        "WORKER_ERROR",
+        "WORKER_ERROR",
+    ]
+    assert all(item.errors == ("Falha interna no worker",) for item in callbacks)
+    assert [item.status for item in result.source_results] == [
+        CollectionStatus.ERROR,
+        CollectionStatus.PARTIAL,
+    ]
+    assert [item.stop_reason for item in result.source_results] == [
+        "WORKER_ERROR",
+        "WORKER_ERROR",
+    ]
+    assert [record.source for record in result.records] == ["b"]
+
+
 def test_adapter_initialization_failure_does_not_cancel_later_source_in_worker() -> None:
     sources = tuple(_source(code) for code in ("one", "two", "broken", "four", "after"))
 

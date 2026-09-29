@@ -1049,3 +1049,18 @@ def test_classify_keeps_source_seniority_and_merges_technologies() -> None:
 
     assert classified.seniority == "Trainee"
     assert classified.technologies == ("Kotlin", "java")
+
+
+def test_portuguese_verb_usa_is_not_read_as_united_states() -> None:
+    labels = _labels(
+        location="Curitiba, PR",
+        description_summary="Vaga 100% remota; o time usa Java e Spring",
+    )
+
+    assert "LOCATION_MATCH:remote_brazil" in labels
+
+
+def test_remote_united_states_in_english_is_not_remote_brazil() -> None:
+    labels = _labels(location="Curitiba, PR", description_summary="Remote - United States")
+
+    assert "LOCATION_MATCH:remote_brazil" not in labels

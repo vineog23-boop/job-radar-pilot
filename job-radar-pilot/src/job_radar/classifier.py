@@ -63,10 +63,11 @@ _WORKPLACE_MARKERS: tuple[tuple[WorkplaceModel, tuple[str, ...]], ...] = (
     (WorkplaceModel.ONSITE, ("presencial", "on site", "onsite")),
 )
 
+# "usa" fica de fora de propósito: em português é o verbo ("o time usa Java").
 _FOREIGN_REGION_TERMS = (
     "eua",
-    "usa",
     "estados unidos",
+    "united states",
     "canada",
     "europa",
     "europe",

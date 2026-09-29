@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from scrapling.engines.toolbelt.custom import Response
 from scrapling.parser import Adaptor
 
 from job_radar.config import load_sources
@@ -32,6 +33,18 @@ def _html_page(html: str, url: str) -> SimpleNamespace:
         url=url,
         css=adaptor.css,
         urljoin=adaptor.urljoin,
+    )
+
+
+def _scrapling_page(name: str, url: str) -> Response:
+    return Response(
+        url=url,
+        content=(FIXTURES / name).read_bytes(),
+        status=200,
+        reason="OK",
+        cookies={},
+        headers={},
+        request_headers={},
     )
 
 
@@ -699,6 +712,41 @@ def test_missing_expected_cards_is_explicit_layout_error() -> None:
     assert result.status is CollectionStatus.ERROR
     assert result.stop_reason == "LAYOUT_CHANGED"
     assert result.records == ()
+
+
+def test_visible_no_results_fixture_is_explicitly_empty() -> None:
+    url = "https://example.com/jobs"
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={"card": "article.job", "title": "h2", "url": "a::attr(href)"},
+    )
+
+    result = GenericListAdapter().collect(
+        config,
+        FixtureFetcher({url: _scrapling_page("no-results.html", url)}),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.EMPTY
+    assert result.stop_reason == "NO_RESULTS"
+    assert result.records == ()
+
+
+def test_empty_marker_inside_script_is_layout_error() -> None:
+    url = "https://example.com/jobs"
+    config = _config(
+        SourceKind.GENERIC,
+        selectors={"card": "article.job", "title": "h2", "url": "a::attr(href)"},
+    )
+
+    result = GenericListAdapter().collect(
+        config,
+        FixtureFetcher(
+            {url: _html_page("<script>No jobs found</script>", url)}
+        ),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.ERROR
+    assert result.stop_reason == "LAYOUT_CHANGED"
 
 
 def test_observed_cards_without_valid_records_is_parse_error() -> None:

@@ -199,20 +199,25 @@ def _is_linkedin_domain(url: str) -> bool:
     return hostname == "linkedin.com" or hostname.endswith(".linkedin.com")
 
 
-def _response_text(response: object) -> str:
-    text = getattr(response, "text", "")
-    if text:
-        return str(text)
-    body = getattr(response, "body", b"")
-    if isinstance(body, bytes):
+def page_html(response: object) -> str:
+    body = getattr(response, "body", None)
+    if isinstance(body, (bytes, bytearray, memoryview)):
+        raw_body = bytes(body)
         encoding = getattr(response, "encoding", None)
         if isinstance(encoding, str) and encoding.strip():
             try:
-                return body.decode(encoding)
+                return raw_body.decode(encoding)
             except (LookupError, UnicodeError):
                 pass
-        return body.decode("utf-8", errors="replace")
-    return str(body or "")
+        return raw_body.decode("utf-8", errors="replace")
+    html_content = getattr(response, "html_content", "")
+    if html_content:
+        return str(html_content)
+    return str(getattr(response, "text", "") or "")
+
+
+def _response_text(response: object) -> str:
+    return page_html(response)
 
 
 class _VisibleTextParser(HTMLParser):

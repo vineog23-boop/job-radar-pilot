@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from scrapling.engines.toolbelt.custom import Response
 
 import job_radar.fetching as fetching
 from job_radar.fetching import BlockReason, FetchPolicy, detect_block
@@ -24,6 +26,21 @@ class EncodedResponse:
     body: bytes = b""
     encoding: str | None = None
     url: str = "https://example.com/robots.txt"
+
+
+def _scrapling_response(content: bytes, *, encoding: str = "utf-8") -> Response:
+    response = Response(
+        url="https://example.com/jobs",
+        content=content,
+        status=200,
+        reason="OK",
+        cookies={},
+        headers={},
+        request_headers={},
+        encoding="utf-8",
+    )
+    response.encoding = encoding
+    return response
 
 
 def _source(kind: SourceKind = SourceKind.GENERIC) -> SourceConfig:
@@ -98,6 +115,82 @@ def test_response_body_falls_back_to_utf8(encoding: str | None) -> None:
     )
 
     assert "/área-privada" in fetching._response_text(response)
+
+
+@pytest.mark.parametrize(
+    ("buffer_factory", "encoding", "payload", "expected"),
+    [
+        (
+            bytes,
+            "latin-1",
+            b'<article data-job-id="BODY-1">Vaga caf\xe9</article>',
+            '<article data-job-id="BODY-1">Vaga café</article>',
+        ),
+        (
+            bytearray,
+            "utf-8",
+            b'<article data-job-id="BODY-2">Vaga Java</article>',
+            '<article data-job-id="BODY-2">Vaga Java</article>',
+        ),
+        (
+            memoryview,
+            "utf-8",
+            b'<article data-job-id="BODY-3">Vaga Spring</article>',
+            '<article data-job-id="BODY-3">Vaga Spring</article>',
+        ),
+    ],
+)
+def test_page_html_returns_raw_body_for_supported_response_buffers(
+    buffer_factory: object,
+    encoding: str,
+    payload: bytes,
+    expected: str,
+) -> None:
+    response = _scrapling_response(payload, encoding=encoding)
+    response._raw_body = buffer_factory(payload)  # type: ignore[operator]
+
+    assert fetching.page_html(response) == expected
+
+
+def test_page_html_replaces_invalid_encoding_with_utf8_decoding() -> None:
+    response = _scrapling_response(
+        b'<article data-job-id="UTF8-1">Vaga caf\xc3\xa9</article>',
+        encoding="not-a-real-codec",
+    )
+
+    assert fetching.page_html(response) == (
+        '<article data-job-id="UTF8-1">Vaga café</article>'
+    )
+
+
+def test_page_html_falls_back_to_html_content_when_response_has_no_binary_body() -> None:
+    response = _scrapling_response(
+        b'<main><article data-job-id="FALLBACK-1">Fallback</article></main>'
+    )
+    response._raw_body = None
+
+    assert fetching.page_html(response) == (
+        '<html><body><main><article data-job-id="FALLBACK-1">'
+        "Fallback</article></main></body></html>"
+    )
+
+
+def test_page_html_falls_back_to_text_when_html_content_is_unavailable() -> None:
+    response = SimpleNamespace(body=None, html_content="", text="Resposta de texto")
+
+    assert fetching.page_html(response) == "Resposta de texto"
+
+
+def test_response_text_preserves_html_content_fallback() -> None:
+    response = _scrapling_response(
+        b'<main><article data-job-id="COMPAT-1">Compatibilidade</article></main>'
+    )
+    response._raw_body = None
+
+    assert fetching._response_text(response) == (
+        '<html><body><main><article data-job-id="COMPAT-1">'
+        "Compatibilidade</article></main></body></html>"
+    )
 
 
 def test_linkedin_lookalike_domain_is_not_misclassified() -> None:

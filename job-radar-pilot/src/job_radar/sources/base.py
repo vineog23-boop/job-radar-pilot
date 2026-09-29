@@ -6,7 +6,7 @@ import re
 from typing import Protocol
 from urllib.parse import parse_qs, urlsplit
 
-from job_radar.fetching import BlockReason, FetchPolicy
+from job_radar.fetching import BlockReason, FetchPolicy, _visible_response_text
 from job_radar.identity import canonicalize_url
 from job_radar.models import (
     CollectionStatus,
@@ -164,7 +164,7 @@ class PaginatedAdapter:
                     visited_urls=tuple(visited),
                 )
             if parsed.cards_observed == 0 and not records:
-                text = " ".join(str(fetched.response.text).casefold().split())
+                text = " ".join(_visible_response_text(fetched.response).casefold().split())
                 status = (
                     CollectionStatus.EMPTY
                     if parsed.explicit_empty

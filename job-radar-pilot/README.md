@@ -129,6 +129,9 @@ Validar um arquivo:
 
 `EMPTY` significa que a página declarou ausência de resultados. Se os seletores
 esperados desaparecerem, o status é `ERROR/LAYOUT_CHANGED`, não vazio.
+O coletor preserva o HTML integral recebido do Scrapling para o parsing. Os
+marcadores de vazio são avaliados somente no texto visível, portanto conteúdo
+em `script`, `style` ou elementos ocultos não declara `NO_RESULTS`.
 
 ## Preferências de busca
 

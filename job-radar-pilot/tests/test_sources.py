@@ -878,3 +878,30 @@ def test_generic_extracts_published_at_and_cleans_title_badge() -> None:
     assert parsed.records[0].title == "Desenvolvedor Java Jr"
     assert parsed.records[0].published_at == "2026-09-20T13:00:00+00:00"
     assert parsed.records[1].published_at is None
+
+
+def test_title_extra_is_appended_to_generic_titles() -> None:
+    from scrapling.parser import Selector
+
+    from job_radar.models import SourceConfig, SourceKind
+    from job_radar.sources.base import make_record
+
+    page = Selector(
+        content=(
+            '<html><body><a class="vaga" href="/vaga/1"><h2>Estágio</h2>'
+            '<div class="area">Administração de empresas</div></a></body></html>'
+        ),
+        url="https://x.com.br/lista",
+    )
+    config = SourceConfig(
+        code="x", kind=SourceKind.GENERIC, start_url="https://x.com.br/v", enabled=True,
+        max_pages=1, min_interval_seconds=1, requires_auth=False,
+        selectors={"card": "a.vaga", "title": "h2::all-text", "url": "::attr(href)",
+                   "title_extra": "div.area::all-text"},
+    )
+    card = page.css("a.vaga")[0]
+    record = make_record(
+        config=config, page=page, card=card, id_selector=None, title_selector="h2::all-text",
+        url_selector="::attr(href)", company_selector=None, location_selector=None,
+    )
+    assert record is not None and record.title == "Estágio - Administração de empresas"

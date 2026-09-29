@@ -37,3 +37,15 @@ def test_parse_published_at_converts_known_formats(raw: str, expected: str) -> N
 )
 def test_parse_published_at_returns_none_without_evidence(raw: str | None) -> None:
     assert parse_published_at(raw, now=NOW) is None
+
+
+def test_parses_portuguese_long_date() -> None:
+    from datetime import datetime, timezone
+
+    from job_radar.dates import parse_published_at
+
+    now = datetime(2026, 9, 30, tzinfo=timezone.utc)
+    assert parse_published_at("29 de setembro de 2026", now=now).startswith("2026-09-29")
+    assert parse_published_at("1 de março de 2026", now=now).startswith("2026-03-01")
+    assert parse_published_at("31 de fevereiro de 2026", now=now) is None
+    assert parse_published_at("15 de dezembro de 2026", now=now) is None

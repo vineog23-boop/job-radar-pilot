@@ -25,6 +25,13 @@ _RELATIVE = re.compile(
     r"(?P<unit>minutos?|horas?|dias?|semanas?|meses|mes|minutes?|hours?|days?|weeks?|months?)"
     r"(?:\s+ago)?(?!\w)"
 )
+_MONTHS = {
+    "janeiro": 1, "fevereiro": 2, "marco": 3, "abril": 4, "maio": 5, "junho": 6,
+    "julho": 7, "agosto": 8, "setembro": 9, "outubro": 10, "novembro": 11, "dezembro": 12,
+}
+_LONG_DATE = re.compile(
+    r"(?<!\d)(\d{1,2})\s+de\s+(" + "|".join(_MONTHS) + r")\s+de\s+(\d{4})(?!\d)"
+)
 _BRAZILIAN_DATE = re.compile(r"(?<!\d)(\d{2})/(\d{2})/(\d{4})(?!\d)")
 
 
@@ -60,6 +67,15 @@ def parse_published_at(value: str | None, *, now: datetime | None = None) -> str
         day, month, year = (int(part) for part in brazilian.groups())
         try:
             parsed = datetime(year, month, day, tzinfo=timezone.utc)
+        except ValueError:
+            return None
+        return _iso(parsed) if parsed <= current else None
+
+    long_date = _LONG_DATE.search(text)
+    if long_date is not None:
+        day, month_name, year = long_date.groups()
+        try:
+            parsed = datetime(int(year), _MONTHS[month_name], int(day), tzinfo=timezone.utc)
         except ValueError:
             return None
         return _iso(parsed) if parsed <= current else None

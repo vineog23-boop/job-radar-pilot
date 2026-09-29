@@ -420,6 +420,9 @@ def make_record(
     description_selector: str | None = None,
 ) -> VacancyRecord | None:
     title = clean_title(extract_value(card, title_selector))
+    title_extra = clean_title(extract_value(card, config.selectors.get("title_extra")))
+    if title and title_extra and title_extra.casefold() not in title.casefold():
+        title = f"{title} - {title_extra}"
     raw_url = extract_value(card, url_selector)
     canonical_url = absolute_url(page, raw_url)
     if not title or not canonical_url:

@@ -30,7 +30,7 @@ EXPECTED_SOURCES = {
     "infojobs",
     "nerdin",
     "mytechjobs",
-    "geekhunter", "quickin",
+    "geekhunter", "quickin", "gupy-api", "primeiravagatech",
     "empregos-com",
     "trampos",
     "remotar",

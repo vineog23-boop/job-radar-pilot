@@ -22,7 +22,9 @@ from job_radar.models import (
     SourceKind,
     SourceRunResult,
     VacancyRecord,
+    WorkplaceModel,
 )
+from job_radar.geo import state_names_from_scopes
 from job_radar.sources import SourceAdapter, adapter_for
 
 
@@ -52,10 +54,68 @@ def _slugify(query: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", ascii_text).strip("-")
 
 
-def _search_urls(source: SourceConfig) -> tuple[str, ...]:
+_LEVEL_WORDS = {"junior", "jr", "pleno", "senior", "sr"}
+_API_WORKPLACE_VALUES = {
+    WorkplaceModel.REMOTE: "remote",
+    WorkplaceModel.HYBRID: "hybrid",
+    WorkplaceModel.ONSITE: "on-site",
+}
+MAX_API_REQUESTS = 40
+
+
+def _strip_level_words(query: str) -> str:
+    """Tira "junior/pleno/senior" do termo: a API devolve todos os níveis do
+    assunto (o classificador separa depois) e a busca cobre muito mais vagas."""
+
+    kept = [
+        word
+        for word in query.split()
+        if _slugify(word) not in _LEVEL_WORDS
+    ]
+    return " ".join(kept) or query
+
+
+def _api_variants(
+    source: SourceConfig, profile: SearchProfile | None
+) -> list[dict[str, str]]:
+    """Filtros extras (modelo de trabalho e estado) para APIs que os aceitam."""
+
+    workplace_param = source.api.get("workplace_param")
+    if profile is None or not workplace_param or not profile.workplace_models:
+        return [{}]
+    states = (
+        state_names_from_scopes(profile.location_scopes)
+        if source.api.get("state_param")
+        else []
+    )
+    variants: list[dict[str, str]] = []
+    for model in profile.workplace_models:
+        value = _API_WORKPLACE_VALUES.get(model)
+        if value is None:
+            continue
+        base = {str(workplace_param): value}
+        if model is WorkplaceModel.REMOTE or not states:
+            variants.append(base)
+        else:
+            variants.extend(
+                {**base, str(source.api["state_param"]): state} for state in states
+            )
+    return variants or [{}]
+
+
+def _search_urls(
+    source: SourceConfig, profile: SearchProfile | None = None
+) -> tuple[str, ...]:
     supports_queries = _supports_queries(source)
     if not source.queries or not supports_queries:
         return (source.start_url,)
+
+    if source.kind is SourceKind.JSON and source.api.get("strip_levels"):
+        source = replace(
+            source,
+            queries=tuple(dict.fromkeys(_strip_level_words(q) for q in source.queries)),
+        )
+    variants = _api_variants(source, profile) if source.kind is SourceKind.JSON else [{}]
 
     parsed = urlsplit(source.start_url)
     urls: list[str] = []
@@ -102,9 +162,22 @@ def _search_urls(source: SourceConfig) -> tuple[str, ...]:
                     "",
                 )
             )
-        if url not in urls:
-            urls.append(url)
-    return tuple(urls) or (source.start_url,)
+        for extra in variants:
+            final = url
+            if extra:
+                parts = urlsplit(url)
+                final = urlunsplit(
+                    (
+                        parts.scheme,
+                        parts.netloc,
+                        parts.path,
+                        urlencode([*parse_qsl(parts.query, keep_blank_values=True), *extra.items()]),
+                        "",
+                    )
+                )
+            if final not in urls:
+                urls.append(final)
+    return tuple(urls[:MAX_API_REQUESTS]) or (source.start_url,)
 
 
 def _combine_query_results(
@@ -235,7 +308,7 @@ class JobRadarPipeline:
                 stop_reason="ADAPTER_ERROR",
                 errors=(f"Falha interna no adaptador {source.code}",),
             )
-        for search_url in _search_urls(search_source):
+        for search_url in _search_urls(search_source, self._profile):
             query_source = replace(source, start_url=search_url, queries=())
             try:
                 query_result = adapter.collect(query_source, fetcher)

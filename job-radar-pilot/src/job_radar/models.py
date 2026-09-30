@@ -10,6 +10,7 @@ class SourceKind(StrEnum):
     GUPY = "gupy"
     INDEED = "indeed"
     DYNAMIC = "dynamic"
+    JSON = "json"
 
 
 class CollectionStatus(StrEnum):
@@ -67,6 +68,9 @@ class SourceConfig:
     fixed_queries: bool = False
     # True: portal focado em tecnologia; entra na "busca rápida" do painel.
     tech_focus: bool = False
+    # Fontes com API JSON pública do próprio portal (kind: json): mapeamento dos
+    # campos, paginação e filtros aceitos (ver sources/json_api.py).
+    api: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

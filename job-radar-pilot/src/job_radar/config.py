@@ -41,7 +41,37 @@ _OPTIONAL_SOURCE_KEYS = {
     "browser",
     "fixed_queries",
     "tech_focus",
+    "api",
 }
+_API_KEYS = {
+    "items",
+    "page_param",
+    "page_mode",
+    "page_size",
+    "size_param",
+    "workplace_param",
+    "state_param",
+    "strip_levels",
+    "fields",
+}
+_API_FIELD_KEYS = {
+    "id",
+    "title",
+    "company",
+    "city",
+    "state",
+    "country",
+    "published",
+    "deadline",
+    "employment_type",
+    "description",
+    "workplace",
+    "remote_flag",
+    "url",
+    "url_template",
+    "skills",
+}
+_API_PAGE_MODES = {"offset", "page0", "page1"}
 _SOURCE_KEYS = _REQUIRED_SOURCE_KEYS | _OPTIONAL_SOURCE_KEYS
 _BROWSER_KEYS = {"disable_resources", "blocked_domains", "scroll_to_load"}
 _REQUIRED_GENERIC_SELECTORS = {"card", "title", "url"}
@@ -258,6 +288,7 @@ def _load_source(item: Any, index: int) -> SourceConfig:
         raise ConfigError(f"sources[{index}].tech_focus deve ser booleano.")
 
     browser = _load_browser_options(item.get("browser", {}), index)
+    api = _load_api_options(item.get("api"), kind, index)
 
     return SourceConfig(
         code=code,
@@ -277,7 +308,61 @@ def _load_source(item: Any, index: int) -> SourceConfig:
         browser=browser,
         fixed_queries=fixed_queries,
         tech_focus=tech_focus,
+        api=api,
     )
+
+
+def _load_api_options(value: Any, kind: SourceKind, index: int) -> dict[str, Any]:
+    label = f"sources[{index}].api"
+    if kind is not SourceKind.JSON:
+        if value is not None:
+            raise ConfigError(f"{label} so vale para fontes kind: json.")
+        return {}
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"{label} e obrigatorio e deve ser um objeto (kind: json).")
+    unknown = set(value) - _API_KEYS
+    if unknown:
+        raise ConfigError(f"{label} invalido; chaves desconhecidas={sorted(unknown)}")
+    items = value.get("items", "")
+    if not isinstance(items, str):
+        raise ConfigError(f"{label}.items deve ser um texto (caminho da lista).")
+    page_mode = value.get("page_mode", "offset")
+    if page_mode not in _API_PAGE_MODES:
+        raise ConfigError(f"{label}.page_mode deve ser um de {sorted(_API_PAGE_MODES)}.")
+    page_size = value.get("page_size", 50)
+    if not isinstance(page_size, int) or isinstance(page_size, bool) or not 1 <= page_size <= 500:
+        raise ConfigError(f"{label}.page_size deve estar entre 1 e 500.")
+    for key in ("page_param", "size_param", "workplace_param", "state_param"):
+        if key in value and (not isinstance(value[key], str) or not value[key].strip()):
+            raise ConfigError(f"{label}.{key} deve ser um texto.")
+    if "page_param" not in value:
+        raise ConfigError(f"{label}.page_param e obrigatorio.")
+    strip_levels = value.get("strip_levels", False)
+    if not isinstance(strip_levels, bool):
+        raise ConfigError(f"{label}.strip_levels deve ser booleano.")
+    fields = value.get("fields")
+    if not isinstance(fields, Mapping) or not all(
+        isinstance(k, str) and isinstance(v, str) and v for k, v in fields.items()
+    ):
+        raise ConfigError(f"{label}.fields deve ser um objeto de textos.")
+    bad = set(fields) - _API_FIELD_KEYS
+    if bad:
+        raise ConfigError(f"{label}.fields com chaves desconhecidas={sorted(bad)}")
+    if "title" not in fields or not ({"url", "url_template"} & set(fields)):
+        raise ConfigError(f"{label}.fields exige title e url (ou url_template).")
+    return {
+        "items": items,
+        "page_param": value["page_param"].strip(),
+        "page_mode": page_mode,
+        "page_size": page_size,
+        **{
+            key: value[key].strip()
+            for key in ("size_param", "workplace_param", "state_param")
+            if key in value
+        },
+        "strip_levels": strip_levels,
+        "fields": dict(fields),
+    }
 
 
 def load_sources(path: Path) -> tuple[SourceConfig, ...]:

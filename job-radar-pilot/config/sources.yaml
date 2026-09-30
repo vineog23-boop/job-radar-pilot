@@ -1,8 +1,68 @@
 sources:
+  - code: gupy-api
+    kind: json
+    start_url: https://employability-portal.gupy.io/api/v1/jobs?limit=100
+    enabled: true
+    max_pages: 5
+    min_interval_seconds: 1
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    tech_focus: true
+    query_param: jobName
+    queries: [java, spring boot, backend, desenvolvedor de software, engenheiro de software, estagio desenvolvimento]
+    api:
+      items: data
+      page_param: offset
+      page_mode: offset
+      page_size: 100
+      size_param: limit
+      workplace_param: workplaceType
+      state_param: state
+      strip_levels: true
+      fields:
+        id: id
+        title: name
+        company: careerPageName
+        city: city
+        state: state
+        country: country
+        published: publishedDate
+        deadline: applicationDeadline
+        employment_type: type
+        description: description
+        workplace: workplaceType
+        remote_flag: isRemoteWork
+        url: jobUrl
+        skills: skills
+  - code: primeiravagatech
+    kind: json
+    start_url: https://primeiravagatech-production.up.railway.app/minhavagatech/vagas/paginated
+    enabled: true
+    max_pages: 20
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    tech_focus: true
+    api:
+      items: content
+      page_param: page
+      page_mode: page0
+      page_size: 15
+      fields:
+        id: id
+        title: title
+        company: companyName
+        city: city
+        state: state
+        published: datePosted
+        employment_type: employmentTypeRaw
+        url_template: "https://www.primeiravagatech.com.br/vaga/{slug}"
   - code: gupy
     kind: gupy
     start_url: https://portal.gupy.io/job-search/term%3Ddesenvolvedor%20junior
-    enabled: true
+    enabled: false
     max_pages: 3
     min_interval_seconds: 2
     requires_auth: false

@@ -7,6 +7,7 @@ from job_radar.sources.dynamic import DynamicAdapter
 from job_radar.sources.generic import GenericListAdapter
 from job_radar.sources.gupy import GupyAdapter
 from job_radar.sources.indeed import IndeedAdapter
+from job_radar.sources.json_api import JsonApiAdapter
 
 
 def adapter_for(
@@ -18,6 +19,7 @@ def adapter_for(
         SourceKind.GUPY: GupyAdapter,
         SourceKind.INDEED: IndeedAdapter,
         SourceKind.DYNAMIC: DynamicAdapter,
+        SourceKind.JSON: JsonApiAdapter,
     }
     return adapters[config.kind](locator=locator)
 

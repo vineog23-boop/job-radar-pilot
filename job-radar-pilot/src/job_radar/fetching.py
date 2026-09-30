@@ -674,7 +674,19 @@ class FetchPolicy:
                     attempts=attempt,
                 )
 
-            block, signal = _detect_block_signal(response)
+            if source.kind is SourceKind.JSON:
+                # JSON de vagas: a descrição pode citar "2FA" ou "atividade
+                # suspeita" sem que isso seja uma tela de bloqueio; só o status
+                # HTTP vale.
+                block, signal = (
+                    (BlockReason.RATE_LIMITED, "http:429")
+                    if response.status == 429
+                    else (BlockReason.ACCESS_DENIED, f"http:{response.status}")
+                    if response.status in {401, 403}
+                    else (None, None)
+                )
+            else:
+                block, signal = _detect_block_signal(response)
             if block is not None:
                 return FetchResult(
                     status=CollectionStatus.BLOCKED,

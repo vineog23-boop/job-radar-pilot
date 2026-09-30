@@ -268,6 +268,8 @@ function textElement(tag, className, text) {
   return element;
 }
 
+const WORKPLACE_LABELS = { REMOTE: "Remoto", HYBRID: "Híbrido", ONSITE: "Presencial" };
+
 function renderTable() {
   const jobs = filteredJobs();
   elements.tableBody.replaceChildren();
@@ -291,7 +293,10 @@ function renderTable() {
     );
     row.appendChild(titleCell);
     row.appendChild(textElement("td", "", job.company || "Não informada"));
-    row.appendChild(textElement("td", "", job.location || job.remote_scope || "Não informado"));
+    const locationCell = textElement("td", "", job.location || job.remote_scope || "Não informado");
+    const workplace = WORKPLACE_LABELS[job.workplace_model];
+    if (workplace) locationCell.appendChild(textElement("small", `workplace-tag ${job.workplace_model.toLowerCase()}`, workplace));
+    row.appendChild(locationCell);
 
     const sourceCell = document.createElement("td");
     sourceCell.appendChild(textElement("span", "source-pill", job.source || "—"));

@@ -76,9 +76,17 @@ senioridade, tecnologias, data de publicação, fonte, URL e nota.
 - Não acessa SQLite, Notion, RADAR, `pipeline-state.json` nem a pasta
   `Vagas Dev`.
 - Não automatiza nem raspa o LinkedIn, preenche formulários ou envia candidaturas.
-- A interface abre somente a página inicial oficial do LinkedIn após seu clique
-  e mostra os termos para copiar. O Radar não lê a página nem acessa, captura ou
-  armazena cookies/tokens; o navegador pode usar a sessão que já estiver aberta.
+- LinkedIn: o botão **Pesquisar no LinkedIn** gera, para cada termo do perfil, um
+  link da busca oficial já filtrado por nível, modelo (remoto/híbrido/presencial),
+  local e período (24 h, semana, mês). Você abre no seu navegador, na sua sessão.
+  O Radar não lê a página nem acessa, captura ou armazena cookies/tokens.
+- Para trazer as vagas do LinkedIn para a lista, use o **importador** do mesmo
+  painel: cole links de vagas (`linkedin.com/jobs/view/...`), a URL da busca com a
+  vaga aberta (`currentJobId`), o texto de um e-mail de alerta ou o CSV do export
+  oficial de dados (Vagas salvas/Candidaturas). O Radar só interpreta o texto
+  colado, classifica pelo seu perfil e junta à lista sem duplicar (fonte
+  `linkedin`, rótulo `IMPORT:MANUAL`). Só com o link, o título vem do próprio
+  endereço; colar o texto do alerta traz título, empresa e local.
 - Não contorna CAPTCHA, 2FA, rate limit, login ou alerta de atividade.
 - Quando uma fonte exige autenticação, ela termina com handoff manual.
 - Não grava cookies, tokens, senhas, perfis do navegador ou HTML integral nas
@@ -286,6 +294,17 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 | `query_path` / `query_param` | Habilita a varredura de termos de busca. |
 | `default_country` | País assumido para vagas remotas sem país explícito. |
 | `adaptive` | Liga/desliga o fallback adaptativo (padrão `true`). |
+| `kind: json` + `api` | Portal com API JSON pública (Gupy, Primeira Vaga Tech). `api.items` (caminho da lista), `page_param`/`page_mode` (`offset`, `page0`, `page1`)/`page_size`/`size_param`, `workplace_param`/`state_param` (filtros de modelo e estado vindos do perfil), `strip_levels` e `fields` (mapeamento `title`, `company`, `url` ou `url_template`, `published`...). Um portal novo vira só configuração. |
+| `kind: rss` | Feed RSS público (Empregos Tech, 100% remoto). |
+
+## Fontes com API/feed (mais vagas, mais compatíveis)
+
+`gupy-api`, `primeiravagatech` e `empregostec` leem dados estruturados (data,
+empresa, modelo de trabalho, local) em vez de interpretar HTML. No Gupy, cada
+termo do perfil vira consultas por modelo (`remote`/`hybrid`/`on-site`) e por
+estado das localidades escolhidas, com os níveis (júnior, pleno...) tirados do
+termo porque o filtro de nível é feito pelo classificador. O limite é de 40
+requisições por coleta e o ritmo respeita `min_interval_seconds`.
 
 ## Fallback adaptativo de cards
 

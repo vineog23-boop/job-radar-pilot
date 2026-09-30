@@ -674,8 +674,8 @@ class FetchPolicy:
                     attempts=attempt,
                 )
 
-            if source.kind is SourceKind.JSON:
-                # JSON de vagas: a descrição pode citar "2FA" ou "atividade
+            if source.kind in {SourceKind.JSON, SourceKind.RSS}:
+                # JSON/RSS de vagas: a descrição pode citar "2FA" ou "atividade
                 # suspeita" sem que isso seja uma tela de bloqueio; só o status
                 # HTTP vale.
                 block, signal = (

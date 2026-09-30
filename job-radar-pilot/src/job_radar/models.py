@@ -11,6 +11,7 @@ class SourceKind(StrEnum):
     INDEED = "indeed"
     DYNAMIC = "dynamic"
     JSON = "json"
+    RSS = "rss"
 
 
 class CollectionStatus(StrEnum):

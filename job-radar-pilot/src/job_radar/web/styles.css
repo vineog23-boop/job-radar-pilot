@@ -64,6 +64,9 @@ h1 em { color: #9ca6b7; font-style: normal; font-weight: 530; }
 .linkedin-home-link { display: inline-flex; color: #08101a; background: #68a9e8; border-radius: 10px; padding: 10px 14px; margin: 0 0 14px; font-size: 12px; font-weight: 800; text-decoration: none; }
 .linkedin-term { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #d9ecff; background: #0d1520; border: 1px solid rgba(74,153,230,.22); border-radius: 11px; padding: 8px 9px 8px 12px; font-size: 12px; }
 .linkedin-term button { color: #bcdcff; background: rgba(74,153,230,.12); border: 1px solid rgba(74,153,230,.25); border-radius: 8px; padding: 6px 8px; font-size: 10px; }
+.workplace-tag { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.workplace-tag.remote { color: #7fd6a4; }
+.workplace-tag.hybrid { color: #e6c36a; }
 .linkedin-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 0 0 14px; }
 .linkedin-toolbar .linkedin-home-link { margin: 0; }
 .linkedin-period { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }

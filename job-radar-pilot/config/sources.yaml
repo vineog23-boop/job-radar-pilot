@@ -39,7 +39,7 @@ sources:
     kind: json
     start_url: https://primeiravagatech-production.up.railway.app/minhavagatech/vagas/paginated
     enabled: true
-    max_pages: 20
+    max_pages: 40
     min_interval_seconds: 2
     requires_auth: false
     adaptive: false
@@ -59,6 +59,16 @@ sources:
         published: datePosted
         employment_type: employmentTypeRaw
         url_template: "https://www.primeiravagatech.com.br/vaga/{slug}"
+  - code: empregostec
+    kind: rss
+    start_url: https://www.empregostec.com.br/feed/
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    tech_focus: true
   - code: gupy
     kind: gupy
     start_url: https://portal.gupy.io/job-search/term%3Ddesenvolvedor%20junior

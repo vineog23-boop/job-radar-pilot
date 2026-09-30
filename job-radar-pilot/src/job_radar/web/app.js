@@ -36,6 +36,15 @@ const elements = {
   workplaceOnsite: document.querySelector("#workplace-onsite"),
   downloadReport: document.querySelector("#download-report"),
   clearFilters: document.querySelector("#clear-filters"),
+  cleanupButton: document.querySelector("#cleanup-button"),
+  cleanupPanel: document.querySelector("#cleanup-panel"),
+  closeCleanup: document.querySelector("#close-cleanup"),
+  cleanupOverview: document.querySelector("#cleanup-overview"),
+  cleanupDiscarded: document.querySelector("#cleanup-discarded"),
+  cleanupSamples: document.querySelector("#cleanup-samples"),
+  cleanupUndo: document.querySelector("#cleanup-undo"),
+  undoBox: document.querySelector("#undo-box"),
+  undoInfo: document.querySelector("#undo-info"),
   cardAll: document.querySelector("#card-all"),
   cardReady: document.querySelector("#card-ready"),
   exportAi: document.querySelector("#export-ai"),
@@ -1141,26 +1150,98 @@ function renderBreakdown(result) {
     return item;
   });
   elements.cleanupBreakdown.replaceChildren(...items);
+  const samples = (result.samples ?? []).map((sample) => {
+    const item = document.createElement("li");
+    item.appendChild(document.createTextNode(sample.title));
+    item.appendChild(textElement(
+      "small", "", [sample.company, sample.source, sample.reason].filter(Boolean).join(" · ")
+    ));
+    return item;
+  });
+  const total = Object.values(result.removed ?? {}).reduce((sum, n) => sum + n, 0);
+  if (total > samples.length) {
+    samples.push(textElement("li", "", `… e mais ${total - samples.length} vagas.`));
+  }
+  elements.cleanupSamples.replaceChildren(...samples);
+}
+
+function renderBackup(backup) {
+  elements.undoBox.hidden = !backup;
+  if (!backup) return;
+  const when = new Date(backup.at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  elements.undoInfo.textContent =
+    `Última limpeza em ${when}: ${backup.jobs} vagas removidas podem voltar para a lista.`;
+}
+
+function cleanupBody(dryRun) {
+  return { dry_run: dryRun, remove_discarded: elements.cleanupDiscarded.checked };
+}
+
+async function refreshCleanupOverview() {
+  try {
+    const result = await profileRequest("/api/cleanup", cleanupBody(true));
+    const removable = Object.values(result.removed ?? {}).reduce((sum, n) => sum + n, 0);
+    elements.cleanupOverview.replaceChildren(
+      document.createTextNode(`Na lista: ${result.before} vagas. `),
+      removable
+        ? textElement("strong", "", `${removable} seriam removidas agora`)
+        : document.createTextNode("Nada para limpar agora — a lista está em ordem.")
+    );
+    renderBreakdown(result);
+    renderBackup(result.backup);
+    return result;
+  } catch (error) {
+    elements.cleanupOverview.textContent = `Não foi possível calcular: ${error.message}`;
+    return null;
+  }
+}
+
+async function showCleanup(show) {
+  elements.cleanupPanel.hidden = !show;
+  elements.cleanupButton.setAttribute("aria-expanded", String(show));
+  if (!show) return;
+  elements.cleanupOverview.textContent = "Calculando…";
+  await Promise.all([loadCleanupRules(), refreshCleanupOverview()]);
 }
 
 async function runCleanup(dryRun) {
-  if (!dryRun && !window.confirm("Remover as vagas inúteis já salvas? Isso não pode ser desfeito.")) {
+  if (dryRun) {
+    elements.cleanupStatus.textContent = "Calculando…";
+    const result = await refreshCleanupOverview();
+    if (result) {
+      const removed = Object.values(result.removed ?? {}).reduce((sum, n) => sum + n, 0);
+      elements.cleanupStatus.textContent = `${removed} de ${result.before} vagas seriam removidas.`;
+    } else {
+      elements.cleanupStatus.textContent = "";
+    }
     return;
   }
-  elements.cleanupStatus.textContent = dryRun ? "Calculando…" : "Limpando…";
+  if (!window.confirm("Remover as vagas listadas na prévia? Você poderá desfazer logo em seguida.")) {
+    return;
+  }
+  elements.cleanupStatus.textContent = "Limpando…";
   try {
-    const result = await profileRequest("/api/cleanup", { dry_run: dryRun });
+    const result = await profileRequest("/api/cleanup", cleanupBody(false));
     const removed = Object.values(result.removed ?? {}).reduce((sum, n) => sum + n, 0);
-    renderBreakdown(result);
-    elements.cleanupStatus.textContent = dryRun
-      ? `${removed} de ${result.before} vagas seriam removidas.`
-      : `${removed} removidas. Restam ${result.after} vagas.`;
-    if (!dryRun) await refreshState();
+    elements.cleanupStatus.textContent = `${removed} removidas. Restam ${result.after} vagas.`;
+    await refreshState();
+    await refreshCleanupOverview();
   } catch (error) {
     elements.cleanupStatus.textContent = `Não foi possível limpar: ${error.message}`;
   }
 }
 
+async function undoCleanup() {
+  elements.cleanupStatus.textContent = "Desfazendo…";
+  try {
+    const result = await profileRequest("/api/cleanup/undo", {});
+    elements.cleanupStatus.textContent = `${result.restored} vagas devolvidas. A lista tem ${result.total} vagas.`;
+    await refreshState();
+    await refreshCleanupOverview();
+  } catch (error) {
+    elements.cleanupStatus.textContent = `Não foi possível desfazer: ${error.message}`;
+  }
+}
 async function loadPreferences() {
   if (preferencesLoaded) return true;
   const controls = [...elements.preferencesForm.querySelectorAll("input, textarea, button")];
@@ -1173,7 +1254,7 @@ async function loadPreferences() {
     fillPreferencesForm(payload);
     preferencesLoaded = true;
     elements.preferencesStatus.textContent = "Configurações atuais carregadas.";
-    await Promise.all([loadPresets(), loadProfiles(), loadCleanupRules()]);
+    await Promise.all([loadPresets(), loadProfiles()]);
     return true;
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível carregar: ${error.message}`;
@@ -1254,6 +1335,10 @@ elements.profileDelete.addEventListener("click", deleteProfile);
   (control) => control.addEventListener("change", saveCleanupRules)
 );
 elements.cleanupPreview.addEventListener("click", () => runCleanup(true));
+elements.cleanupButton.addEventListener("click", () => showCleanup(elements.cleanupPanel.hidden));
+elements.closeCleanup.addEventListener("click", () => showCleanup(false));
+elements.cleanupUndo.addEventListener("click", undoCleanup);
+elements.cleanupDiscarded.addEventListener("change", refreshCleanupOverview);
 elements.cleanupRun.addEventListener("click", () => runCleanup(false));
 document.querySelectorAll("[data-location]").forEach((chip) => {
   chip.addEventListener("click", () => {
@@ -1315,7 +1400,7 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     elements.textFilter.focus();
   } else if (event.key === "Escape") {
-    [showExport, showLinkedin, showPreferences].forEach((close) => close(false));
+    [showExport, showLinkedin, showPreferences, showCleanup].forEach((close) => close(false));
     if (!elements.sourcesPicker.hidden) showSourcesPicker(false);
     if (document.activeElement === elements.textFilter && elements.textFilter.value) {
       elements.textFilter.value = "";

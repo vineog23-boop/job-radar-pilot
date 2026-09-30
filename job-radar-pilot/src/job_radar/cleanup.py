@@ -19,6 +19,10 @@ REASON_OFF_TOPIC = "off_topic"
 REASON_EXCLUDED = "excluded"
 REASON_EXPIRED = "expired"
 REASON_STALE = "stale"
+REASON_USER_DISCARDED = "user_discarded"
+BACKUP_NAME = "vagas.antes-da-limpeza.jsonl"
+MAX_SAMPLES = 25
+
 
 class CleanupError(ValueError):
     """Regras de limpeza fora do contrato aceito."""
@@ -91,6 +95,7 @@ REASON_NAMES = {
     REASON_EXCLUDED: "fora do seu perfil (nível, local ou modelo)",
     REASON_EXPIRED: "inscrições encerradas",
     REASON_STALE: "publicadas há muito tempo",
+    REASON_USER_DISCARDED: "marcadas por você como descartadas",
 }
 
 
@@ -144,23 +149,42 @@ def prune_payloads(
     now: datetime | None = None,
     max_age_days: int | None = None,
     rules: CleanupRules | None = None,
+    remove_urls: Collection[str] = (),
+    samples: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Separa as vagas úteis das descartáveis. Retorna (mantidas, contagem)."""
+    """Separa as vagas úteis das descartáveis. Retorna (mantidas, contagem).
+
+    ``remove_urls`` força a remoção (vagas que a pessoa marcou como descartadas);
+    ``samples`` recebe até ``MAX_SAMPLES`` vagas removidas com o motivo.
+    """
 
     moment = now or datetime.now(timezone.utc)
     kept: list[dict[str, Any]] = []
     removed: dict[str, int] = {}
     for job in payloads:
-        if str(job.get("canonical_url")) in keep_urls:
+        url = str(job.get("canonical_url"))
+        if url in remove_urls:
+            reason: str | None = REASON_USER_DISCARDED
+        elif url in keep_urls:
             kept.append(job)
             continue
-        reason = discard_reason(
-            job, now=moment, max_age_days=max_age_days, rules=rules
-        )
+        else:
+            reason = discard_reason(
+                job, now=moment, max_age_days=max_age_days, rules=rules
+            )
         if reason is None:
             kept.append(job)
-        else:
-            removed[reason] = removed.get(reason, 0) + 1
+            continue
+        removed[reason] = removed.get(reason, 0) + 1
+        if samples is not None and len(samples) < MAX_SAMPLES:
+            samples.append(
+                {
+                    "title": job.get("title") or "Cargo não informado",
+                    "company": job.get("company") or "",
+                    "source": job.get("source") or "",
+                    "reason": REASON_NAMES.get(reason, reason),
+                }
+            )
     return kept, removed
 
 
@@ -179,38 +203,102 @@ def clean_output(
     dry_run: bool = False,
     now: datetime | None = None,
     rules: CleanupRules | None = None,
+    remove_urls: Collection[str] = (),
 ) -> dict[str, Any]:
-    """Limpa ``vagas.jsonl``/``vagas.csv`` já salvos (sem nova coleta)."""
+    """Limpa ``vagas.jsonl``/``vagas.csv`` já salvos (sem nova coleta).
+
+    Antes de gravar, guarda uma cópia (``BACKUP_NAME``) para ``undo_cleanup``.
+    """
 
     from job_radar.output import rewrite_payloads
 
     jobs_path = output_dir / "vagas.jsonl"
     if not jobs_path.exists():
-        return {"before": 0, "after": 0, "removed": {}, "dry_run": dry_run}
-    payloads = [
-        json.loads(line)
-        for line in jobs_path.read_text(encoding="utf-8-sig").splitlines()
-        if line.strip()
-    ]
+        return {"before": 0, "after": 0, "removed": {}, "dry_run": dry_run, "samples": []}
+    payloads = _read_payloads(jobs_path)
+    samples: list[dict[str, Any]] = []
     kept, removed = prune_payloads(
         payloads,
         keep_urls=keep_urls,
         now=now,
         max_age_days=max_age_days,
         rules=rules,
+        remove_urls=remove_urls,
+        samples=samples,
     )
     if not dry_run and removed:
+        kept_ids = {id(job) for job in kept}
+        removed_jobs = [job for job in payloads if id(job) not in kept_ids]
+        _write_backup(output_dir, removed_jobs)
         rewrite_payloads(output_dir, kept)
     return {
         "before": len(payloads),
         "after": len(kept),
         "removed": removed,
+        "samples": samples,
+        "backup": backup_info(output_dir),
         "removed_labels": {
             reason: REASON_NAMES.get(reason, reason) for reason in removed
         },
         "dry_run": dry_run,
         "summary": describe_removed(removed),
     }
+
+
+def _read_payloads(path: Path) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict):
+            payloads.append(item)
+    return payloads
+
+
+def _write_backup(output_dir: Path, removed_jobs: list[dict[str, Any]]) -> None:
+    """Guarda só as vagas removidas (a limpeza seguinte sobrescreve a cópia)."""
+
+    content = "".join(
+        json.dumps(job, ensure_ascii=False, sort_keys=True) + "\n" for job in removed_jobs
+    )
+    replace_atomically(output_dir / BACKUP_NAME, content)
+
+
+def backup_info(output_dir: Path) -> dict[str, Any] | None:
+    path = output_dir / BACKUP_NAME
+    try:
+        jobs = len(_read_payloads(path))
+        modified = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return None
+    return {"jobs": jobs, "at": modified.isoformat()}
+
+
+def undo_cleanup(output_dir: Path) -> dict[str, Any]:
+    """Devolve à lista as vagas removidas na última limpeza (sem duplicar)."""
+
+    from job_radar.output import rewrite_payloads
+
+    backup_path = output_dir / BACKUP_NAME
+    if not backup_path.exists():
+        raise CleanupError("Não há limpeza para desfazer.")
+    current_path = output_dir / "vagas.jsonl"
+    current = _read_payloads(current_path) if current_path.exists() else []
+    present = {str(job.get("canonical_url")) for job in current}
+    restored = [
+        job
+        for job in _read_payloads(backup_path)
+        if str(job.get("canonical_url")) not in present
+    ]
+    if restored:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        rewrite_payloads(output_dir, current + restored)
+    backup_path.unlink(missing_ok=True)
+    return {"restored": len(restored), "total": len(current) + len(restored)}
 
 
 def _temp_name(directory: Path, name: str) -> Path:

@@ -398,13 +398,15 @@ Tecnologias fora das listas prontas podem ser digitadas livremente; qualquer pal
 
 ### Exclusões e limpeza
 
-No painel, o bloco **Exclusões e limpeza** tem três partes:
+Em **Configurar busca**, a seção **Exclusões** guarda só os *termos que você nunca quer ver* (vagas com esses termos no cargo ficam fora do perfil; os níveis que você marcou nunca são excluídos).
 
-1. **Termos que você nunca quer ver** — vagas com esses termos no cargo ficam fora do perfil (os níveis que você marcou nunca são excluídos).
-2. **Descartar automaticamente nas próximas coletas** — caixas para *fora da área de tecnologia*, *fora do meu perfil* (nível, local, modelo) e *inscrições encerradas*, mais uma idade máxima opcional (30 a 180 dias). Vagas descartadas nem são salvas. As regras são gravadas ao mudar (`cleanup-rules.json`, ao lado das preferências) e a coleta as usa; `--keep-all` ignora as regras e mantém tudo, `--max-age-days N` sobrepõe a idade.
-3. **Limpar o que já foi salvo** — aplica as mesmas regras à lista atual. *Ver o que seria removido* mostra a contagem por motivo antes de *Limpar agora*.
+Todo o resto da limpeza fica no menu próprio **Limpeza** (botão no topo do painel):
 
-Vagas que você marcou como salva, aplicada ou descartada nunca são apagadas.
+1. **Regras automáticas** — caixas para *fora da área de tecnologia*, *fora do meu perfil* (nível, local, modelo) e *inscrições encerradas*, mais idade máxima opcional (30 a 180 dias). Valem nas próximas coletas: vagas descartadas nem são salvas. São gravadas ao mudar (`cleanup-rules.json`); `--keep-all` ignora as regras e `--max-age-days N` sobrepõe a idade.
+2. **Limpar o que já está salvo** — ao abrir o menu, a prévia já mostra quantas vagas seriam removidas, por motivo, com exemplos (título, empresa, portal). Há uma opção para remover também as vagas que você marcou como *descartadas*.
+3. **Desfazer** — antes de limpar, as vagas removidas vão para `vagas.antes-da-limpeza.jsonl`; o botão *Desfazer última limpeza* devolve todas (a cópia vale para a última limpeza).
+
+Vagas que você marcou como salva ou aplicada nunca são apagadas.
 ## Rotina diária e portais de tecnologia
 
 - `collect --tech-only` consulta apenas portais marcados com `tech_focus: true` em `config/sources.yaml`.
@@ -459,7 +461,7 @@ critério atendido (tecnologia, nível, local, modelo), +10 se `FIT:READY` e at�
 
 ## Organização do painel
 
-- **Topo compacto:** busca, escolha de portais, configuração, exportação e LinkedIn
+- **Topo compacto:** busca, escolha de portais, configuração, limpeza, exportação e LinkedIn
   ficam agrupados; a tabela aparece sem rolar muito.
 - **Cards clicáveis:** "Vagas coletadas" mostra tudo de TI e "Compatíveis" filtra só
   as mais compatíveis.

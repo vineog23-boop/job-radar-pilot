@@ -501,11 +501,16 @@ def test_dashboard_panel_stacks_profiles_and_cleanup(tmp_path: Path) -> None:
             )
             assert saved["seniority_levels"] == ["pleno"]
 
-            # limpeza: prévia e execução
+            # limpeza: menu próprio, prévia e execução
+            page.get_by_role("button", name="Limpeza", exact=True).click()
+            page.locator("#cleanup-panel").wait_for()
+            page.get_by_text("2 seriam removidas agora").wait_for()
             page.get_by_role("button", name="Ver o que seria removido").click()
             page.get_by_text("2 de 3 vagas seriam removidas").wait_for()
             page.get_by_role("button", name="Limpar agora").click()
             page.get_by_text("Restam 1 vagas.").wait_for()
+            page.locator("#undo-box").wait_for(state="visible")
+            assert page.locator("#cleanup-undo").is_visible()
             browser.close()
     finally:
         server.shutdown()
@@ -619,10 +624,10 @@ def test_dashboard_exclusions_section_saves_rules_and_shows_breakdown(tmp_path: 
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(f"http://127.0.0.1:{server.server_port}/")
-            page.get_by_role("button", name="Configurar busca").click()
+            page.get_by_role("button", name="Limpeza", exact=True).click()
             page.locator("#rule-off-topic").wait_for()
             page.wait_for_function("() => document.querySelector('#rule-off-topic').checked")
-            assert page.get_by_role("heading", name="Exclusões e limpeza").is_visible()
+            assert page.get_by_role("heading", name="Manter a lista só com o que presta").is_visible()
 
             page.locator("#rule-off-topic").uncheck()
             page.get_by_text("Regras salvas").wait_for()
@@ -634,6 +639,135 @@ def test_dashboard_exclusions_section_saves_rules_and_shows_breakdown(tmp_path: 
             page.get_by_role("button", name="Ver o que seria removido").click()
             page.get_by_text("1 de 3 vagas seriam removidas.").wait_for()
             assert "fora do seu perfil" in page.locator("#cleanup-breakdown").inner_text()
+            assert "Dev Sênior" in page.locator("#cleanup-samples").inner_text()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+# --- limpeza: descartadas, amostras, backup e desfazer ---------------------------
+
+
+def test_clean_output_remove_urls_samples_backup_and_undo(tmp_path: Path) -> None:
+    from job_radar.cleanup import CleanupError, backup_info, undo_cleanup
+
+    write_outputs(_result(_mixed_records()), tmp_path)
+
+    preview = clean_output(
+        tmp_path, keep_urls={"https://x.com/1"}, remove_urls={"https://x.com/1"}, dry_run=True
+    )
+    assert preview["removed"]["user_discarded"] == 1
+    assert {sample["title"] for sample in preview["samples"]} >= {"Dev Java"}
+    assert backup_info(tmp_path) is None  # prévia nunca grava backup
+
+    done = clean_output(
+        tmp_path, keep_urls={"https://x.com/2"}, remove_urls={"https://x.com/1"}
+    )
+    assert done["before"] == 3 and done["after"] == 1
+    titles = [
+        json.loads(line)["title"]
+        for line in (tmp_path / "vagas.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert titles == ["Auxiliar"]
+    info = backup_info(tmp_path)
+    assert info is not None and info["jobs"] == 2
+
+    restored = undo_cleanup(tmp_path)
+    assert restored == {"restored": 2, "total": 3}
+    assert backup_info(tmp_path) is None
+    with pytest.raises(CleanupError):
+        undo_cleanup(tmp_path)
+
+
+def test_api_cleanup_remove_discarded_status_and_undo(tmp_path: Path) -> None:
+    write_outputs(_result(_mixed_records()), tmp_path / "output")
+    server, thread, base = _server(tmp_path)
+    try:
+        for url, status in (("https://x.com/1", "DISCARDED"), ("https://x.com/3", "SAVED")):
+            put = Request(
+                f"{base}/api/tracking",
+                data=json.dumps({"url": url, "status": status}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="PUT",
+            )
+            urlopen(put, timeout=3).read()
+
+        _, empty = _call(f"{base}/api/cleanup/status")
+        no_undo_status, _ = _call(f"{base}/api/cleanup/undo", "POST", {})
+        _, without = _call(f"{base}/api/cleanup", "POST", {"dry_run": True})
+        _, with_discarded = _call(
+            f"{base}/api/cleanup", "POST", {"dry_run": True, "remove_discarded": True}
+        )
+        done_status, done = _call(
+            f"{base}/api/cleanup", "POST", {"remove_discarded": True}
+        )
+        _, after = _call(f"{base}/api/cleanup/status")
+        undo_status, undone = _call(f"{base}/api/cleanup/undo", "POST", {})
+        _, final = _call(f"{base}/api/cleanup/status")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert empty == {"backup": None}
+    assert no_undo_status == 400
+    assert "user_discarded" not in without["removed"]
+    assert with_discarded["removed"]["user_discarded"] == 1
+    assert done_status == 200 and done["after"] == 1
+    assert after["backup"]["jobs"] == 2
+    assert undo_status == 200 and undone == {"restored": 2, "total": 3}
+    assert final == {"backup": None}
+
+
+def test_dashboard_cleanup_menu_undo_and_discarded(tmp_path: Path) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from job_radar.webapp import SearchController, create_server
+
+    output = tmp_path / "output"
+    write_outputs(_result(_mixed_records()), output)
+    static_dir = Path(__file__).resolve().parents[1] / "src" / "job_radar" / "web"
+    server = create_server(
+        "127.0.0.1",
+        0,
+        SearchController(output, runner=lambda *_: 0),
+        static_dir,
+        preferences_path=tmp_path / "search-preferences.json",
+        tracking_path=tmp_path / "tracking.json",
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        put = Request(
+            f"http://127.0.0.1:{server.server_port}/api/tracking",
+            data=json.dumps({"url": "https://x.com/1", "status": "DISCARDED"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        urlopen(put, timeout=3).read()
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.on("dialog", lambda dialog: dialog.accept())
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.get_by_role("button", name="Limpeza", exact=True).click()
+            page.get_by_text("2 seriam removidas agora").wait_for()
+            assert page.locator("#undo-box").is_hidden()
+
+            page.locator("#cleanup-discarded").check()
+            page.get_by_text("3 seriam removidas agora").wait_for()
+
+            page.get_by_role("button", name="Limpar agora").click()
+            page.get_by_text("Restam 0 vagas.").wait_for()
+            page.locator("#undo-box").wait_for(state="visible")
+
+            page.get_by_role("button", name="Desfazer última limpeza").click()
+            page.get_by_text("3 vagas devolvidas").wait_for()
+            assert page.locator("#undo-box").is_hidden()
+
+            page.keyboard.press("Escape")
+            page.locator("#cleanup-panel").wait_for(state="hidden")
             browser.close()
     finally:
         server.shutdown()

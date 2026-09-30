@@ -873,6 +873,11 @@ def _dashboard_handler(
             if path == "/api/profiles":
                 self._json(200, self._profiles_payload())
                 return
+            if path == "/api/cleanup/status":
+                from job_radar.cleanup import backup_info
+
+                self._json(200, {"backup": backup_info(controller.output_dir)})
+                return
             if path == "/api/cleanup/rules":
                 self._json(200, self._rules_payload())
                 return
@@ -1057,14 +1062,21 @@ def _dashboard_handler(
                     self._json(409, {"error": "Espere a busca terminar para limpar."})
                     return
                 try:
-                    keep_urls = set(tracking_store.load())
+                    tracked = tracking_store.load()
                 except TrackingError:
-                    keep_urls = set()
+                    tracked = {}
+                remove_urls: set[str] = set()
+                if payload.get("remove_discarded") is True:
+                    remove_urls = {
+                        url for url, entry in tracked.items()
+                        if entry.get("status") == "DISCARDED"
+                    }
                 result = clean_output(
                     controller.output_dir,
-                    keep_urls=keep_urls,
+                    keep_urls=set(tracked) - remove_urls,
                     rules=rules,
                     dry_run=dry_run,
+                    remove_urls=remove_urls,
                 )
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
@@ -1074,8 +1086,24 @@ def _dashboard_handler(
                 return
             self._json(200, result)
 
+        def _post_cleanup_undo(self) -> None:
+            from job_radar.cleanup import CleanupError, undo_cleanup
+
+            if controller.is_running():
+                self._json(409, {"error": "Espere a busca terminar para desfazer."})
+                return
+            try:
+                result = undo_cleanup(controller.output_dir)
+            except (CleanupError, OSError, ValueError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(200, result)
+
         def do_POST(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
             path = self.path.split("?", maxsplit=1)[0]
+            if path == "/api/cleanup/undo":
+                self._post_cleanup_undo()
+                return
             if path in {"/api/profiles/activate", "/api/profiles/delete"}:
                 self._post_profiles(path.rsplit("/", 1)[-1])
                 return

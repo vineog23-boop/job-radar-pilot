@@ -39,7 +39,7 @@ sources:
     kind: json
     start_url: https://primeiravagatech-production.up.railway.app/minhavagatech/vagas/paginated
     enabled: true
-    max_pages: 40
+    max_pages: 60
     min_interval_seconds: 2
     requires_auth: false
     adaptive: false

@@ -178,3 +178,15 @@ footer { color: #515c6e; font-size: 10px; display: flex; justify-content: space-
 .preferences-form fieldset .ghost-button, .cleanup-box select { width: auto; }
 .profile-bar select { flex: 1 1 220px; min-width: 0; }
 .preferences-form fieldset > small { display: block; margin: 6px 0 8px; }
+.exclusions { padding: 18px; border: 1px solid var(--line); border-radius: 13px; background: #0d1119; display: grid; gap: 14px; }
+.exclusions h3 { margin: 0; font-size: 14px; color: #dce2eb; }
+.exclusion-block { padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: #0a0e15; display: grid; gap: 8px; }
+.exclusion-block h4 { margin: 0; font-size: 12px; color: #dce2eb; }
+.exclusion-block small, .exclusions .hint { color: var(--muted); font-size: 11px; }
+.exclusion-block textarea { width: 100%; }
+.inline-field { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: #aeb8c8; font-size: 12px; margin-top: 8px; }
+.inline-field select { background: #0a0e15; color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font-size: 12px; }
+.danger-button { color: var(--red); border-color: rgba(251, 113, 133, 0.4); }
+.danger-button:hover { background: rgba(251, 113, 133, 0.1); }
+.cleanup-breakdown { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12px; color: #aeb8c8; }
+.cleanup-breakdown strong { color: var(--yellow); margin-right: 4px; }

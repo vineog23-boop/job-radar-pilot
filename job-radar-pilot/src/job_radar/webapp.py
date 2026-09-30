@@ -609,6 +609,9 @@ def _dashboard_handler(
             if path == "/api/profiles":
                 self._json(200, self._profiles_payload())
                 return
+            if path == "/api/cleanup/rules":
+                self._json(200, self._rules_payload())
+                return
             if path == "/api/sources":
                 try:
                     payload = self._load_sources_payload()
@@ -723,18 +726,43 @@ def _dashboard_handler(
                 body["preferences"] = self._load_preferences_payload()
             self._json(200, body)
 
+        def _rules_payload(self) -> dict[str, Any]:
+            from job_radar.cleanup import REASON_NAMES, load_rules
+
+            rules = load_rules(self._resolved_preferences_path())
+            return {**rules.to_dict(), "reasons": REASON_NAMES}
+
+        def _put_cleanup_rules(self) -> None:
+            from job_radar.cleanup import CleanupError, rules_from_dict, save_rules
+
+            try:
+                rules = rules_from_dict(self._read_json_body())
+                save_rules(self._resolved_preferences_path(), rules)
+            except TypeError as exc:
+                self._json(415, {"error": str(exc)})
+                return
+            except (CleanupError, OSError, ValueError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(200, self._rules_payload())
+
         def _post_cleanup(self) -> None:
-            from job_radar.cleanup import clean_output
+            from job_radar.cleanup import CleanupRules, clean_output, load_rules
 
             try:
                 payload = self._read_json_body()
-                max_age = payload.get("max_age_days")
-                if max_age is not None and (
-                    isinstance(max_age, bool)
-                    or not isinstance(max_age, int)
-                    or not 1 <= max_age <= 3650
-                ):
-                    raise ValueError("max_age_days deve ser um inteiro de 1 a 3650.")
+                rules = load_rules(self._resolved_preferences_path())
+                if "max_age_days" in payload:
+                    max_age = payload["max_age_days"]
+                    if max_age is not None and (
+                        isinstance(max_age, bool)
+                        or not isinstance(max_age, int)
+                        or not 1 <= max_age <= 3650
+                    ):
+                        raise ValueError("max_age_days deve ser um inteiro de 1 a 3650.")
+                    rules = CleanupRules(
+                        rules.off_topic, rules.excluded, rules.expired, max_age
+                    )
                 dry_run = bool(payload.get("dry_run", False))
                 if controller.is_running():
                     self._json(409, {"error": "Espere a busca terminar para limpar."})
@@ -746,7 +774,7 @@ def _dashboard_handler(
                 result = clean_output(
                     controller.output_dir,
                     keep_urls=keep_urls,
-                    max_age_days=max_age,
+                    rules=rules,
                     dry_run=dry_run,
                 )
             except TypeError as exc:
@@ -813,6 +841,9 @@ def _dashboard_handler(
                 return
             if path == "/api/profiles":
                 self._post_profiles("save")
+                return
+            if path == "/api/cleanup/rules":
+                self._put_cleanup_rules()
                 return
             if path != "/api/preferences":
                 self._json(404, {"error": "Recurso nao encontrado."})

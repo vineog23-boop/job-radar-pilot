@@ -126,28 +126,47 @@
             <small>Uma por linha (ex.: java, spring boot, sql). Pesam na aderência; em branco usa o perfil padrão.</small>
             <textarea id="technologies" rows="4" maxlength="2440"></textarea>
           </label>
-          <label class="wide-field" for="excluded-terms">
-            <strong>Termos de exclusão</strong>
-            <small>Um por linha (ex.: tech lead, estágio em RH). Níveis que você marcou acima nunca são excluídos.</small>
-            <textarea id="excluded-terms" rows="4" maxlength="2440"></textarea>
-          </label>
-          <fieldset class="wide-field cleanup-box">
-            <legend>Limpeza de vagas inúteis</legend>
-            <small>Novas coletas já descartam vagas fora da área, fora do seu perfil e com inscrições encerradas. Aqui você limpa o que já foi salvo. Vagas marcadas como salva, aplicada ou descartada nunca são apagadas.</small>
-            <label for="cleanup-age">Remover também vagas publicadas há mais de
-              <select id="cleanup-age">
-                <option value="">— não remover por idade —</option>
-                <option value="30">30 dias</option>
-                <option value="60">60 dias</option>
-                <option value="90">90 dias</option>
-              </select>
-            </label>
-            <div class="chip-row">
-              <button id="cleanup-preview" class="ghost-button" type="button">Ver o que seria removido</button>
-              <button id="cleanup-run" class="ghost-button" type="button">Limpar agora</button>
+          <section class="wide-field exclusions" aria-labelledby="exclusions-title">
+            <h3 id="exclusions-title">Exclusões e limpeza</h3>
+
+            <div class="exclusion-block">
+              <h4>1. Termos que você nunca quer ver</h4>
+              <label for="excluded-terms">
+                <small>Um por linha (ex.: tech lead, estágio em RH). Vagas com esses termos no cargo ficam fora do perfil. Os níveis que você marcou acima nunca são excluídos.</small>
+                <textarea id="excluded-terms" rows="3" maxlength="2440"></textarea>
+              </label>
+              <small class="hint">Vale ao salvar as configurações.</small>
             </div>
-            <p id="cleanup-status" class="preferences-status" aria-live="polite"></p>
-          </fieldset>
+
+            <div class="exclusion-block">
+              <h4>2. Descartar automaticamente nas próximas coletas</h4>
+              <small>Vagas descartadas nem são salvas. As que você marcou como salva, aplicada ou descartada são sempre mantidas.</small>
+              <label class="check-option"><input id="rule-off-topic" type="checkbox"> Fora da área de tecnologia</label>
+              <label class="check-option"><input id="rule-excluded" type="checkbox"> Fora do meu perfil (nível, local ou modelo de trabalho)</label>
+              <label class="check-option"><input id="rule-expired" type="checkbox"> Inscrições já encerradas</label>
+              <label class="inline-field" for="rule-age">Publicadas há mais de
+                <select id="rule-age">
+                  <option value="">— sem limite de idade —</option>
+                  <option value="30">30 dias</option>
+                  <option value="60">60 dias</option>
+                  <option value="90">90 dias</option>
+                  <option value="180">180 dias</option>
+                </select>
+              </label>
+              <small id="rules-status" class="hint" aria-live="polite">Salvo automaticamente ao mudar.</small>
+            </div>
+
+            <div class="exclusion-block">
+              <h4>3. Limpar o que já foi salvo</h4>
+              <small>Aplica as regras acima às vagas que já estão na lista. Veja antes o que sairia.</small>
+              <div class="chip-row">
+                <button id="cleanup-preview" class="ghost-button" type="button">Ver o que seria removido</button>
+                <button id="cleanup-run" class="ghost-button danger-button" type="button">Limpar agora</button>
+              </div>
+              <ul id="cleanup-breakdown" class="cleanup-breakdown" aria-live="polite"></ul>
+              <p id="cleanup-status" class="preferences-status" aria-live="polite"></p>
+            </div>
+          </section>
           <div class="preferences-footer">
             <p id="preferences-status" class="preferences-status" aria-live="polite"></p>
             <button id="save-preferences" class="primary-button compact-button" type="submit">Salvar configurações</button>

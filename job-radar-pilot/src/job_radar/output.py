@@ -234,6 +234,7 @@ def write_outputs(
     prune: bool = False,
     keep_urls: Any = (),
     max_age_days: int | None = None,
+    rules: Any = None,
 ) -> OutputManifest:
     """Grava JSONL, CSV e relatório.
 
@@ -265,7 +266,10 @@ def write_outputs(
         from job_radar.cleanup import prune_payloads
 
         payloads_list, discarded = prune_payloads(
-            payloads_list, keep_urls=keep_urls, max_age_days=max_age_days
+            payloads_list,
+            keep_urls=keep_urls,
+            max_age_days=max_age_days,
+            rules=rules,
         )
     payloads = tuple(payloads_list)
 

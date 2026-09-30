@@ -377,9 +377,15 @@ O Radar não é só para Java júnior. No painel, em **Configurar busca**:
 
 Tecnologias fora das listas prontas podem ser digitadas livremente; qualquer palavra da lista que não seja uma ferramenta de apoio (docker, sql, git…) conta como stack principal do perfil.
 
-### Limpeza de vagas inúteis
+### Exclusões e limpeza
 
-Por padrão a coleta **não salva** vagas fora da área de tecnologia, fora do seu perfil (nível, local ou modelo) ou com inscrição encerrada (`--keep-all` mantém tudo; `--max-age-days N` descarta as antigas). Vagas que você marcou como salva/aplicada/descartada nunca são apagadas. O botão **Limpar agora** (com prévia) aplica a mesma regra ao que já está salvo.
+No painel, o bloco **Exclusões e limpeza** tem três partes:
+
+1. **Termos que você nunca quer ver** — vagas com esses termos no cargo ficam fora do perfil (os níveis que você marcou nunca são excluídos).
+2. **Descartar automaticamente nas próximas coletas** — caixas para *fora da área de tecnologia*, *fora do meu perfil* (nível, local, modelo) e *inscrições encerradas*, mais uma idade máxima opcional (30 a 180 dias). Vagas descartadas nem são salvas. As regras são gravadas ao mudar (`cleanup-rules.json`, ao lado das preferências) e a coleta as usa; `--keep-all` ignora as regras e mantém tudo, `--max-age-days N` sobrepõe a idade.
+3. **Limpar o que já foi salvo** — aplica as mesmas regras à lista atual. *Ver o que seria removido* mostra a contagem por motivo antes de *Limpar agora*.
+
+Vagas que você marcou como salva, aplicada ou descartada nunca são apagadas.
 ## Rotina diária e portais de tecnologia
 
 - `collect --tech-only` consulta apenas portais marcados com `tech_focus: true` em `config/sources.yaml`.

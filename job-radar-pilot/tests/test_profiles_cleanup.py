@@ -514,3 +514,128 @@ def test_dashboard_panel_stacks_profiles_and_cleanup(tmp_path: Path) -> None:
 
     remaining = (output / "vagas.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(remaining) == 1
+
+
+# --- regras de descarte configuráveis -------------------------------------------
+
+
+def test_rules_disable_individual_reasons() -> None:
+    from job_radar.cleanup import CleanupRules
+
+    off_topic = {"match_labels": ["RELEVANCE:OFF_TOPIC"]}
+    excluded = {"match_labels": ["FIT:EXCLUDE"]}
+    expired = {"match_labels": [], "application_deadline": "2026-09-01T00:00:00+00:00"}
+    rules = CleanupRules(off_topic=False, excluded=True, expired=False)
+
+    assert discard_reason(off_topic, now=NOW, rules=rules) is None
+    assert discard_reason(excluded, now=NOW, rules=rules) == "excluded"
+    assert discard_reason(expired, now=NOW, rules=rules) is None
+
+
+def test_rules_validation_and_persistence(tmp_path: Path) -> None:
+    from job_radar.cleanup import (
+        CleanupError,
+        CleanupRules,
+        load_rules,
+        rules_from_dict,
+        save_rules,
+    )
+
+    prefs = tmp_path / "search-preferences.json"
+    assert load_rules(prefs) == CleanupRules()  # sem arquivo: padrão seguro
+
+    save_rules(prefs, CleanupRules(off_topic=False, max_age_days=60))
+    assert load_rules(prefs) == CleanupRules(off_topic=False, max_age_days=60)
+
+    (tmp_path / "cleanup-rules.json").write_text("{quebrado", encoding="utf-8")
+    assert load_rules(prefs) == CleanupRules()
+
+    for bad in ({"off_topic": "sim"}, {"max_age_days": 0}, {"max_age_days": True}, {"x": 1}):
+        with pytest.raises(CleanupError):
+            rules_from_dict(bad)
+
+
+def test_write_outputs_respects_rules(tmp_path: Path) -> None:
+    from job_radar.cleanup import CleanupRules
+
+    manifest = write_outputs(
+        _result(_mixed_records()),
+        tmp_path,
+        prune=True,
+        rules=CleanupRules(off_topic=False),
+    )
+
+    titles = [
+        json.loads(line)["title"]
+        for line in manifest.jsonl_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert titles == ["Dev Java", "Auxiliar"]
+
+
+def test_api_cleanup_rules_round_trip_and_used_by_cleanup(tmp_path: Path) -> None:
+    write_outputs(_result(_mixed_records()), tmp_path / "output")
+    server, thread, base = _server(tmp_path)
+    try:
+        _, defaults = _call(f"{base}/api/cleanup/rules")
+        status, saved = _call(
+            f"{base}/api/cleanup/rules",
+            "PUT",
+            {"off_topic": False, "excluded": True, "expired": True, "max_age_days": None},
+        )
+        bad_status, _ = _call(f"{base}/api/cleanup/rules", "PUT", {"max_age_days": 5000})
+        _, preview = _call(f"{base}/api/cleanup", "POST", {"dry_run": True})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert defaults["off_topic"] is True and "off_topic" in defaults["reasons"]
+    assert status == 200 and saved["off_topic"] is False
+    assert bad_status == 400
+    assert preview["removed"] == {"excluded": 1}
+    assert preview["removed_labels"]["excluded"].startswith("fora do seu perfil")
+
+
+def test_dashboard_exclusions_section_saves_rules_and_shows_breakdown(tmp_path: Path) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from job_radar.webapp import SearchController, create_server
+
+    output = tmp_path / "output"
+    write_outputs(_result(_mixed_records()), output)
+    static_dir = Path(__file__).resolve().parents[1] / "src" / "job_radar" / "web"
+    server = create_server(
+        "127.0.0.1",
+        0,
+        SearchController(output, runner=lambda *_: 0),
+        static_dir,
+        preferences_path=tmp_path / "search-preferences.json",
+        tracking_path=tmp_path / "tracking.json",
+    )
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.get_by_role("button", name="Configurar busca").click()
+            page.locator("#rule-off-topic").wait_for()
+            page.wait_for_function("() => document.querySelector('#rule-off-topic').checked")
+            assert page.get_by_role("heading", name="Exclusões e limpeza").is_visible()
+
+            page.locator("#rule-off-topic").uncheck()
+            page.get_by_text("Regras salvas").wait_for()
+            saved = json.loads(
+                (tmp_path / "cleanup-rules.json").read_text(encoding="utf-8")
+            )
+            assert saved["off_topic"] is False
+
+            page.get_by_role("button", name="Ver o que seria removido").click()
+            page.get_by_text("1 de 3 vagas seriam removidas.").wait_for()
+            assert "fora do seu perfil" in page.locator("#cleanup-breakdown").inner_text()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

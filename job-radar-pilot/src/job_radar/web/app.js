@@ -60,7 +60,12 @@ const elements = {
   profileDelete: document.querySelector("#profile-delete"),
   stackChips: document.querySelector("#stack-chips"),
   applySuggestions: document.querySelector("#apply-suggestions"),
-  cleanupAge: document.querySelector("#cleanup-age"),
+  ruleOffTopic: document.querySelector("#rule-off-topic"),
+  ruleExcluded: document.querySelector("#rule-excluded"),
+  ruleExpired: document.querySelector("#rule-expired"),
+  ruleAge: document.querySelector("#rule-age"),
+  rulesStatus: document.querySelector("#rules-status"),
+  cleanupBreakdown: document.querySelector("#cleanup-breakdown"),
   cleanupPreview: document.querySelector("#cleanup-preview"),
   cleanupRun: document.querySelector("#cleanup-run"),
   cleanupStatus: document.querySelector("#cleanup-status"),
@@ -807,21 +812,66 @@ async function deleteProfile() {
   }
 }
 
+function applyRulesToForm(rules) {
+  elements.ruleOffTopic.checked = rules.off_topic !== false;
+  elements.ruleExcluded.checked = rules.excluded !== false;
+  elements.ruleExpired.checked = rules.expired !== false;
+  elements.ruleAge.value = rules.max_age_days ? String(rules.max_age_days) : "";
+}
+
+async function loadCleanupRules() {
+  try {
+    const response = await fetch("/api/cleanup/rules", { cache: "no-store" });
+    applyRulesToForm(await response.json());
+  } catch (error) {
+    elements.rulesStatus.textContent = `Não foi possível carregar as regras: ${error.message}`;
+  }
+}
+
+async function saveCleanupRules() {
+  elements.rulesStatus.textContent = "Salvando…";
+  try {
+    const response = await fetch("/api/cleanup/rules", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        off_topic: elements.ruleOffTopic.checked,
+        excluded: elements.ruleExcluded.checked,
+        expired: elements.ruleExpired.checked,
+        max_age_days: elements.ruleAge.value ? Number(elements.ruleAge.value) : null,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    elements.rulesStatus.textContent = "Regras salvas — valem a partir da próxima coleta.";
+  } catch (error) {
+    elements.rulesStatus.textContent = `Não foi possível salvar as regras: ${error.message}`;
+  }
+}
+
+function renderBreakdown(result) {
+  const labels = result.removed_labels ?? {};
+  const items = Object.entries(result.removed ?? {}).map(([reason, count]) => {
+    const item = document.createElement("li");
+    item.appendChild(textElement("strong", "", String(count)));
+    item.appendChild(document.createTextNode(` ${labels[reason] ?? reason}`));
+    return item;
+  });
+  elements.cleanupBreakdown.replaceChildren(...items);
+}
+
 async function runCleanup(dryRun) {
-  const age = elements.cleanupAge.value;
   if (!dryRun && !window.confirm("Remover as vagas inúteis já salvas? Isso não pode ser desfeito.")) {
     return;
   }
   elements.cleanupStatus.textContent = dryRun ? "Calculando…" : "Limpando…";
   try {
-    const result = await profileRequest("/api/cleanup", {
-      dry_run: dryRun,
-      max_age_days: age ? Number(age) : null,
-    });
+    const result = await profileRequest("/api/cleanup", { dry_run: dryRun });
     const removed = Object.values(result.removed ?? {}).reduce((sum, n) => sum + n, 0);
+    renderBreakdown(result);
     elements.cleanupStatus.textContent = dryRun
-      ? `${removed} de ${result.before} vagas seriam removidas. ${result.summary ?? ""}`
-      : `${result.summary ?? "Concluído."} Restam ${result.after} vagas.`;
+      ? `${removed} de ${result.before} vagas seriam removidas.`
+      : `${removed} removidas. Restam ${result.after} vagas.`;
     if (!dryRun) await refreshState();
   } catch (error) {
     elements.cleanupStatus.textContent = `Não foi possível limpar: ${error.message}`;
@@ -840,7 +890,7 @@ async function loadPreferences() {
     fillPreferencesForm(payload);
     preferencesLoaded = true;
     elements.preferencesStatus.textContent = "Configurações atuais carregadas.";
-    await Promise.all([loadPresets(), loadProfiles()]);
+    await Promise.all([loadPresets(), loadProfiles(), loadCleanupRules()]);
     return true;
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível carregar: ${error.message}`;
@@ -917,6 +967,9 @@ elements.applySuggestions.addEventListener("click", applySuggestions);
 elements.profileSave.addEventListener("click", saveProfile);
 elements.profileSelect.addEventListener("change", switchProfile);
 elements.profileDelete.addEventListener("click", deleteProfile);
+[elements.ruleOffTopic, elements.ruleExcluded, elements.ruleExpired, elements.ruleAge].forEach(
+  (control) => control.addEventListener("change", saveCleanupRules)
+);
 elements.cleanupPreview.addEventListener("click", () => runCleanup(true));
 elements.cleanupRun.addEventListener("click", () => runCleanup(false));
 document.querySelectorAll("[data-location]").forEach((chip) => {

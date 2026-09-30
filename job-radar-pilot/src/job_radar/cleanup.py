@@ -7,17 +7,84 @@ salva/aplicada/descartada nunca são apagadas.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
-from typing import Any, Collection, Iterable
+from typing import Any, Collection, Iterable, Mapping
 from uuid import uuid4
 
 REASON_OFF_TOPIC = "off_topic"
 REASON_EXCLUDED = "excluded"
 REASON_EXPIRED = "expired"
 REASON_STALE = "stale"
+
+class CleanupError(ValueError):
+    """Regras de limpeza fora do contrato aceito."""
+
+
+@dataclass(frozen=True, slots=True)
+class CleanupRules:
+    """O que descartar. Padrão: tudo que é claramente inútil, sem limite de idade."""
+
+    off_topic: bool = True
+    excluded: bool = True
+    expired: bool = True
+    max_age_days: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "off_topic": self.off_topic,
+            "excluded": self.excluded,
+            "expired": self.expired,
+            "max_age_days": self.max_age_days,
+        }
+
+
+_RULE_KEYS = {"off_topic", "excluded", "expired", "max_age_days"}
+
+
+def rules_from_dict(payload: Mapping[str, Any]) -> CleanupRules:
+    if not isinstance(payload, Mapping):
+        raise CleanupError("Regras de limpeza devem ser um objeto JSON.")
+    unknown = set(payload) - _RULE_KEYS
+    if unknown:
+        raise CleanupError(f"Regras desconhecidas: {sorted(unknown)}.")
+    values: dict[str, Any] = {}
+    for key in ("off_topic", "excluded", "expired"):
+        if key in payload:
+            if not isinstance(payload[key], bool):
+                raise CleanupError(f"{key} deve ser verdadeiro ou falso.")
+            values[key] = payload[key]
+    age = payload.get("max_age_days")
+    if age is not None:
+        if isinstance(age, bool) or not isinstance(age, int) or not 1 <= age <= 3650:
+            raise CleanupError("max_age_days deve ser um inteiro de 1 a 3650.")
+        values["max_age_days"] = age
+    return CleanupRules(**values)
+
+
+def rules_path(preferences_path: Path) -> Path:
+    return preferences_path.parent / "cleanup-rules.json"
+
+
+def load_rules(preferences_path: Path) -> CleanupRules:
+    """Regras salvas; arquivo ausente ou inválido volta ao padrão seguro."""
+
+    try:
+        return rules_from_dict(
+            json.loads(rules_path(preferences_path).read_text(encoding="utf-8"))
+        )
+    except (OSError, json.JSONDecodeError, CleanupError):
+        return CleanupRules()
+
+
+def save_rules(preferences_path: Path, rules: CleanupRules) -> None:
+    path = rules_path(preferences_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    replace_atomically(path, json.dumps(rules.to_dict(), indent=2) + "\n")
+
 
 REASON_NAMES = {
     REASON_OFF_TOPIC: "fora da área de tecnologia",
@@ -45,16 +112,23 @@ def discard_reason(
     *,
     now: datetime,
     max_age_days: int | None = None,
+    rules: CleanupRules | None = None,
 ) -> str | None:
     """Motivo para descartar a vaga, ou ``None`` se ela deve ficar."""
 
+    active = rules or CleanupRules()
+    if max_age_days is not None:
+        active = CleanupRules(
+            active.off_topic, active.excluded, active.expired, max_age_days
+        )
+    max_age_days = active.max_age_days
     labels = job.get("match_labels") or []
-    if "RELEVANCE:OFF_TOPIC" in labels:
+    if active.off_topic and "RELEVANCE:OFF_TOPIC" in labels:
         return REASON_OFF_TOPIC
-    if "FIT:EXCLUDE" in labels:
+    if active.excluded and "FIT:EXCLUDE" in labels:
         return REASON_EXCLUDED
     deadline = _parse_datetime(job.get("application_deadline"))
-    if deadline is not None and deadline < now:
+    if active.expired and deadline is not None and deadline < now:
         return REASON_EXPIRED
     if max_age_days is not None:
         published = _parse_datetime(job.get("published_at"))
@@ -69,6 +143,7 @@ def prune_payloads(
     keep_urls: Collection[str] = (),
     now: datetime | None = None,
     max_age_days: int | None = None,
+    rules: CleanupRules | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Separa as vagas úteis das descartáveis. Retorna (mantidas, contagem)."""
 
@@ -79,7 +154,9 @@ def prune_payloads(
         if str(job.get("canonical_url")) in keep_urls:
             kept.append(job)
             continue
-        reason = discard_reason(job, now=moment, max_age_days=max_age_days)
+        reason = discard_reason(
+            job, now=moment, max_age_days=max_age_days, rules=rules
+        )
         if reason is None:
             kept.append(job)
         else:
@@ -101,6 +178,7 @@ def clean_output(
     max_age_days: int | None = None,
     dry_run: bool = False,
     now: datetime | None = None,
+    rules: CleanupRules | None = None,
 ) -> dict[str, Any]:
     """Limpa ``vagas.jsonl``/``vagas.csv`` já salvos (sem nova coleta)."""
 
@@ -115,7 +193,11 @@ def clean_output(
         if line.strip()
     ]
     kept, removed = prune_payloads(
-        payloads, keep_urls=keep_urls, now=now, max_age_days=max_age_days
+        payloads,
+        keep_urls=keep_urls,
+        now=now,
+        max_age_days=max_age_days,
+        rules=rules,
     )
     if not dry_run and removed:
         rewrite_payloads(output_dir, kept)
@@ -123,6 +205,9 @@ def clean_output(
         "before": len(payloads),
         "after": len(kept),
         "removed": removed,
+        "removed_labels": {
+            reason: REASON_NAMES.get(reason, reason) for reason in removed
+        },
         "dry_run": dry_run,
         "summary": describe_removed(removed),
     }

@@ -29,7 +29,9 @@ from job_radar.preferences import (
     PreferencesError,
     apply_preferences,
     load_preferences,
+    preferences_path,
 )
+from job_radar.cleanup import load_rules
 from job_radar.selector_suggestion import suggest_from_page
 from job_radar.tracking import TrackingError, TrackingStore
 
@@ -237,6 +239,7 @@ def _collect(args: argparse.Namespace) -> int:
         prune=not getattr(args, "keep_all", False),
         keep_urls=keep_urls,
         max_age_days=getattr(args, "max_age_days", None),
+        rules=load_rules(preferences_path()),
     )
     if manifest.discarded:
         print(f"DISCARDED: {manifest.discarded} vagas inuteis nao foram salvas.")

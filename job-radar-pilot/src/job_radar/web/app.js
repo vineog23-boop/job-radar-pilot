@@ -40,6 +40,10 @@ const elements = {
   closeLinkedin: document.querySelector("#close-linkedin"),
   linkedinSearches: document.querySelector("#linkedin-searches"),
   linkedinFilters: document.querySelector("#linkedin-filters"),
+  linkedinPeriod: document.querySelector("#linkedin-period"),
+  linkedinImportText: document.querySelector("#linkedin-import-text"),
+  linkedinImportButton: document.querySelector("#linkedin-import-button"),
+  linkedinImportStatus: document.querySelector("#linkedin-import-status"),
   quickSearchButton: document.querySelector("#quick-search-button"),
   sourcesButton: document.querySelector("#sources-button"),
   sourcesPicker: document.querySelector("#sources-picker"),
@@ -594,13 +598,32 @@ async function loadLinkedinSearches() {
     textElement("p", "linkedin-loading", "Preparando pesquisas…")
   );
   try {
-    const response = await fetch("/api/linkedin-searches", { cache: "no-store" });
+    const period = elements.linkedinPeriod.value;
+    const url = period === "week"
+      ? "/api/linkedin-searches"
+      : `/api/linkedin-searches?period=${encodeURIComponent(period)}`;
+    const response = await fetch(url, { cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    const linksByTerm = new Map((payload.links ?? []).map((item) => [item.term, item.locations]));
     const terms = (payload.searches ?? []).map((search) => {
       const row = document.createElement("div");
       row.className = "linkedin-term";
       row.appendChild(textElement("span", "", search.label));
+      const openers = document.createElement("span");
+      openers.className = "linkedin-open";
+      for (const location of linksByTerm.get(search.label) ?? []) {
+        const link = document.createElement("a");
+        link.href = location.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = (payload.links?.[0]?.locations?.length ?? 0) > 1
+          ? `Abrir · ${location.label}`
+          : "Abrir";
+        link.title = `Buscar "${search.label}" em ${location.label}`;
+        openers.appendChild(link);
+      }
+      row.appendChild(openers);
       const copy = document.createElement("button");
       copy.type = "button";
       copy.textContent = "Copiar";
@@ -628,6 +651,34 @@ async function loadLinkedinSearches() {
     );
   } finally {
     elements.linkedinButton.disabled = false;
+  }
+}
+
+async function importLinkedinText() {
+  const text = elements.linkedinImportText.value.trim();
+  if (!text) {
+    elements.linkedinImportStatus.textContent = "Cole links, texto de alerta ou CSV primeiro.";
+    return;
+  }
+  elements.linkedinImportButton.disabled = true;
+  elements.linkedinImportStatus.textContent = "Importando…";
+  try {
+    const result = await profileRequest("/api/linkedin/import", { text });
+    const parts = [`${result.added} nova(s)`];
+    if (result.updated) parts.push(`${result.updated} atualizada(s)`);
+    if (result.skipped) parts.push(`${result.skipped} já estavam na lista`);
+    if (result.ignored) parts.push(`${result.ignored} link(s) ignorado(s)`);
+    elements.linkedinImportStatus.textContent = result.found
+      ? `Importado: ${parts.join(" · ")}.`
+      : "Nenhum link de vaga do LinkedIn encontrado no texto.";
+    if (result.added || result.updated) {
+      elements.linkedinImportText.value = "";
+      await refreshState();
+    }
+  } catch (error) {
+    elements.linkedinImportStatus.textContent = `Não foi possível importar: ${error.message}`;
+  } finally {
+    elements.linkedinImportButton.disabled = false;
   }
 }
 
@@ -985,6 +1036,11 @@ elements.linkedinButton.addEventListener("click", async () => {
   if (willShow) await loadLinkedinSearches();
 });
 elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
+elements.linkedinPeriod.addEventListener("change", () => {
+  linkedinLoaded = false;
+  loadLinkedinSearches();
+});
+elements.linkedinImportButton.addEventListener("click", importLinkedinText);
 [
   elements.textFilter,
   elements.sourceFilter,

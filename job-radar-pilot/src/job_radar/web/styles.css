@@ -64,6 +64,17 @@ h1 em { color: #9ca6b7; font-style: normal; font-weight: 530; }
 .linkedin-home-link { display: inline-flex; color: #08101a; background: #68a9e8; border-radius: 10px; padding: 10px 14px; margin: 0 0 14px; font-size: 12px; font-weight: 800; text-decoration: none; }
 .linkedin-term { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #d9ecff; background: #0d1520; border: 1px solid rgba(74,153,230,.22); border-radius: 11px; padding: 8px 9px 8px 12px; font-size: 12px; }
 .linkedin-term button { color: #bcdcff; background: rgba(74,153,230,.12); border: 1px solid rgba(74,153,230,.25); border-radius: 8px; padding: 6px 8px; font-size: 10px; }
+.linkedin-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 0 0 14px; }
+.linkedin-toolbar .linkedin-home-link { margin: 0; }
+.linkedin-period { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.linkedin-period select { color: #d9ecff; background: #0d1520; border: 1px solid rgba(74,153,230,.3); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+.linkedin-open { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.linkedin-open a { color: #08101a; background: #68a9e8; border-radius: 8px; padding: 6px 9px; font-size: 10px; font-weight: 800; text-decoration: none; white-space: nowrap; }
+.linkedin-open a:hover { background: #8dc0f0; }
+.linkedin-import { margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(74,153,230,.2); }
+.linkedin-import h3 { margin: 0 0 6px; font-size: 14px; }
+.linkedin-import textarea { width: 100%; box-sizing: border-box; color: var(--text, #e6edf5); background: #0d1520; border: 1px solid rgba(74,153,230,.3); border-radius: 11px; padding: 10px 12px; font: 12px/1.5 ui-monospace, Consolas, monospace; resize: vertical; }
+.linkedin-import-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 10px; }
 .linkedin-loading, .linkedin-filters { color: var(--muted); font-size: 11px; }
 .linkedin-filters { margin: 14px 0 0; }
 .panel-copy { color: var(--muted); font-size: 13px; line-height: 1.55; max-width: 720px; margin: -8px 0 22px; }

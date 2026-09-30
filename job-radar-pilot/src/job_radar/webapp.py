@@ -497,12 +497,12 @@ def _dashboard_handler(
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self._write(status, "application/json; charset=utf-8", body)
 
-        def _read_json_body(self) -> dict[str, Any]:
+        def _read_json_body(self, limit: int = 16_384) -> dict[str, Any]:
             content_type = self.headers.get("Content-Type", "").split(";", maxsplit=1)[0]
             if content_type != "application/json":
                 raise TypeError("Use application/json.")
             content_length = int(self.headers.get("Content-Length", "0"))
-            if not 0 <= content_length <= 16_384:
+            if not 0 <= content_length <= limit:
                 raise ValueError("Corpo excede o limite permitido.")
             payload = json.loads(self.rfile.read(content_length) or b"{}")
             if not isinstance(payload, dict):
@@ -564,12 +564,38 @@ def _dashboard_handler(
                 ]
             }
 
-        def _load_linkedin_plan(self) -> dict[str, object]:
+        def _load_linkedin_plan(self, period: str = "week") -> dict[str, object]:
             from job_radar.manual_search import build_linkedin_search_plan
             from job_radar.preferences import preferences_from_dict
 
             preferences = preferences_from_dict(self._load_preferences_payload())
-            return build_linkedin_search_plan(preferences)
+            return build_linkedin_search_plan(preferences, period=period)
+
+        def _post_linkedin_import(self) -> None:
+            from job_radar.config import load_profile
+            from job_radar.linkedin_import import MAX_TEXT_CHARS, import_into_output
+            from job_radar.preferences import apply_preferences, preferences_from_dict
+
+            try:
+                payload = self._read_json_body(limit=MAX_TEXT_CHARS * 2)
+                text = payload.get("text")
+                if not isinstance(text, str) or not text.strip():
+                    raise ValueError("Cole links de vagas, o texto de um alerta ou o CSV.")
+                if controller.is_running():
+                    self._json(409, {"error": "Espere a busca terminar para importar."})
+                    return
+                profile = apply_preferences(
+                    load_profile(_project_root() / "config" / "profile.yaml"),
+                    preferences_from_dict(self._load_preferences_payload()),
+                )
+                result = import_into_output(controller.output_dir, text, profile)
+            except TypeError as exc:
+                self._json(415, {"error": str(exc)})
+                return
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(200, result)
 
         def do_GET(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
             request_url = urlsplit(self.path)
@@ -622,7 +648,8 @@ def _dashboard_handler(
                 return
             if path == "/api/linkedin-searches":
                 try:
-                    payload = self._load_linkedin_plan()
+                    period = parse_qs(request_url.query).get("period", ["week"])[-1]
+                    payload = self._load_linkedin_plan(period)
                 except (OSError, ValueError) as exc:
                     self._json(500, {"error": str(exc)})
                     return
@@ -792,6 +819,9 @@ def _dashboard_handler(
                 return
             if path == "/api/cleanup":
                 self._post_cleanup()
+                return
+            if path == "/api/linkedin/import":
+                self._post_linkedin_import()
                 return
             if path != "/api/search":
                 self._json(404, {"error": "Recurso nao encontrado."})

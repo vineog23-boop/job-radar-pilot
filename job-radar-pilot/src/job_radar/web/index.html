@@ -66,10 +66,29 @@
           <div><p class="eyebrow linkedin-eyebrow">LINKEDIN · BUSCA MANUAL</p><h2 id="linkedin-title">Abra as pesquisas oficiais</h2></div>
           <button id="close-linkedin" class="ghost-button" type="button">Fechar</button>
         </div>
-        <p class="panel-copy">Abra a página inicial e copie um termo por vez. O Radar não raspa a página, não acessa cookies ou tokens e não inicia candidatura; seu navegador pode usar a sessão que já estiver aberta.</p>
-        <a id="linkedin-home-link" class="linkedin-home-link" href="https://www.linkedin.com/" target="_blank" rel="noopener noreferrer">Abrir LinkedIn</a>
+        <p class="panel-copy">Os links abaixo abrem a busca do LinkedIn já filtrada pelo seu perfil (nível, modelo, local e período), no seu navegador e na sua sessão. O Radar não raspa a página, não acessa cookies ou tokens e não candidata por você.</p>
+        <div class="linkedin-toolbar">
+          <a id="linkedin-home-link" class="linkedin-home-link" href="https://www.linkedin.com/" target="_blank" rel="noopener noreferrer">Abrir LinkedIn</a>
+          <label class="linkedin-period">Publicadas
+            <select id="linkedin-period">
+              <option value="day">nas últimas 24 h</option>
+              <option value="week" selected>na última semana</option>
+              <option value="month">no último mês</option>
+              <option value="any">a qualquer momento</option>
+            </select>
+          </label>
+        </div>
         <div id="linkedin-searches" class="linkedin-searches" aria-live="polite"></div>
         <p id="linkedin-filters" class="linkedin-filters"></p>
+        <div class="linkedin-import">
+          <h3>Trazer vagas do LinkedIn para o Radar</h3>
+          <p class="panel-copy">Achou vagas boas? Cole aqui os links das vagas (ou a URL da busca com a vaga aberta), o texto de um e-mail de alerta ou o CSV do export oficial de dados (Vagas salvas / Candidaturas). O Radar só lê o que você colar, classifica pelo seu perfil e junta à lista.</p>
+          <textarea id="linkedin-import-text" rows="5" placeholder="https://www.linkedin.com/jobs/view/desenvolvedor-java-na-empresa-4012345678&#10;https://www.linkedin.com/jobs/view/4023456789"></textarea>
+          <div class="linkedin-import-actions">
+            <button id="linkedin-import-button" class="primary-button compact-button" type="button">Importar vagas coladas</button>
+            <span id="linkedin-import-status" class="linkedin-filters" role="status"></span>
+          </div>
+        </div>
       </section>
 
       <section id="preferences-panel" class="preferences-panel" hidden aria-labelledby="preferences-title">

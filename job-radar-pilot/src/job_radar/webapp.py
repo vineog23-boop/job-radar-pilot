@@ -106,7 +106,7 @@ _FIT_NAMES = {
 }
 _TRACKING_NAMES = {"SAVED": "Salva", "APPLIED": "Aplicada", "DISCARDED": "Descartada"}
 # Filtro de aderência: "" = relevantes (esconde o que não é de TI), "all" = tudo.
-_MATCH_FILTERS = {"", "all", "ready", "review", "exclude", "offtopic"}
+_MATCH_FILTERS = {"", "all", "ready", "fit", "review", "exclude", "offtopic"}
 _REASON_LABELS = (
     ("RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"),
     ("SENIORITY_MISMATCH:", "nível acima do desejado"),
@@ -186,6 +186,41 @@ def build_jobs_csv(
     return buffer.getvalue().encode("utf-8-sig")
 
 
+_LEVEL_CODES = {"estagio", "junior", "pleno", "senior"}
+_WORKPLACE_CODES = {"REMOTE", "HYBRID", "ONSITE"}
+
+
+def _passes_extra_filters(
+    job: dict[str, Any],
+    min_score: int,
+    levels: Sequence[str],
+    workplaces: Sequence[str],
+    max_age_days: int | None,
+    now: datetime,
+) -> bool:
+    from job_radar.xlsx_export import _parse_datetime, job_score
+
+    if min_score and job_score(job, now) < min_score:
+        return False
+    if workplaces and job.get("workplace_model") not in workplaces:
+        return False
+    if levels:
+        labels = job.get("match_labels") or []
+        found = {str(job.get("seniority") or "").casefold()} | {
+            str(label).removeprefix("SENIORITY_MATCH:")
+            for label in labels
+            if str(label).startswith("SENIORITY_MATCH:")
+        }
+        if not found & set(levels):
+            return False
+    if max_age_days is not None:
+        published = _parse_datetime(job.get("published_at"))
+        # Sem data publicada não dá para provar que é recente: fica de fora.
+        if published is None or (now - published).days > max_age_days:
+            return False
+    return True
+
+
 def filter_jobs_for_export(
     jobs: Sequence[dict[str, Any]],
     *,
@@ -194,12 +229,20 @@ def filter_jobs_for_export(
     match: str = "",
     tracked: str = "",
     tracking: dict[str, dict[str, str]] | None = None,
+    min_score: int = 0,
+    levels: Sequence[str] = (),
+    workplaces: Sequence[str] = (),
+    max_age_days: int | None = None,
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     normalized_filter = _normalized_search_text(text)
     tracking = tracking or {}
+    now = now or datetime.now(timezone.utc)
     result: list[dict[str, Any]] = []
     for job in jobs:
         if source and job.get("source") != source:
+            continue
+        if not _passes_extra_filters(job, min_score, levels, workplaces, max_age_days, now):
             continue
         tracked_status = tracking.get(str(job.get("canonical_url")), {}).get("status")
         if tracked == "active" and tracked_status == "DISCARDED":
@@ -219,6 +262,8 @@ def filter_jobs_for_export(
         elif match != "all" and off_topic:
             continue
         if match == "ready" and state != "READY":
+            continue
+        if match == "fit" and state not in {"READY", "CONDITIONAL"}:
             continue
         if match == "review" and state not in {"CONDITIONAL", "AMBIGUOUS"}:
             continue
@@ -249,6 +294,51 @@ def filter_jobs_for_export(
                 continue
         result.append(job)
     return result
+
+
+_MATCH_NAMES = {
+    "": "Relevantes (só tecnologia)",
+    "all": "Todas",
+    "ready": "Só mais compatíveis",
+    "fit": "Mais compatíveis e a revisar",
+    "review": "A revisar",
+    "exclude": "Fora do perfil",
+    "offtopic": "Fora da área de tecnologia",
+}
+_TRACKED_NAMES = {
+    "": "Todas",
+    "active": "Sem as descartadas",
+    "new": "Só novas",
+    "saved": "Só salvas",
+    "applied": "Só aplicadas",
+    "discarded": "Só descartadas",
+}
+
+
+def describe_export_filters(
+    *,
+    text: str = "",
+    source: str = "",
+    match: str = "",
+    tracked: str = "",
+    min_score: int = 0,
+    levels: Sequence[str] = (),
+    workplaces: Sequence[str] = (),
+    max_age_days: int | None = None,
+) -> list[tuple[str, str]]:
+    return [
+        ("Aderência", _MATCH_NAMES.get(match, match)),
+        ("Acompanhamento", _TRACKED_NAMES.get(tracked, tracked)),
+        ("Score mínimo", str(min_score) if min_score else "sem mínimo"),
+        ("Nível", ", ".join(levels) if levels else "todos"),
+        ("Modelo de trabalho", ", ".join(workplaces) if workplaces else "todos"),
+        (
+            "Publicadas nos últimos",
+            f"{max_age_days} dias" if max_age_days else "qualquer data",
+        ),
+        ("Portal", source or "todos"),
+        ("Busca por texto", text or "—"),
+    ]
 
 
 def stream_process(command: list[str], on_line: ProgressCallback) -> int:
@@ -409,9 +499,10 @@ class SearchController:
         match: str = "",
         tracked: str = "",
         tracking: dict[str, dict[str, str]] | None = None,
+        **extra: Any,
     ) -> bytes:
         jobs = self._filtered_jobs(
-            text=text, source=source, match=match, tracked=tracked, tracking=tracking
+            text=text, source=source, match=match, tracked=tracked, tracking=tracking, **extra
         )
         output = load_output(self._output_dir)
         generated_at = datetime.now().astimezone().strftime("%d/%m/%Y %H:%M")
@@ -434,6 +525,7 @@ class SearchController:
         match: str,
         tracked: str,
         tracking: dict[str, dict[str, str]] | None,
+        **extra: Any,
     ) -> list[dict[str, Any]]:
         output = load_output(self._output_dir)
         if output["read_error"]:
@@ -445,6 +537,7 @@ class SearchController:
             match=match,
             tracked=tracked,
             tracking=tracking,
+            **extra,
         )
 
     def export_csv(
@@ -455,11 +548,52 @@ class SearchController:
         match: str = "",
         tracked: str = "",
         tracking: dict[str, dict[str, str]] | None = None,
+        **extra: Any,
     ) -> bytes:
         jobs = self._filtered_jobs(
-            text=text, source=source, match=match, tracked=tracked, tracking=tracking
+            text=text, source=source, match=match, tracked=tracked, tracking=tracking, **extra
         )
         return build_jobs_csv(jobs, tracking or {})
+
+    def export_xlsx(
+        self,
+        *,
+        text: str = "",
+        source: str = "",
+        match: str = "",
+        tracked: str = "",
+        tracking: dict[str, dict[str, str]] | None = None,
+        **extra: Any,
+    ) -> bytes:
+        from job_radar.xlsx_export import build_jobs_xlsx
+
+        jobs = self._filtered_jobs(
+            text=text, source=source, match=match, tracked=tracked, tracking=tracking, **extra
+        )
+        return build_jobs_xlsx(
+            jobs,
+            tracking or {},
+            filters=describe_export_filters(
+                text=text, source=source, match=match, tracked=tracked, **extra
+            ),
+            reasons_for=fit_reasons,
+        )
+
+    def count_export(
+        self,
+        *,
+        text: str = "",
+        source: str = "",
+        match: str = "",
+        tracked: str = "",
+        tracking: dict[str, dict[str, str]] | None = None,
+        **extra: Any,
+    ) -> int:
+        return len(
+            self._filtered_jobs(
+                text=text, source=source, match=match, tracked=tracked, tracking=tracking, **extra
+            )
+        )
 
 
 def _dashboard_handler(
@@ -524,7 +658,38 @@ def _dashboard_handler(
                 return "Filtro de aderencia invalido."
             if filters["tracked"] and filters["tracked"] not in _TRACKED_FILTERS:
                 return "Filtro de acompanhamento invalido."
-            return filters
+            extras = DashboardHandler._extra_export_filters(parameters)
+            if isinstance(extras, str):
+                return extras
+            return {**filters, **extras}
+
+        @staticmethod
+        def _extra_export_filters(parameters: dict[str, list[str]]) -> dict[str, Any] | str:
+            def last(name: str) -> str:
+                return parameters.get(name, [""])[-1].strip()
+
+            extras: dict[str, Any] = {}
+            if last("min_score"):
+                value = last("min_score")
+                if not value.isdigit() or not 0 <= int(value) <= 100:
+                    return "Score minimo invalido."
+                extras["min_score"] = int(value)
+            if last("max_age_days"):
+                value = last("max_age_days")
+                if not value.isdigit() or not 1 <= int(value) <= 3650:
+                    return "Periodo invalido."
+                extras["max_age_days"] = int(value)
+            levels = [v for v in last("levels").casefold().split(",") if v]
+            if not set(levels) <= _LEVEL_CODES:
+                return "Nivel invalido."
+            if levels:
+                extras["levels"] = tuple(levels)
+            workplaces = [v for v in last("workplaces").upper().split(",") if v]
+            if not set(workplaces) <= _WORKPLACE_CODES:
+                return "Modelo de trabalho invalido."
+            if workplaces:
+                extras["workplaces"] = tuple(workplaces)
+            return extras
 
         def _load_preferences_payload(self) -> dict[str, Any]:
             from job_radar.config import load_profile, load_sources
@@ -672,7 +837,26 @@ def _dashboard_handler(
                     "text/csv; charset=utf-8",
                     "vagas.csv",
                 ),
+                "/api/export/xlsx": (
+                    controller.export_xlsx,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "vagas-" + datetime.now().strftime("%Y-%m-%d") + ".xlsx",
+                ),
             }
+            if path == "/api/export/count":
+                filters = self._export_filters(request_url.query)
+                if isinstance(filters, str):
+                    self._json(400, {"error": filters})
+                    return
+                try:
+                    count = controller.count_export(
+                        **filters, tracking=tracking_store.load()
+                    )
+                except (OutputReadError, TrackingError) as exc:
+                    self._json(500, {"error": str(exc)})
+                    return
+                self._json(200, {"count": count})
+                return
             if path in exports:
                 exporter, content_type, filename = exports[path]
                 filters = self._export_filters(request_url.query)

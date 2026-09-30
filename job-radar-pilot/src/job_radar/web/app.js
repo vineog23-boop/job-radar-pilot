@@ -35,6 +35,18 @@ const elements = {
   workplaceHybrid: document.querySelector("#workplace-hybrid"),
   workplaceOnsite: document.querySelector("#workplace-onsite"),
   downloadReport: document.querySelector("#download-report"),
+  exportButton: document.querySelector("#export-button"),
+  exportPanel: document.querySelector("#export-panel"),
+  closeExport: document.querySelector("#close-export"),
+  exportMatch: document.querySelector("#export-match"),
+  exportMinScore: document.querySelector("#export-min-score"),
+  exportAge: document.querySelector("#export-age"),
+  exportTracked: document.querySelector("#export-tracked"),
+  exportSource: document.querySelector("#export-source"),
+  exportCount: document.querySelector("#export-count"),
+  exportXlsx: document.querySelector("#export-xlsx"),
+  exportCsv: document.querySelector("#export-csv"),
+  exportMd: document.querySelector("#export-md"),
   linkedinButton: document.querySelector("#linkedin-button"),
   linkedinPanel: document.querySelector("#linkedin-panel"),
   closeLinkedin: document.querySelector("#close-linkedin"),
@@ -659,6 +671,83 @@ async function loadLinkedinSearches() {
   }
 }
 
+const EXPORT_PRESETS = {
+  best: { match: "ready", minScore: 70, age: "30", tracked: "active" },
+  fit: { match: "fit", minScore: 0, age: "60", tracked: "active" },
+  new: { match: "fit", minScore: 0, age: "", tracked: "new" },
+  all: { match: "", minScore: 0, age: "", tracked: "active" },
+};
+let exportCountTimer = null;
+
+function checkedExport(name) {
+  return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map((box) => box.value);
+}
+
+function exportQuery() {
+  const parameters = new URLSearchParams();
+  if (elements.exportMatch.value) parameters.set("match", elements.exportMatch.value);
+  const minScore = Number(elements.exportMinScore.value);
+  if (minScore > 0) parameters.set("min_score", String(Math.min(100, Math.floor(minScore))));
+  if (elements.exportAge.value) parameters.set("max_age_days", elements.exportAge.value);
+  if (elements.exportTracked.value) parameters.set("tracked", elements.exportTracked.value);
+  if (elements.exportSource.value) parameters.set("source", elements.exportSource.value);
+  const levels = checkedExport("export-level");
+  if (levels.length) parameters.set("levels", levels.join(","));
+  const workplaces = checkedExport("export-workplace");
+  if (workplaces.length) parameters.set("workplaces", workplaces.join(","));
+  return parameters.toString();
+}
+
+function refreshExportLinks() {
+  const query = exportQuery();
+  const suffix = query ? `?${query}` : "";
+  elements.exportXlsx.href = `/api/export/xlsx${suffix}`;
+  elements.exportCsv.href = `/api/export/csv${suffix}`;
+  elements.exportMd.href = `/api/export/markdown${suffix}`;
+  elements.exportCount.textContent = "Calculando…";
+  clearTimeout(exportCountTimer);
+  exportCountTimer = setTimeout(async () => {
+    try {
+      const response = await fetch(`/api/export/count${suffix}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      elements.exportCount.textContent = payload.count === 1
+        ? "1 vaga será exportada."
+        : `${payload.count} vagas serão exportadas.`;
+      elements.exportXlsx.classList.toggle("is-disabled", payload.count === 0);
+    } catch (error) {
+      elements.exportCount.textContent = `Não foi possível contar: ${error.message}`;
+    }
+  }, 200);
+}
+
+function applyExportPreset(name) {
+  const preset = EXPORT_PRESETS[name];
+  if (!preset) return;
+  elements.exportMatch.value = preset.match;
+  elements.exportMinScore.value = String(preset.minScore);
+  elements.exportAge.value = preset.age;
+  elements.exportTracked.value = preset.tracked;
+  document.querySelectorAll("[data-preset]").forEach((chip) =>
+    chip.setAttribute("aria-pressed", String(chip.dataset.preset === name))
+  );
+  refreshExportLinks();
+}
+
+function showExport(show) {
+  elements.exportPanel.hidden = !show;
+  elements.exportButton.setAttribute("aria-expanded", String(show));
+  if (!show) return;
+  const selected = elements.exportSource.value;
+  const sources = new Set((dashboardState.jobs ?? []).map((job) => job.source).filter(Boolean));
+  elements.exportSource.replaceChildren(
+    new Option("Todos os portais", ""),
+    ...[...sources].sort().map((source) => new Option(source, source))
+  );
+  elements.exportSource.value = sources.has(selected) ? selected : "";
+  refreshExportLinks();
+}
+
 async function importLinkedinText() {
   const text = elements.linkedinImportText.value.trim();
   if (!text) {
@@ -1041,6 +1130,21 @@ elements.linkedinButton.addEventListener("click", async () => {
   if (willShow) await loadLinkedinSearches();
 });
 elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
+elements.exportButton.addEventListener("click", () => showExport(elements.exportPanel.hidden));
+elements.closeExport.addEventListener("click", () => showExport(false));
+document.querySelectorAll("[data-preset]").forEach((chip) =>
+  chip.addEventListener("click", () => applyExportPreset(chip.dataset.preset))
+);
+[
+  elements.exportMatch, elements.exportMinScore, elements.exportAge,
+  elements.exportTracked, elements.exportSource,
+  ...document.querySelectorAll('input[name="export-level"], input[name="export-workplace"]'),
+].forEach((control) =>
+  control.addEventListener("change", () => {
+    document.querySelectorAll("[data-preset]").forEach((chip) => chip.setAttribute("aria-pressed", "false"));
+    refreshExportLinks();
+  })
+);
 elements.linkedinPeriod.addEventListener("change", () => {
   linkedinLoaded = false;
   loadLinkedinSearches();

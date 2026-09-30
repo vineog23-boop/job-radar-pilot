@@ -38,6 +38,7 @@
             <button id="quick-search-button" class="ghost-button action-button" type="button" title="Consulta só os portais focados em tecnologia">Busca rápida (TI)</button>
             <button id="sources-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="sources-picker">Escolher portais</button>
             <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
+            <button id="export-button" class="ghost-button action-button export-button" type="button" aria-expanded="false" aria-controls="export-panel">Exportar planilha</button>
             <a id="download-report" class="ghost-button action-button" href="/api/export/markdown" download>Baixar relatório</a>
             <a id="download-csv" class="ghost-button action-button" href="/api/export/csv?tracked=active" download>Exportar CSV</a>
           </div>
@@ -58,6 +59,70 @@
           <button id="select-all" class="ghost-button" type="button">Todos</button>
           <p id="sources-status" class="preferences-status" aria-live="polite"></p>
           <button id="search-selected" class="primary-button compact-button" type="button">Buscar nos selecionados</button>
+        </div>
+      </section>
+
+      <section id="export-panel" class="preferences-panel export-panel" hidden aria-labelledby="export-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">EXPORTAR</p><h2 id="export-title">Exportar só as melhores vagas</h2></div>
+          <button id="close-export" class="ghost-button" type="button">Fechar</button>
+        </div>
+        <p class="panel-copy">Escolha um atalho e ajuste se quiser. A planilha sai ordenada pelo Score (aderência ao seu perfil + recência), com filtros, cores e links clicáveis, e só com vagas de tecnologia.</p>
+        <div class="export-presets" role="group" aria-label="Atalhos de exportação">
+          <button type="button" class="chip" data-preset="best" aria-pressed="true">Melhores para mim</button>
+          <button type="button" class="chip" data-preset="fit" aria-pressed="false">Compatíveis + a revisar</button>
+          <button type="button" class="chip" data-preset="new" aria-pressed="false">Novas desde a última coleta</button>
+          <button type="button" class="chip" data-preset="all" aria-pressed="false">Todas de TI</button>
+        </div>
+        <div class="export-grid">
+          <label>Aderência
+            <select id="export-match">
+              <option value="ready">Só mais compatíveis</option>
+              <option value="fit">Mais compatíveis + a revisar</option>
+              <option value="">Todas de tecnologia</option>
+            </select>
+          </label>
+          <label>Score mínimo
+            <input id="export-min-score" type="number" min="0" max="100" step="5" value="70">
+          </label>
+          <label>Publicadas nos últimos
+            <select id="export-age">
+              <option value="7">7 dias</option>
+              <option value="14">14 dias</option>
+              <option value="30" selected>30 dias</option>
+              <option value="60">60 dias</option>
+              <option value="">Qualquer data</option>
+            </select>
+          </label>
+          <label>Acompanhamento
+            <select id="export-tracked">
+              <option value="active">Sem as descartadas</option>
+              <option value="new">Só novas</option>
+              <option value="">Todas</option>
+            </select>
+          </label>
+          <label>Portal
+            <select id="export-source"><option value="">Todos os portais</option></select>
+          </label>
+          <fieldset>
+            <legend>Nível</legend>
+            <label class="check"><input type="checkbox" name="export-level" value="estagio"> Estágio</label>
+            <label class="check"><input type="checkbox" name="export-level" value="junior"> Júnior</label>
+            <label class="check"><input type="checkbox" name="export-level" value="pleno"> Pleno</label>
+            <label class="check"><input type="checkbox" name="export-level" value="senior"> Sênior</label>
+          </fieldset>
+          <fieldset>
+            <legend>Modelo</legend>
+            <label class="check"><input type="checkbox" name="export-workplace" value="REMOTE"> Remoto</label>
+            <label class="check"><input type="checkbox" name="export-workplace" value="HYBRID"> Híbrido</label>
+            <label class="check"><input type="checkbox" name="export-workplace" value="ONSITE"> Presencial</label>
+          </fieldset>
+        </div>
+        <div class="preferences-footer">
+          <p id="export-count" class="preferences-status" aria-live="polite">Calculando…</p>
+          <a id="export-csv" class="ghost-button" href="/api/export/csv" download>CSV</a>
+          <a id="export-md" class="ghost-button" href="/api/export/markdown" download>Relatório (.md)</a>
+          <a id="export-xlsx" class="primary-button compact-button" href="/api/export/xlsx" download>Baixar planilha (.xlsx)</a>
         </div>
       </section>
 

@@ -441,3 +441,18 @@ fica desabilitada porque o arquivo observado estava parado em 2024. Portais
 externos continuam sujeitos a mudanças de layout, bloqueios e paginação não
 observável; nesses casos, o coletor retorna estado parcial ou erro explícito em
 vez de declarar cobertura completa.
+
+## Exportar planilha (só as melhores vagas)
+
+O botão **Exportar planilha** abre um painel com atalhos e filtros e baixa um
+`.xlsx` no formato de acompanhamento (Empresa, Cargo, Nível, Modalidade,
+Localização, Score, Status, Publicada em, Link da Vaga, Tecnologias, Portal,
+Observações), com cabeçalho fixo, filtros automáticos, links clicáveis e cores por
+score, modalidade e status. Uma segunda aba registra os filtros usados e como o
+Score é calculado. Atalhos: **Melhores para mim** (só `FIT:READY`, score ≥ 70,
+últimos 30 dias), **Compatíveis + a revisar**, **Novas desde a última coleta** e
+**Todas de TI**. Dá para refinar por score mínimo, período, nível, modelo,
+portal e acompanhamento; o painel mostra quantas vagas serão exportadas. Vagas
+fora da área de tecnologia nunca entram. O Score (0-100) soma 20 pontos por
+critério atendido (tecnologia, nível, local, modelo), +10 se `FIT:READY` e até
++10 pela recência. Os mesmos filtros valem para CSV e relatório (`.md`).

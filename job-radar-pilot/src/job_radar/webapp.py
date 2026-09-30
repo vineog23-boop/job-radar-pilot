@@ -186,6 +186,58 @@ def build_jobs_csv(
     return buffer.getvalue().encode("utf-8-sig")
 
 
+def build_jobs_ai_text(
+    jobs: Sequence[dict[str, Any]],
+    tracking: dict[str, dict[str, str]],
+    filters: Sequence[tuple[str, str]] = (),
+    now: datetime | None = None,
+) -> bytes:
+    """Markdown enxuto, ordenado por score, para colar em outra IA revisar."""
+
+    from job_radar.xlsx_export import _WORKPLACE_NAMES, _level, job_score
+
+    now = now or datetime.now(timezone.utc)
+    ranked = sorted(jobs, key=lambda job: -job_score(job, now))
+    lines = [
+        "# Vagas de TI para revisão",
+        "",
+        "Cada linha é uma vaga já filtrada pelo perfil do candidato. Score 0-100 "
+        "(aderência ao perfil + recência). Revise a coerência de cargo, nível e "
+        "modelo de trabalho e aponte as que mais valem a candidatura. Não invente "
+        "dados que não estão na tabela.",
+        "",
+        "Filtros aplicados: " + "; ".join(f"{name}: {value}" for name, value in filters),
+        "",
+        "| # | Score | Cargo | Empresa | Nível | Modelo | Local | Tecnologias | Publicada | Link |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+
+    def cell(value: Any) -> str:
+        return str(value or "—").replace("|", "/").replace("\n", " ").strip() or "—"
+
+    for index, job in enumerate(ranked, start=1):
+        published = str(job.get("published_at") or "")[:10] or "—"
+        status = tracking.get(str(job.get("canonical_url")), {}).get("status")
+        title = cell(job.get("title")) + (f" [{_TRACKING_NAMES[status]}]" if status in _TRACKING_NAMES else "")
+        lines.append(
+            "| " + " | ".join(
+                [
+                    str(index),
+                    str(job_score(job, now)),
+                    title,
+                    cell(job.get("company")),
+                    cell(_level(job)),
+                    _WORKPLACE_NAMES.get(str(job.get("workplace_model")), "—"),
+                    cell(job.get("location") or job.get("remote_scope")),
+                    cell(", ".join(job.get("technologies") or [])),
+                    published,
+                    cell(job.get("canonical_url")),
+                ]
+            ) + " |"
+        )
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
 _LEVEL_CODES = {"estagio", "junior", "pleno", "senior"}
 _WORKPLACE_CODES = {"REMOTE", "HYBRID", "ONSITE"}
 
@@ -579,6 +631,27 @@ class SearchController:
             reasons_for=fit_reasons,
         )
 
+    def export_ai(
+        self,
+        *,
+        text: str = "",
+        source: str = "",
+        match: str = "",
+        tracked: str = "",
+        tracking: dict[str, dict[str, str]] | None = None,
+        **extra: Any,
+    ) -> bytes:
+        jobs = self._filtered_jobs(
+            text=text, source=source, match=match, tracked=tracked, tracking=tracking, **extra
+        )
+        return build_jobs_ai_text(
+            jobs,
+            tracking or {},
+            describe_export_filters(
+                text=text, source=source, match=match, tracked=tracked, **extra
+            ),
+        )
+
     def count_export(
         self,
         *,
@@ -836,6 +909,11 @@ def _dashboard_handler(
                     controller.export_csv,
                     "text/csv; charset=utf-8",
                     "vagas.csv",
+                ),
+                "/api/export/ai": (
+                    controller.export_ai,
+                    "text/markdown; charset=utf-8",
+                    "vagas-para-ia.md",
                 ),
                 "/api/export/xlsx": (
                     controller.export_xlsx,

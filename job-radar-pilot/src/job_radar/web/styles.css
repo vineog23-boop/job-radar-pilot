@@ -215,3 +215,32 @@ footer { color: #515c6e; font-size: 10px; display: flex; justify-content: space-
 .cleanup-breakdown { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12px; color: #aeb8c8; }
 .cleanup-breakdown strong { color: var(--yellow); margin-right: 4px; }
 .is-disabled { opacity: .5; }
+
+/* --- organização: topo compacto, cards e detalhes --- */
+.hero { min-height: 0; padding: 34px 0 26px; gap: 36px; }
+h1 { font-size: clamp(32px, 4.4vw, 52px); }
+.hero-copy { margin-top: 14px; font-size: 15px; }
+.primary-button { min-height: 66px; }
+.secondary-actions .linkedin-button, .secondary-actions .export-button { min-height: 40px; }
+.secondary-actions .linkedin-button { grid-column: 1 / -1; }
+.summary-grid { margin-bottom: 30px; }
+.summary-card { min-height: 104px; }
+.summary-card.clickable { cursor: pointer; transition: transform .15s ease, border-color .15s ease; }
+.summary-card.clickable:hover, .summary-card.clickable:focus-visible { transform: translateY(-2px); border-color: rgba(255,113,71,.5); outline: none; }
+.filters { grid-template-columns: minmax(220px, 1.4fr) repeat(4, minmax(160px, 1fr)); }
+.filters select { text-overflow: ellipsis; }
+.result-tools { display: inline-flex; align-items: center; gap: 10px; }
+.link-button { border: 0; background: none; color: var(--accent); font-size: 12px; text-decoration: underline; padding: 4px 6px; }
+.title-cell { cursor: pointer; }
+.job-title::before { content: "▸ "; color: #647084; }
+tr.expanded .job-title::before { content: "▾ "; color: var(--accent); }
+tr.expanded { background: rgba(255,113,71,.045); }
+.detail-row td { padding: 0 10px 16px; border-bottom: 1px solid rgba(255,255,255,.055); background: rgba(255,113,71,.045); }
+.job-detail { padding: 14px 16px; border-left: 2px solid var(--accent); background: rgba(8,11,17,.55); border-radius: 0 12px 12px 0; }
+.detail-text { margin: 0 0 10px; color: #b7c1d0; font-size: 12px; line-height: 1.6; max-width: 900px; }
+.detail-facts { margin: 0 0 10px; padding-left: 18px; color: #93a0b4; font-size: 11px; line-height: 1.7; }
+.detail-techs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tech-chip { color: var(--green); border: 1px solid rgba(79,214,156,.3); border-radius: 99px; padding: 2px 9px; font-size: 10px; }
+.export-table-note { margin: 14px 0 0; color: var(--muted); font-size: 11px; }
+.export-table-note a { color: var(--accent); }
+.filters select { font-size: 13px; padding-left: 12px; padding-right: 8px; }

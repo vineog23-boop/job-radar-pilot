@@ -456,3 +456,17 @@ portal e acompanhamento; o painel mostra quantas vagas serão exportadas. Vagas
 fora da área de tecnologia nunca entram. O Score (0-100) soma 20 pontos por
 critério atendido (tecnologia, nível, local, modelo), +10 se `FIT:READY` e até
 +10 pela recência. Os mesmos filtros valem para CSV e relatório (`.md`).
+
+## Organização do painel
+
+- **Topo compacto:** busca, escolha de portais, configuração, exportação e LinkedIn
+  ficam agrupados; a tabela aparece sem rolar muito.
+- **Cards clicáveis:** "Vagas coletadas" mostra tudo de TI e "Compatíveis" filtra só
+  as mais compatíveis.
+- **Detalhes por vaga:** clique no cargo para abrir descrição, score, critérios
+  atendidos (tecnologia, nível, local, modelo), alertas e tecnologias.
+- **Filtros lembrados:** aderência, ordenação e acompanhamento persistem entre
+  aberturas do painel; **Limpar filtros** aparece quando algo foge do padrão.
+- **Atalhos:** `/` foca a busca; `Esc` fecha painéis e limpa a busca.
+- **Exportar vagas:** um só botão com planilha `.xlsx`, CSV, relatório e **Texto para
+  IA** (Markdown enxuto, ordenado por score, para outra IA revisar).

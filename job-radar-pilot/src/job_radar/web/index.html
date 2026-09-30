@@ -38,11 +38,9 @@
             <button id="quick-search-button" class="ghost-button action-button" type="button" title="Consulta só os portais focados em tecnologia">Busca rápida (TI)</button>
             <button id="sources-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="sources-picker">Escolher portais</button>
             <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
-            <button id="export-button" class="ghost-button action-button export-button" type="button" aria-expanded="false" aria-controls="export-panel">Exportar planilha</button>
-            <a id="download-report" class="ghost-button action-button" href="/api/export/markdown" download>Baixar relatório</a>
-            <a id="download-csv" class="ghost-button action-button" href="/api/export/csv?tracked=active" download>Exportar CSV</a>
+            <button id="export-button" class="ghost-button action-button export-button" type="button" aria-expanded="false" aria-controls="export-panel">Exportar vagas</button>
+            <button id="linkedin-button" class="linkedin-button" type="button" aria-expanded="false" aria-controls="linkedin-panel">Pesquisar no LinkedIn</button>
           </div>
-          <button id="linkedin-button" class="linkedin-button" type="button" aria-expanded="false" aria-controls="linkedin-panel">Pesquisar no LinkedIn</button>
           <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
         </div>
       </section>
@@ -120,10 +118,14 @@
         </div>
         <div class="preferences-footer">
           <p id="export-count" class="preferences-status" aria-live="polite">Calculando…</p>
+          <a id="export-ai" class="ghost-button" href="/api/export/ai" download title="Texto enxuto para colar em outra IA revisar">Texto para IA</a>
           <a id="export-csv" class="ghost-button" href="/api/export/csv" download>CSV</a>
           <a id="export-md" class="ghost-button" href="/api/export/markdown" download>Relatório (.md)</a>
           <a id="export-xlsx" class="primary-button compact-button" href="/api/export/xlsx" download>Baixar planilha (.xlsx)</a>
         </div>
+        <p class="export-table-note">Prefere exportar exatamente o que está na tabela agora, com os filtros dela?
+          <a id="download-report" href="/api/export/markdown" download>Relatório (.md)</a> ·
+          <a id="download-csv" href="/api/export/csv?tracked=active" download>CSV</a></p>
       </section>
 
       <section id="linkedin-panel" class="linkedin-panel" hidden aria-labelledby="linkedin-title">
@@ -225,7 +227,7 @@
             <div class="exclusion-block">
               <h4>2. Descartar automaticamente nas próximas coletas</h4>
               <small>Vagas descartadas nem são salvas. As que você marcou como salva, aplicada ou descartada são sempre mantidas.</small>
-              <label class="check-option"><input id="rule-off-topic" type="checkbox"> Fora da área de tecnologia</label>
+              <label class="check-option"><input id="rule-off-topic" type="checkbox"> Fora de TI</label>
               <label class="check-option"><input id="rule-excluded" type="checkbox"> Fora do meu perfil (nível, local ou modelo de trabalho)</label>
               <label class="check-option"><input id="rule-expired" type="checkbox"> Inscrições já encerradas</label>
               <label class="inline-field" for="rule-age">Publicadas há mais de
@@ -259,22 +261,25 @@
       </section>
 
       <section id="summary-cards" class="summary-grid" aria-label="Resumo da busca">
-        <article class="summary-card accent-card"><span>Vagas coletadas</span><strong id="summary-jobs">—</strong><small>registros estruturados</small></article>
+        <article class="summary-card accent-card clickable" id="card-all" role="button" tabindex="0" title="Ver todas as vagas de TI"><span>Vagas coletadas</span><strong id="summary-jobs">—</strong><small>registros estruturados</small></article>
         <article class="summary-card"><span>Portais com resultado</span><strong id="summary-sources">—</strong><small>fontes nesta execução</small></article>
-        <article class="summary-card"><span>Compatíveis</span><strong id="summary-matches">—</strong><small id="summary-review">classificadas como mais compatíveis</small></article>
+        <article class="summary-card clickable" id="card-ready" role="button" tabindex="0" title="Ver só as mais compatíveis"><span>Compatíveis</span><strong id="summary-matches">—</strong><small id="summary-review">classificadas como mais compatíveis</small></article>
         <article class="summary-card"><span>Última busca</span><strong id="summary-date" class="summary-date">—</strong><small id="summary-time">aguardando dados</small></article>
       </section>
 
       <section class="workspace">
         <div class="section-heading">
           <div><p class="eyebrow">RESULTADOS</p><h2>Vagas encontradas</h2></div>
-          <span id="visible-count" class="result-count">0 vagas</span>
+          <span class="result-tools">
+            <button id="clear-filters" class="ghost-button link-button" type="button" hidden>Limpar filtros</button>
+            <span id="visible-count" class="result-count">0 vagas</span>
+          </span>
         </div>
 
         <div class="filters" aria-label="Filtros das vagas">
           <label class="search-field">
             <span aria-hidden="true">⌕</span>
-            <input id="text-filter" type="search" placeholder="Buscar em cargo, requisitos ou detalhes" autocomplete="off">
+            <input id="text-filter" type="search" placeholder="Buscar cargo, empresa, tecnologia…  ( / )" autocomplete="off">
           </label>
           <label>
             <span class="sr-only">Portal</span>
@@ -283,27 +288,27 @@
           <label>
             <span class="sr-only">Compatibilidade</span>
             <select id="match-filter">
-              <option value="">Vagas de TI (padrão)</option>
+              <option value="">Vagas de TI</option>
               <option value="ready">Mais compatíveis</option>
-              <option value="review">A revisar ou dados insuficientes</option>
+              <option value="review">A revisar</option>
               <option value="exclude">Fora do perfil</option>
-              <option value="offtopic">Fora da área de tecnologia</option>
+              <option value="offtopic">Fora de TI</option>
               <option value="all">Todas, sem filtro</option>
             </select>
           </label>
           <label>
             <span class="sr-only">Ordenar</span>
             <select id="sort-order">
-              <option value="fit">Ordenar por aderência</option>
-              <option value="recent">Mais recentes primeiro</option>
+              <option value="fit">Melhor aderência</option>
+              <option value="recent">Mais recentes</option>
             </select>
           </label>
           <label>
             <span class="sr-only">Acompanhamento</span>
             <select id="tracking-filter">
-              <option value="active">Ocultar descartadas</option>
-              <option value="new">Novas ainda não marcadas</option>
-              <option value="">Todas, inclusive descartadas</option>
+              <option value="active">Sem descartadas</option>
+              <option value="new">Só novas</option>
+              <option value="">Todas</option>
               <option value="saved">Salvas</option>
               <option value="applied">Aplicadas</option>
               <option value="discarded">Descartadas</option>

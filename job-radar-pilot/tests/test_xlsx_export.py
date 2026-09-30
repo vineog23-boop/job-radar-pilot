@@ -170,7 +170,7 @@ def test_dashboard_export_panel_presets_and_count(tmp_path: Path) -> None:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(f"http://127.0.0.1:{server.server_port}/")
-            page.get_by_role("button", name="Exportar planilha").click()
+            page.get_by_role("button", name="Exportar vagas").click()
             page.wait_for_function(
                 "document.querySelector('#export-count').textContent.includes('será exportada')"
             )

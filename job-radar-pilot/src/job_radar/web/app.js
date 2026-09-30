@@ -35,6 +35,10 @@ const elements = {
   workplaceHybrid: document.querySelector("#workplace-hybrid"),
   workplaceOnsite: document.querySelector("#workplace-onsite"),
   downloadReport: document.querySelector("#download-report"),
+  clearFilters: document.querySelector("#clear-filters"),
+  cardAll: document.querySelector("#card-all"),
+  cardReady: document.querySelector("#card-ready"),
+  exportAi: document.querySelector("#export-ai"),
   exportButton: document.querySelector("#export-button"),
   exportPanel: document.querySelector("#export-panel"),
   closeExport: document.querySelector("#close-export"),
@@ -86,6 +90,121 @@ const elements = {
   cleanupRun: document.querySelector("#cleanup-run"),
   cleanupStatus: document.querySelector("#cleanup-status"),
 };
+
+const FILTER_KEY = "radar.filters";
+const FILTER_DEFAULTS = { match: "", sort: "fit", tracked: "active" };
+const expandedJobs = new Set();
+
+function saveFilters() {
+  try {
+    localStorage.setItem(FILTER_KEY, JSON.stringify({
+      match: elements.matchFilter.value,
+      sort: elements.sortOrder.value,
+      tracked: elements.trackingFilter.value,
+    }));
+  } catch (error) { /* armazenamento indisponível: segue sem lembrar */ }
+}
+
+function restoreFilters() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FILTER_KEY) || "{}");
+    const apply = (select, value) => {
+      if (typeof value === "string" && [...select.options].some((o) => o.value === value)) {
+        select.value = value;
+      }
+    };
+    apply(elements.matchFilter, saved.match);
+    apply(elements.sortOrder, saved.sort);
+    apply(elements.trackingFilter, saved.tracked);
+  } catch (error) { /* valor salvo inválido: ignora */ }
+}
+
+function filtersAreDefault() {
+  return !elements.textFilter.value.trim()
+    && !elements.sourceFilter.value
+    && elements.matchFilter.value === FILTER_DEFAULTS.match
+    && elements.sortOrder.value === FILTER_DEFAULTS.sort
+    && elements.trackingFilter.value === FILTER_DEFAULTS.tracked;
+}
+
+function resetFilters() {
+  elements.textFilter.value = "";
+  elements.sourceFilter.value = "";
+  elements.matchFilter.value = FILTER_DEFAULTS.match;
+  elements.sortOrder.value = FILTER_DEFAULTS.sort;
+  elements.trackingFilter.value = FILTER_DEFAULTS.tracked;
+  saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  renderTable();
+}
+
+function focusResults(match) {
+  elements.textFilter.value = "";
+  elements.sourceFilter.value = "";
+  elements.matchFilter.value = match;
+  elements.trackingFilter.value = "active";
+  saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  renderTable();
+  document.querySelector(".workspace").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+const CRITERIA_LABELS = [
+  ["TECH_MATCH:", "Tecnologia"],
+  ["SENIORITY_MATCH:", "Nível"],
+  ["LOCATION_MATCH:", "Local"],
+  ["WORKPLACE_MATCH:", "Modelo"],
+];
+
+function jobScore(job) {
+  const state = fitState(job);
+  const points = fitScore(job);
+  if (state === "EXCLUDE" || points < 0 || !Number.isFinite(points)) return 0;
+  let score = points * 20 + (state === "READY" ? 10 : 0);
+  const published = publishedTime(job);
+  if (published !== -Infinity) {
+    const days = (Date.now() - published) / 86400000;
+    const bonus = days <= 3 ? 10 : days <= 7 ? 7 : days <= 14 ? 4 : days <= 30 ? 2 : 0;
+    score += bonus;
+  }
+  return Math.min(100, score);
+}
+
+function detailRow(job) {
+  const row = document.createElement("tr");
+  row.className = "detail-row";
+  const cell = document.createElement("td");
+  cell.colSpan = 7;
+  const box = document.createElement("div");
+  box.className = "job-detail";
+  const summary = String(job.description_summary ?? "").trim();
+  box.appendChild(textElement("p", "detail-text", summary ? summary.slice(0, 700) + (summary.length > 700 ? "…" : "") : "Sem descrição disponível nesta fonte — abra a vaga para ler completa."));
+  const labels = (job.match_labels ?? []).map(String);
+  const criteria = CRITERIA_LABELS.flatMap(([prefix, name]) =>
+    labels.filter((l) => l.startsWith(prefix)).map((l) => `${name}: ${l.slice(prefix.length)}`)
+  );
+  const facts = [
+    `Score ${jobScore(job)}/100`,
+    criteria.length ? `Critérios atendidos — ${criteria.join(" · ")}` : "Nenhum critério do perfil confirmado",
+  ];
+  const reasons = fitReasons(job);
+  if (reasons.length) facts.push(`Atenção — ${reasons.join(" · ")}`);
+  const also = alsoSeenIn(job);
+  if (also.length) facts.push(`Também em ${also.join(", ")}`);
+  if (job.employment_type) facts.push(`Contrato: ${job.employment_type}`);
+  if (publishedLabel(job)) facts.push(`Publicada em ${publishedLabel(job)}`);
+  const list = document.createElement("ul");
+  list.className = "detail-facts";
+  facts.forEach((fact) => list.appendChild(textElement("li", "", fact)));
+  box.appendChild(list);
+  const techs = document.createElement("div");
+  techs.className = "detail-techs";
+  (job.technologies ?? []).forEach((tech) => techs.appendChild(textElement("span", "tech-chip", tech)));
+  if (techs.childElementCount) box.appendChild(techs);
+  cell.appendChild(box);
+  row.appendChild(cell);
+  return row;
+}
 
 const ROW_PAGE_SIZE = 300;
 let visibleRows = ROW_PAGE_SIZE;
@@ -303,6 +422,22 @@ function renderTable() {
         ].filter(Boolean).join(" — ")
       )
     );
+    const expanded = expandedJobs.has(job.canonical_url);
+    titleCell.classList.add("title-cell");
+    titleCell.setAttribute("role", "button");
+    titleCell.tabIndex = 0;
+    titleCell.setAttribute("aria-expanded", String(expanded));
+    titleCell.title = expanded ? "Ocultar detalhes" : "Ver detalhes da vaga";
+    const toggle = () => {
+      if (expandedJobs.has(job.canonical_url)) expandedJobs.delete(job.canonical_url);
+      else expandedJobs.add(job.canonical_url);
+      renderTable();
+    };
+    titleCell.addEventListener("click", toggle);
+    titleCell.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); }
+    });
+    if (expanded) row.classList.add("expanded");
     row.appendChild(titleCell);
     row.appendChild(textElement("td", "", job.company || "Não informada"));
     const locationCell = textElement("td", "", job.location || job.remote_scope || "Não informado");
@@ -344,7 +479,9 @@ function renderTable() {
     actionCell.appendChild(link);
     row.appendChild(actionCell);
     elements.tableBody.appendChild(row);
+    if (expanded) elements.tableBody.appendChild(detailRow(job));
   });
+  elements.clearFilters.hidden = filtersAreDefault();
 
   const shown = Math.min(jobs.length, visibleRows);
   elements.visibleCount.textContent =
@@ -702,6 +839,7 @@ function refreshExportLinks() {
   const query = exportQuery();
   const suffix = query ? `?${query}` : "";
   elements.exportXlsx.href = `/api/export/xlsx${suffix}`;
+  elements.exportAi.href = `/api/export/ai${suffix}`;
   elements.exportCsv.href = `/api/export/csv${suffix}`;
   elements.exportMd.href = `/api/export/markdown${suffix}`;
   elements.exportCount.textContent = "Calculando…";
@@ -1162,7 +1300,28 @@ elements.linkedinImportButton.addEventListener("click", importLinkedinText);
     renderTable();
   };
   filter.addEventListener("input", rerender);
-  filter.addEventListener("change", rerender);
+  filter.addEventListener("change", () => { saveFilters(); rerender(); });
+});
+elements.clearFilters.addEventListener("click", resetFilters);
+[[elements.cardAll, ""], [elements.cardReady, "ready"]].forEach(([card, match]) => {
+  card.addEventListener("click", () => focusResults(match));
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); focusResults(match); }
+  });
+});
+document.addEventListener("keydown", (event) => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? "");
+  if (event.key === "/" && !typing && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    elements.textFilter.focus();
+  } else if (event.key === "Escape") {
+    [showExport, showLinkedin, showPreferences].forEach((close) => close(false));
+    if (!elements.sourcesPicker.hidden) showSourcesPicker(false);
+    if (document.activeElement === elements.textFilter && elements.textFilter.value) {
+      elements.textFilter.value = "";
+      resetFilters();
+    }
+  }
 });
 elements.toggleSources.addEventListener("click", () => {
   const willShow = elements.sourceStatuses.hidden;
@@ -1170,5 +1329,6 @@ elements.toggleSources.addEventListener("click", () => {
   elements.toggleSources.textContent = willShow ? "Ocultar detalhes" : "Ver detalhes";
 });
 
+restoreFilters();
 refreshState();
 loadTracking();

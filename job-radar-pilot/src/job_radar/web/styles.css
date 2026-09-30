@@ -164,3 +164,17 @@ footer { color: #515c6e; font-size: 10px; display: flex; justify-content: space-
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Perfis, stacks e limpeza */
+.profile-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 13px; background: #0d1119; }
+.profile-bar select, .profile-bar input[type="text"], .cleanup-box select { background: #0a0e15; color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font-size: 12px; }
+.profile-bar input[type="text"] { flex: 1 1 200px; min-width: 0; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.chip { color: #aab4c3; background: #0a0e15; border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+.chip:hover { border-color: var(--accent); }
+.chip.chip-on, .chip[aria-pressed="true"] { color: #fff; background: var(--accent-soft); border-color: var(--accent); }
+.wide-field { grid-column: 1 / -1; }
+.cleanup-box label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: #aeb8c8; font-size: 12px; margin-top: 10px; }
+.preferences-form fieldset .ghost-button, .cleanup-box select { width: auto; }
+.profile-bar select { flex: 1 1 220px; min-width: 0; }
+.preferences-form fieldset > small { display: block; margin: 6px 0 8px; }

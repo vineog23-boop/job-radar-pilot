@@ -213,6 +213,8 @@ def test_csv_header_and_report_counts_are_reconciled(tmp_path: Path) -> None:
         "unique": 2,
         "ambiguous": 0,
         "duplicates": 0,
+        "discarded": 0,
+        "discarded_by_reason": {},
     }
     assert report["sources"][0]["cards_observed"] == 2
     assert report["sources"][0]["visited_urls"] == [

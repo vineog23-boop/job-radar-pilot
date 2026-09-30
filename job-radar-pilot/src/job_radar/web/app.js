@@ -52,6 +52,18 @@ const elements = {
   summaryReview: document.querySelector("#summary-review"),
   moreRow: document.querySelector("#more-row"),
   showMore: document.querySelector("#show-more"),
+  seniorityMid: document.querySelector("#seniority-mid"),
+  senioritySenior: document.querySelector("#seniority-senior"),
+  profileSelect: document.querySelector("#profile-select"),
+  profileName: document.querySelector("#profile-name"),
+  profileSave: document.querySelector("#profile-save"),
+  profileDelete: document.querySelector("#profile-delete"),
+  stackChips: document.querySelector("#stack-chips"),
+  applySuggestions: document.querySelector("#apply-suggestions"),
+  cleanupAge: document.querySelector("#cleanup-age"),
+  cleanupPreview: document.querySelector("#cleanup-preview"),
+  cleanupRun: document.querySelector("#cleanup-run"),
+  cleanupStatus: document.querySelector("#cleanup-status"),
 };
 
 const ROW_PAGE_SIZE = 300;
@@ -614,6 +626,208 @@ async function loadLinkedinSearches() {
   }
 }
 
+function fillPreferencesForm(payload) {
+  elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
+  elements.locationScopes.value = (payload.location_scopes ?? []).join("\n");
+  elements.technologies.value = (payload.technologies ?? []).join("\n");
+  elements.excludedTerms.value = (payload.excluded_terms ?? []).join("\n");
+  const levels = payload.seniority_levels ?? [];
+  [
+    elements.seniorityInternship,
+    elements.seniorityJunior,
+    elements.seniorityMid,
+    elements.senioritySenior,
+  ].forEach((box) => setChecked(box, levels));
+  const models = payload.workplace_models ?? [];
+  [elements.workplaceRemote, elements.workplaceHybrid, elements.workplaceOnsite].forEach(
+    (box) => setChecked(box, models)
+  );
+}
+
+const SENIORITY_BOXES = () => [
+  elements.seniorityInternship,
+  elements.seniorityJunior,
+  elements.seniorityMid,
+  elements.senioritySenior,
+];
+
+let presetsState = null;
+const selectedStacks = new Set();
+
+async function loadPresets() {
+  if (presetsState) return;
+  try {
+    const response = await fetch("/api/presets", { cache: "no-store" });
+    presetsState = await response.json();
+    elements.stackChips.replaceChildren(
+      ...presetsState.stacks.map((stack) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip";
+        chip.dataset.stack = stack.id;
+        chip.setAttribute("aria-pressed", "false");
+        chip.textContent = stack.label;
+        chip.addEventListener("click", () => {
+          const on = !selectedStacks.has(stack.id);
+          if (on) selectedStacks.add(stack.id);
+          else selectedStacks.delete(stack.id);
+          chip.setAttribute("aria-pressed", String(on));
+          chip.classList.toggle("chip-on", on);
+        });
+        return chip;
+      })
+    );
+  } catch (error) {
+    elements.stackChips.textContent = `Não foi possível carregar as stacks: ${error.message}`;
+  }
+}
+
+async function applySuggestions() {
+  const levels = checkedValues(SENIORITY_BOXES());
+  if (selectedStacks.size === 0) {
+    elements.preferencesStatus.textContent = "Marque ao menos uma stack para receber sugestões.";
+    return;
+  }
+  const query = new URLSearchParams({
+    stacks: [...selectedStacks].join(","),
+    levels: levels.join(","),
+  });
+  try {
+    const response = await fetch(`/api/presets/suggest?${query}`, { cache: "no-store" });
+    const suggestion = await response.json();
+    if (!response.ok) throw new Error(suggestion.error || `HTTP ${response.status}`);
+    elements.technologies.value = suggestion.technologies.join("\n");
+    elements.searchTerms.value = suggestion.search_terms.join("\n");
+    elements.preferencesStatus.textContent =
+      "Sugestões preenchidas. Ajuste se quiser e clique em Salvar configurações.";
+  } catch (error) {
+    elements.preferencesStatus.textContent = `Não foi possível sugerir: ${error.message}`;
+  }
+}
+
+function currentPreferencesPayload() {
+  return {
+    search_terms: linesFrom(elements.searchTerms),
+    seniority_levels: checkedValues(SENIORITY_BOXES()),
+    workplace_models: checkedValues([
+      elements.workplaceRemote,
+      elements.workplaceHybrid,
+      elements.workplaceOnsite,
+    ]),
+    location_scopes: linesFrom(elements.locationScopes),
+    technologies: linesFrom(elements.technologies),
+    excluded_terms: linesFrom(elements.excludedTerms),
+  };
+}
+
+function renderProfiles(payload) {
+  const active = payload.active ?? "";
+  const options = [
+    new Option("Perfil atual (sem nome)", ""),
+    ...(payload.profiles ?? []).map((profile) => new Option(profile.name, profile.name)),
+  ];
+  elements.profileSelect.replaceChildren(...options);
+  elements.profileSelect.value = active;
+  elements.profileDelete.disabled = !elements.profileSelect.value;
+}
+
+async function loadProfiles() {
+  try {
+    const response = await fetch("/api/profiles", { cache: "no-store" });
+    renderProfiles(await response.json());
+  } catch (error) {
+    elements.preferencesStatus.textContent = `Não foi possível listar perfis: ${error.message}`;
+  }
+}
+
+async function profileRequest(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+  return payload;
+}
+
+async function saveProfile() {
+  const name = elements.profileName.value.trim() || elements.profileSelect.value;
+  if (!name) {
+    elements.preferencesStatus.textContent = "Digite um nome para salvar o perfil.";
+    return;
+  }
+  const preferences = currentPreferencesPayload();
+  if (preferences.seniority_levels.length === 0 || preferences.location_scopes.length === 0) {
+    elements.preferencesStatus.textContent = "Marque ao menos um nível e informe uma localidade.";
+    return;
+  }
+  try {
+    const payload = await fetch("/api/profiles", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, preferences }),
+    }).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      return data;
+    });
+    renderProfiles(payload);
+    linkedinLoaded = false;
+    elements.profileName.value = "";
+    elements.preferencesStatus.textContent = `Perfil "${name}" salvo e ativado.`;
+  } catch (error) {
+    elements.preferencesStatus.textContent = `Não foi possível salvar o perfil: ${error.message}`;
+  }
+}
+
+async function switchProfile() {
+  const name = elements.profileSelect.value;
+  elements.profileDelete.disabled = !name;
+  if (!name) return;
+  try {
+    const payload = await profileRequest("/api/profiles/activate", { name });
+    renderProfiles(payload);
+    fillPreferencesForm(payload.preferences ?? {});
+    linkedinLoaded = false;
+    elements.preferencesStatus.textContent = `Perfil "${name}" ativado. Clique em Buscar vagas agora.`;
+  } catch (error) {
+    elements.preferencesStatus.textContent = `Não foi possível ativar: ${error.message}`;
+  }
+}
+
+async function deleteProfile() {
+  const name = elements.profileSelect.value;
+  if (!name || !window.confirm(`Excluir o perfil "${name}"?`)) return;
+  try {
+    renderProfiles(await profileRequest("/api/profiles/delete", { name }));
+    elements.preferencesStatus.textContent = `Perfil "${name}" excluído.`;
+  } catch (error) {
+    elements.preferencesStatus.textContent = `Não foi possível excluir: ${error.message}`;
+  }
+}
+
+async function runCleanup(dryRun) {
+  const age = elements.cleanupAge.value;
+  if (!dryRun && !window.confirm("Remover as vagas inúteis já salvas? Isso não pode ser desfeito.")) {
+    return;
+  }
+  elements.cleanupStatus.textContent = dryRun ? "Calculando…" : "Limpando…";
+  try {
+    const result = await profileRequest("/api/cleanup", {
+      dry_run: dryRun,
+      max_age_days: age ? Number(age) : null,
+    });
+    const removed = Object.values(result.removed ?? {}).reduce((sum, n) => sum + n, 0);
+    elements.cleanupStatus.textContent = dryRun
+      ? `${removed} de ${result.before} vagas seriam removidas. ${result.summary ?? ""}`
+      : `${result.summary ?? "Concluído."} Restam ${result.after} vagas.`;
+    if (!dryRun) await refreshState();
+  } catch (error) {
+    elements.cleanupStatus.textContent = `Não foi possível limpar: ${error.message}`;
+  }
+}
+
 async function loadPreferences() {
   if (preferencesLoaded) return true;
   const controls = [...elements.preferencesForm.querySelectorAll("input, textarea, button")];
@@ -623,17 +837,10 @@ async function loadPreferences() {
     const response = await fetch("/api/preferences", { cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-    elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
-    elements.locationScopes.value = (payload.location_scopes ?? []).join("\n");
-    elements.technologies.value = (payload.technologies ?? []).join("\n");
-    elements.excludedTerms.value = (payload.excluded_terms ?? []).join("\n");
-    setChecked(elements.seniorityInternship, payload.seniority_levels ?? []);
-    setChecked(elements.seniorityJunior, payload.seniority_levels ?? []);
-    setChecked(elements.workplaceRemote, payload.workplace_models ?? []);
-    setChecked(elements.workplaceHybrid, payload.workplace_models ?? []);
-    setChecked(elements.workplaceOnsite, payload.workplace_models ?? []);
+    fillPreferencesForm(payload);
     preferencesLoaded = true;
     elements.preferencesStatus.textContent = "Configurações atuais carregadas.";
+    await Promise.all([loadPresets(), loadProfiles()]);
     return true;
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível carregar: ${error.message}`;
@@ -659,23 +866,9 @@ async function savePreferences(event) {
   const saveButton = document.querySelector("#save-preferences");
   saveButton.disabled = true;
   elements.preferencesStatus.textContent = "Salvando configurações…";
-  const payload = {
-    search_terms: linesFrom(elements.searchTerms),
-    seniority_levels: checkedValues([
-      elements.seniorityInternship,
-      elements.seniorityJunior,
-    ]),
-    workplace_models: checkedValues([
-      elements.workplaceRemote,
-      elements.workplaceHybrid,
-      elements.workplaceOnsite,
-    ]),
-    location_scopes: linesFrom(elements.locationScopes),
-    technologies: linesFrom(elements.technologies),
-    excluded_terms: linesFrom(elements.excludedTerms),
-  };
+  const payload = currentPreferencesPayload();
   if (payload.seniority_levels.length === 0) {
-    elements.preferencesStatus.textContent = "Selecione Estágio e/ou Júnior.";
+    elements.preferencesStatus.textContent = "Selecione ao menos um nível.";
     saveButton.disabled = false;
     return;
   }
@@ -720,6 +913,19 @@ elements.preferencesButton.addEventListener("click", async () => {
 });
 elements.closePreferences.addEventListener("click", () => showPreferences(false));
 elements.preferencesForm.addEventListener("submit", savePreferences);
+elements.applySuggestions.addEventListener("click", applySuggestions);
+elements.profileSave.addEventListener("click", saveProfile);
+elements.profileSelect.addEventListener("change", switchProfile);
+elements.profileDelete.addEventListener("click", deleteProfile);
+elements.cleanupPreview.addEventListener("click", () => runCleanup(true));
+elements.cleanupRun.addEventListener("click", () => runCleanup(false));
+document.querySelectorAll("[data-location]").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    const current = linesFrom(elements.locationScopes);
+    if (!current.includes(chip.dataset.location)) current.push(chip.dataset.location);
+    elements.locationScopes.value = current.join("\n");
+  });
+});
 elements.linkedinButton.addEventListener("click", async () => {
   const willShow = elements.linkedinPanel.hidden;
   showLinkedin(willShow);

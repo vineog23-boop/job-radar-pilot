@@ -72,7 +72,7 @@ _REQUIRED_FIELDS = {
 _OPTIONAL_FIELDS = {"technologies", "excluded_terms"}
 _FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
 _MAX_FILTER_TERMS = 40
-_SENIORITY_LEVELS = {"estagio", "junior"}
+_SENIORITY_LEVELS = {"estagio", "junior", "pleno", "senior"}
 _WORKPLACE_MODELS = {
     WorkplaceModel.REMOTE,
     WorkplaceModel.HYBRID,
@@ -126,13 +126,15 @@ def _validated_seniority(values: object) -> tuple[str, ...]:
         values,
         field="seniority_levels",
         minimum=1,
-        maximum=2,
+        maximum=4,
         item_limit=20,
         casefold=True,
     )
     normalized = tuple(_without_accents(value) for value in normalized)
     if not set(normalized) <= _SENIORITY_LEVELS:
-        raise PreferencesError("seniority_levels aceita apenas estagio e junior.")
+        raise PreferencesError(
+            "seniority_levels aceita apenas estagio, junior, pleno e senior."
+        )
     return normalized
 
 
@@ -277,9 +279,35 @@ def save_preferences(
     return resolved_path
 
 
+def _effective_excluded_terms(
+    excluded: tuple[str, ...], seniority_levels: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Tira das exclusões os níveis que o próprio perfil pediu.
+
+    Quem escolhe "pleno" não pode ter "pleno" como termo de exclusão; quem escolhe
+    "sênior" também aceita cargos de liderança/especialidade.
+    """
+
+    from job_radar.classifier import LEADERSHIP_TERMS, _canonical_term
+
+    selected = {_canonical_term(level) for level in seniority_levels}
+    drop_leadership = "senior" in selected
+    leadership = {_canonical_term(term) for term in LEADERSHIP_TERMS}
+    return tuple(
+        term
+        for term in excluded
+        if _canonical_term(term) not in selected
+        and not (drop_leadership and _canonical_term(term) in leadership)
+    )
+
+
 def apply_preferences(
     profile: SearchProfile, preferences: SearchPreferences
 ) -> SearchProfile:
+    excluded = _effective_excluded_terms(
+        preferences.excluded_terms or profile.excluded_terms,
+        preferences.seniority_levels,
+    )
     return replace(
         profile,
         search_terms=preferences.search_terms,
@@ -287,5 +315,5 @@ def apply_preferences(
         workplace_models=preferences.workplace_models,
         location_scopes=preferences.location_scopes,
         positive_keywords=preferences.technologies or profile.positive_keywords,
-        excluded_terms=preferences.excluded_terms or profile.excluded_terms,
+        excluded_terms=excluded,
     )

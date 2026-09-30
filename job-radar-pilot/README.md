@@ -366,6 +366,20 @@ ser usado quando um portal realmente o exigir.
 > `canonical_url`. Separe vagas aplicáveis, condicionais e ambíguas sem inventar
 > informações ausentes.
 
+## Use com o seu perfil (qualquer stack, qualquer nível)
+
+O Radar não é só para Java júnior. No painel, em **Configurar busca**:
+
+1. **Stacks de interesse** — marque Java, Python, Node/TypeScript, Front-end, .NET, PHP, Go, Mobile, Dados, DevOps ou QA e clique em *Preencher sugestões*: o painel monta as tecnologias (que pontuam a vaga) e os termos de busca (enviados aos portais).
+2. **Nível** — estágio, júnior, pleno e/ou sênior. Vagas de outro nível ficam fora do perfil; um nível marcado nunca é tratado como exclusão (quem escolhe sênior também aceita cargos de liderança).
+3. **Modelo de trabalho e localidades** — remoto/híbrido/presencial; use "Cidade UF", um estado, `brasil` ou `remoto-brasil`.
+4. **Salvar como perfil** — guarde vários perfis (ex.: "Python pleno remoto", "Java júnior SP") e alterne entre eles no seletor; o perfil ativo é o que a próxima coleta usa.
+
+Tecnologias fora das listas prontas podem ser digitadas livremente; qualquer palavra da lista que não seja uma ferramenta de apoio (docker, sql, git…) conta como stack principal do perfil.
+
+### Limpeza de vagas inúteis
+
+Por padrão a coleta **não salva** vagas fora da área de tecnologia, fora do seu perfil (nível, local ou modelo) ou com inscrição encerrada (`--keep-all` mantém tudo; `--max-age-days N` descarta as antigas). Vagas que você marcou como salva/aplicada/descartada nunca são apagadas. O botão **Limpar agora** (com prévia) aplica a mesma regra ao que já está salvo.
 ## Rotina diária e portais de tecnologia
 
 - `collect --tech-only` consulta apenas portais marcados com `tech_focus: true` em `config/sources.yaml`.

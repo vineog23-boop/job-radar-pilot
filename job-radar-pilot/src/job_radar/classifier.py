@@ -19,7 +19,30 @@ _TERM_ALIASES: dict[str, tuple[str, ...]] = {
         "aprendiz",
     ),
     "junior": ("junior", "jr", "nivel 1", "entry level", "iniciante"),
+    "pleno": ("pleno", "plena", "mid level", "mid-level"),
     "senior": ("senior", "sr"),
+}
+
+# Níveis que o perfil pode escolher, do mais júnior ao mais sênior.
+SENIORITY_LEVELS = ("estagio", "junior", "pleno", "senior")
+# Termos de liderança/especialidade: só entram como exclusão automática quando o
+# perfil NÃO pediu vagas sênior.
+LEADERSHIP_TERMS = (
+    "staff",
+    "principal",
+    "especialista",
+    "lider tecnico",
+    "tech lead",
+    "arquiteto",
+    "arquiteta",
+    "architect",
+)
+# Ferramentas de apoio: aparecem em quase toda vaga e sozinhas não indicam a
+# stack principal do perfil (não contam como "tecnologia central").
+_SECONDARY_TERMS = {
+    "docker", "sql", "maven", "gradle", "junit", "mockito", "testes", "git",
+    "linux", "aws", "azure", "gcp", "kubernetes", "ci/cd", "scrum", "agile",
+    "postgresql", "mysql", "redis", "jira", "rest", "api",
 }
 
 _CANONICAL_TERMS = {
@@ -34,6 +57,17 @@ _CURATED_ARTICLE_SOURCES = {
     "seja-trainee",
 }
 _CORE_TECH_TERMS = {"java", "spring boot", "backend", "api rest", "jpa", "hibernate"}
+
+
+def _core_terms(profile: SearchProfile) -> set[str]:
+    """Stack principal do perfil: palavras-chave que não são ferramentas de apoio."""
+
+    core = {
+        canonical
+        for canonical in (_canonical_term(keyword) for keyword in profile.positive_keywords)
+        if canonical and canonical not in _SECONDARY_TERMS
+    }
+    return core | (_CORE_TECH_TERMS & {_canonical_term(k) for k in profile.positive_keywords})
 _CONDITIONAL_ELIGIBILITY_MARKERS = (
     "pcd",
     "pessoa com deficiencia",
@@ -96,7 +130,11 @@ _IT_TITLE_SIGNALS = re.compile(
     r"android|ios|python|java|javascript|typescript|node|react|angular|sql|php|golang|"
     r"kotlin|scrum|product owner|suporte tecnico|help ?desk|service desk|automacao|"
     r"rpa|sap|erp|totvs|protheus|salesforce|servicenow|engenheir\w* de software|"
-    r"analista de testes?|analista de requisitos|cientista de dados)(?!\w)"
+    r"analista de testes?|analista de requisitos|cientista de dados|"
+    r"c#|\.net|dotnet|golang|flutter|react native|power ?bi|etl|terraform|aws|azure|"
+    r"kubernetes|docker|linux|spring|django|laravel|vue|next\.?js|nestjs|spark|"
+    r"machine learning|engenheir\w* de dados|analista de bi|arquiteto de software|"
+    r"analista programador|tech lead)(?!\w)"
 )
 
 _BRAZIL_STATE_UFS = {
@@ -340,10 +378,16 @@ def classify(
     }
     if _has_roman_one_level(explicit_seniority_text):
         detected_entry_levels.add("junior")
-    matching_entry_levels = detected_entry_levels.intersection(selected_seniority)
-    for canonical in matching_entry_levels:
+    detected_levels = set(detected_entry_levels) | {
+        canonical
+        for canonical in ("pleno", "senior")
+        if _contains_term(explicit_seniority_text, canonical)
+    }
+    matching_levels = detected_levels.intersection(selected_seniority)
+    for canonical in matching_levels:
         labels.add(f"SENIORITY_MATCH:{canonical}")
-    if detected_entry_levels and not matching_entry_levels:
+    if detected_entry_levels and not matching_levels:
+        # Nível de entrada explícito que o perfil não quer (ex.: quer pleno).
         for canonical in detected_entry_levels:
             labels.add(f"SENIORITY_MISMATCH:{canonical}")
 
@@ -354,10 +398,20 @@ def classify(
         labels.add("SENIORITY_UNCLEAR:range")
     for excluded in profile.excluded_terms:
         canonical = _canonical_term(excluded)
+        if canonical in selected_seniority:
+            # O perfil pediu esse nível: não pode ser exclusão.
+            continue
         if entry_mid_range and canonical == "pleno":
             continue
         if canonical and _contains_term(explicit_seniority_text, canonical):
             labels.add(f"SENIORITY_MISMATCH:{canonical}")
+    if not matching_levels:
+        # Nível explícito de meio/topo que o perfil não escolheu.
+        for canonical in ("pleno", "senior"):
+            if canonical in detected_levels and canonical not in selected_seniority:
+                if canonical == "pleno" and entry_mid_range:
+                    continue
+                labels.add(f"SENIORITY_MISMATCH:{canonical}")
 
     normalized_location = _normalize(record.location)
     explicit_remote_location = any(
@@ -417,8 +471,9 @@ def classify(
             labels.add("LOCATION_MISMATCH:outside_scope")
 
     has_technology = any(label.startswith("TECH_MATCH:") for label in labels)
+    core_terms = _core_terms(profile)
     has_core_technology = any(
-        label == f"TECH_MATCH:{term}" for label in labels for term in _CORE_TECH_TERMS
+        label == f"TECH_MATCH:{term}" for label in labels for term in core_terms
     )
     has_seniority = any(label.startswith("SENIORITY_MATCH:") for label in labels)
     has_seniority_mismatch = any(
@@ -507,8 +562,10 @@ def classify(
     labels.add(f"FIT_SCORE:{score}")
 
     seniority = record.seniority
-    if not seniority and detected_entry_levels:
-        seniority = "estagio" if "estagio" in detected_entry_levels else "junior"
+    if not seniority and detected_levels:
+        seniority = next(
+            level for level in SENIORITY_LEVELS if level in detected_levels
+        )
     known_technologies = {technology.casefold() for technology in record.technologies}
     technologies = record.technologies + tuple(
         technology

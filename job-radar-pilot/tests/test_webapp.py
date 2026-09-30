@@ -708,7 +708,7 @@ def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:
             page.locator("#seniority-internship").uncheck()
             page.locator("#seniority-junior").uncheck()
             page.get_by_role("button", name="Salvar configurações").click()
-            page.get_by_text("Selecione Estágio e/ou Júnior.").wait_for()
+            page.get_by_text("Selecione ao menos um nível.").wait_for()
 
             page.locator("#seniority-junior").check()
             page.locator("#location-scopes").fill("")

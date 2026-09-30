@@ -31,6 +31,7 @@ from job_radar.preferences import (
     load_preferences,
 )
 from job_radar.selector_suggestion import suggest_from_page
+from job_radar.tracking import TrackingError, TrackingStore
 
 
 def _project_root() -> Path:
@@ -82,6 +83,20 @@ def _parser() -> argparse.ArgumentParser:
             "Vagas candidatas enriquecidas pela pagina de detalhe "
             f"(0 desliga; padrao: {DEFAULT_ENRICH_LIMIT})."
         ),
+    )
+    collect.add_argument(
+        "--keep-all",
+        action="store_true",
+        help=(
+            "Manter no arquivo tambem as vagas inuteis (fora da area, fora do "
+            "perfil, vencidas). Por padrao elas sao descartadas."
+        ),
+    )
+    collect.add_argument(
+        "--max-age-days",
+        type=int,
+        default=None,
+        help="Descartar vagas publicadas ha mais de N dias (padrao: nao descartar).",
     )
     collect.add_argument(
         "--no-history",
@@ -210,11 +225,21 @@ def _collect(args: argparse.Namespace) -> int:
         for warning in item.warnings:
             if warning.startswith("SOURCE_COUNT_"):
                 print(f"WARNING {item.source_code}: {warning}", flush=True)
+    keep_urls: frozenset[str] = frozenset()
+    try:
+        keep_urls = frozenset(TrackingStore().load())
+    except TrackingError:
+        pass
     manifest = write_outputs(
         result,
         args.output.resolve(),
         merge_unrefreshed=bool(args.sources),
+        prune=not getattr(args, "keep_all", False),
+        keep_urls=keep_urls,
+        max_age_days=getattr(args, "max_age_days", None),
     )
+    if manifest.discarded:
+        print(f"DISCARDED: {manifest.discarded} vagas inuteis nao foram salvas.")
     print(f"JSONL: {manifest.jsonl_path}")
     print(f"CSV: {manifest.csv_path}")
     print(f"REPORT: {manifest.report_path}")

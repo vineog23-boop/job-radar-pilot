@@ -385,6 +385,14 @@ class SearchController:
             }
         return {**state, **output}
 
+    @property
+    def output_dir(self) -> Path:
+        return self._output_dir
+
+    def is_running(self) -> bool:
+        with self._lock:
+            return self._thread is not None and self._thread.is_alive()
+
     def wait(self, timeout: float | None = None) -> bool:
         with self._lock:
             thread = self._thread
@@ -577,6 +585,30 @@ def _dashboard_handler(
                     return
                 self._json(200, payload)
                 return
+            if path == "/api/presets":
+                from job_radar.presets import presets_payload
+
+                self._json(200, presets_payload())
+                return
+            if path == "/api/presets/suggest":
+                from job_radar.presets import suggest
+
+                query = parse_qs(request_url.query)
+
+                def _csv_param(name: str) -> list[str]:
+                    return [
+                        item
+                        for item in query.get(name, [""])[-1].split(",")
+                        if re.fullmatch(r"[a-z0-9-]{1,20}", item)
+                    ]
+
+                self._json(
+                    200, suggest(_csv_param("stacks"), _csv_param("levels"))
+                )
+                return
+            if path == "/api/profiles":
+                self._json(200, self._profiles_payload())
+                return
             if path == "/api/sources":
                 try:
                     payload = self._load_sources_payload()
@@ -644,8 +676,95 @@ def _dashboard_handler(
                 return
             self._write(200, content_type, body)
 
+        def _resolved_preferences_path(self) -> Path:
+            from job_radar.preferences import preferences_path as default_path
+
+            return preferences_path or default_path()
+
+        def _profiles_payload(self) -> dict[str, Any]:
+            from job_radar.profiles import active_profile, list_profiles
+
+            path = self._resolved_preferences_path()
+            return {"profiles": list_profiles(path), "active": active_profile(path)}
+
+        def _post_profiles(self, action: str) -> None:
+            from job_radar.preferences import (
+                PreferencesError,
+                preferences_to_dict,
+                validate_preferences_payload,
+            )
+            from job_radar.profiles import (
+                activate_profile,
+                delete_profile,
+                save_profile,
+            )
+
+            path = self._resolved_preferences_path()
+            try:
+                payload = self._read_json_body()
+                if action == "save":
+                    preferences = validate_preferences_payload(
+                        payload.get("preferences") or {}
+                    )
+                    name = save_profile(path, payload.get("name"), preferences)
+                    activate_profile(path, name)
+                elif action == "activate":
+                    activate_profile(path, payload.get("name"))
+                else:
+                    delete_profile(path, payload.get("name"))
+            except TypeError as exc:
+                self._json(415, {"error": str(exc)})
+                return
+            except (PreferencesError, OSError, ValueError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            body = self._profiles_payload()
+            if action != "delete":
+                body["preferences"] = self._load_preferences_payload()
+            self._json(200, body)
+
+        def _post_cleanup(self) -> None:
+            from job_radar.cleanup import clean_output
+
+            try:
+                payload = self._read_json_body()
+                max_age = payload.get("max_age_days")
+                if max_age is not None and (
+                    isinstance(max_age, bool)
+                    or not isinstance(max_age, int)
+                    or not 1 <= max_age <= 3650
+                ):
+                    raise ValueError("max_age_days deve ser um inteiro de 1 a 3650.")
+                dry_run = bool(payload.get("dry_run", False))
+                if controller.is_running():
+                    self._json(409, {"error": "Espere a busca terminar para limpar."})
+                    return
+                try:
+                    keep_urls = set(tracking_store.load())
+                except TrackingError:
+                    keep_urls = set()
+                result = clean_output(
+                    controller.output_dir,
+                    keep_urls=keep_urls,
+                    max_age_days=max_age,
+                    dry_run=dry_run,
+                )
+            except TypeError as exc:
+                self._json(415, {"error": str(exc)})
+                return
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(200, result)
+
         def do_POST(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
             path = self.path.split("?", maxsplit=1)[0]
+            if path in {"/api/profiles/activate", "/api/profiles/delete"}:
+                self._post_profiles(path.rsplit("/", 1)[-1])
+                return
+            if path == "/api/cleanup":
+                self._post_cleanup()
+                return
             if path != "/api/search":
                 self._json(404, {"error": "Recurso nao encontrado."})
                 return
@@ -691,6 +810,9 @@ def _dashboard_handler(
                     self._json(400, {"error": str(exc)})
                     return
                 self._json(200, {"jobs": entries})
+                return
+            if path == "/api/profiles":
+                self._post_profiles("save")
                 return
             if path != "/api/preferences":
                 self._json(404, {"error": "Recurso nao encontrado."})

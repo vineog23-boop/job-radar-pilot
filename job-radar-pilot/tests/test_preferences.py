@@ -100,7 +100,7 @@ def test_save_is_atomic_and_round_trips_only_allowed_fields(tmp_path: Path) -> N
         (
             {
                 "search_terms": ["java"],
-                "seniority_levels": ["pleno"],
+                "seniority_levels": ["coordenador"],
                 "workplace_models": [],
                 "location_scopes": [],
             },

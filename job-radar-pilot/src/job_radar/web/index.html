@@ -77,8 +77,21 @@
           <div><p class="eyebrow">PREFERÊNCIAS</p><h2 id="preferences-title">Configurar busca</h2></div>
           <button id="close-preferences" class="ghost-button" type="button">Fechar</button>
         </div>
-        <p class="panel-copy">Escolha o tipo de oportunidade e onde você quer trabalhar. As mudanças só valem depois de salvar e não iniciam uma busca sozinhas.</p>
+        <p class="panel-copy">Monte o seu perfil: escolha stacks, nível e onde quer trabalhar. Os valores iniciais são o perfil padrão do projeto; ajuste ao seu gosto e use "Salvar como perfil" para guardar (dá para ter vários e alternar). As mudanças só valem depois de salvar e não iniciam uma busca sozinhas.</p>
+        <div class="profile-bar" id="profile-bar">
+          <label for="profile-select"><strong>Perfil</strong></label>
+          <select id="profile-select" aria-label="Perfis salvos"><option value="">Perfil atual (sem nome)</option></select>
+          <button id="profile-delete" class="ghost-button" type="button" title="Excluir o perfil selecionado" disabled>Excluir</button>
+          <input id="profile-name" type="text" maxlength="40" placeholder="Nome para salvar (ex.: Java júnior SP)" aria-label="Nome do perfil">
+          <button id="profile-save" class="ghost-button" type="button">Salvar como perfil</button>
+        </div>
         <form id="preferences-form" class="preferences-form">
+          <fieldset class="wide-field">
+            <legend>Stacks de interesse</legend>
+            <small>Marque as áreas que você procura e clique em "Preencher sugestões" para montar as tecnologias e os termos de busca. Depois é só ajustar.</small>
+            <div id="stack-chips" class="chip-row" role="group" aria-label="Stacks"></div>
+            <button id="apply-suggestions" class="ghost-button" type="button">Preencher sugestões</button>
+          </fieldset>
           <label class="wide-field" for="search-terms">
             <strong>Termos de busca</strong>
             <small>Um por linha. Eles são enviados somente aos portais que oferecem pesquisa por texto.</small>
@@ -86,8 +99,11 @@
           </label>
           <fieldset>
             <legend>Nível</legend>
+            <small>Marque um ou mais níveis. Vagas de outro nível ficam fora do perfil.</small>
             <label class="check-option"><input id="seniority-internship" type="checkbox" value="estagio"> Estágio</label>
             <label class="check-option"><input id="seniority-junior" type="checkbox" value="junior"> Júnior</label>
+            <label class="check-option"><input id="seniority-mid" type="checkbox" value="pleno"> Pleno</label>
+            <label class="check-option"><input id="seniority-senior" type="checkbox" value="senior"> Sênior</label>
           </fieldset>
           <fieldset>
             <legend>Modelo de trabalho</legend>
@@ -98,8 +114,12 @@
           </fieldset>
           <label class="wide-field" for="location-scopes">
             <strong>Localidades</strong>
-            <small>Uma por linha. Informe ao menos uma cidade, estado ou Brasil.</small>
+            <small>Uma por linha. Use "Cidade UF" (ex.: Curitiba PR), um estado (ex.: SP), "brasil" ou "remoto-brasil".</small>
             <textarea id="location-scopes" rows="4" maxlength="1212"></textarea>
+            <span class="chip-row" role="group" aria-label="Atalhos de localidade">
+              <button class="chip" type="button" data-location="remoto-brasil">+ Remoto Brasil</button>
+              <button class="chip" type="button" data-location="brasil">+ Todo o Brasil</button>
+            </span>
           </label>
           <label class="wide-field" for="technologies">
             <strong>Stacks e tecnologias</strong>
@@ -108,9 +128,26 @@
           </label>
           <label class="wide-field" for="excluded-terms">
             <strong>Termos de exclusão</strong>
-            <small>Um por linha (ex.: pleno, sênior, tech lead). Vagas com esses termos no cargo ficam fora do perfil.</small>
+            <small>Um por linha (ex.: tech lead, estágio em RH). Níveis que você marcou acima nunca são excluídos.</small>
             <textarea id="excluded-terms" rows="4" maxlength="2440"></textarea>
           </label>
+          <fieldset class="wide-field cleanup-box">
+            <legend>Limpeza de vagas inúteis</legend>
+            <small>Novas coletas já descartam vagas fora da área, fora do seu perfil e com inscrições encerradas. Aqui você limpa o que já foi salvo. Vagas marcadas como salva, aplicada ou descartada nunca são apagadas.</small>
+            <label for="cleanup-age">Remover também vagas publicadas há mais de
+              <select id="cleanup-age">
+                <option value="">— não remover por idade —</option>
+                <option value="30">30 dias</option>
+                <option value="60">60 dias</option>
+                <option value="90">90 dias</option>
+              </select>
+            </label>
+            <div class="chip-row">
+              <button id="cleanup-preview" class="ghost-button" type="button">Ver o que seria removido</button>
+              <button id="cleanup-run" class="ghost-button" type="button">Limpar agora</button>
+            </div>
+            <p id="cleanup-status" class="preferences-status" aria-live="polite"></p>
+          </fieldset>
           <div class="preferences-footer">
             <p id="preferences-status" class="preferences-status" aria-live="polite"></p>
             <button id="save-preferences" class="primary-button compact-button" type="submit">Salvar configurações</button>

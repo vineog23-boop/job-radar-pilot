@@ -35,6 +35,7 @@ class OutputManifest:
     csv_path: Path
     report_path: Path
     record_count: int
+    discarded: int = 0
 
 
 _CSV_FIELDS = (
@@ -169,16 +170,77 @@ def _previous_report_sources(path: Path, refreshed: set[str]) -> list[dict[str, 
     ]
 
 
+def _csv_text(payloads: Any) -> str:
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=_CSV_FIELDS, lineterminator="\r\n")
+    writer.writeheader()
+    for payload in payloads:
+        row = {field: payload.get(field) for field in _CSV_FIELDS}
+        row["match_labels"] = ";".join(payload.get("match_labels") or [])
+        writer.writerow(row)
+    return buffer.getvalue()
+
+
+def rewrite_payloads(output_dir: Path, payloads: list[dict[str, Any]]) -> None:
+    """Reescreve ``vagas.jsonl`` e ``vagas.csv`` com os registros informados.
+
+    Valida o JSONL antes de publicar e atualiza os totais do relatório.
+    """
+
+    final_jsonl = output_dir / "vagas.jsonl"
+    final_csv = output_dir / "vagas.csv"
+    final_report = output_dir / "relatorio-execucao.json"
+    temp_jsonl = _temp_path(output_dir, final_jsonl.name)
+    temp_csv = _temp_path(output_dir, final_csv.name)
+    temp_report = _temp_path(output_dir, final_report.name)
+    try:
+        with temp_jsonl.open("w", encoding="utf-8", newline="\n") as handle:
+            for payload in payloads:
+                handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                handle.write("\n")
+        temp_csv.write_text(_csv_text(payloads), encoding="utf-8", newline="")
+        validation = validate_jsonl(temp_jsonl, _schema_path())
+        if not validation.valid:
+            raise OutputError(
+                "JSONL rejeitado pelo schema: " + "; ".join(validation.errors)
+            )
+        report_written = False
+        try:
+            report = json.loads(final_report.read_text(encoding="utf-8-sig"))
+            report.setdefault("totals", {})["unique"] = len(payloads)
+            temp_report.write_text(
+                json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            report_written = True
+        except (OSError, json.JSONDecodeError, AttributeError):
+            pass
+        os.replace(temp_jsonl, final_jsonl)
+        os.replace(temp_csv, final_csv)
+        if report_written:
+            os.replace(temp_report, final_report)
+    finally:
+        for temporary in (temp_jsonl, temp_csv, temp_report):
+            temporary.unlink(missing_ok=True)
+
+
 def write_outputs(
     result: PipelineResult,
     output_dir: Path,
     *,
     merge_unrefreshed: bool = False,
+    prune: bool = False,
+    keep_urls: Any = (),
+    max_age_days: int | None = None,
 ) -> OutputManifest:
     """Grava JSONL, CSV e relatório.
 
     Com ``merge_unrefreshed`` (busca parcial), preserva as vagas e o status das
     fontes que não foram consultadas agora, para não apagar a coleta anterior.
+    Com ``prune``, vagas inúteis (fora da área, fora do perfil, vencidas) nem
+    entram no arquivo; as marcadas em ``keep_urls`` são sempre mantidas.
     """
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -198,6 +260,13 @@ def write_outputs(
         carried_count = len(carried)
         payloads_list.extend(carried)
         carried_sources = _previous_report_sources(final_report, refreshed)
+    discarded: dict[str, int] = {}
+    if prune:
+        from job_radar.cleanup import prune_payloads
+
+        payloads_list, discarded = prune_payloads(
+            payloads_list, keep_urls=keep_urls, max_age_days=max_age_days
+        )
     payloads = tuple(payloads_list)
 
     try:
@@ -224,6 +293,8 @@ def write_outputs(
                 "unique": len(payloads),
                 "ambiguous": len(result.ambiguous),
                 "duplicates": result.duplicate_count,
+                "discarded": sum(discarded.values()),
+                "discarded_by_reason": discarded,
             },
             "sources": carried_sources
             + [
@@ -262,4 +333,10 @@ def write_outputs(
         for temporary in temporary_files:
             temporary.unlink(missing_ok=True)
 
-    return OutputManifest(final_jsonl, final_csv, final_report, len(payloads))
+    return OutputManifest(
+        final_jsonl,
+        final_csv,
+        final_report,
+        len(payloads),
+        sum(discarded.values()),
+    )

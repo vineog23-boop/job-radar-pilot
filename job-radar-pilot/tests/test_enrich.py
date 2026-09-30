@@ -65,3 +65,50 @@ def test_limit_zero_and_indeed_and_auth_are_skipped() -> None:
     assert enrich_records([_record(title="duvidosa")], _classify, [_source()], limit=0, fetcher_factory=lambda: fetcher)[1] == 0
     assert enrich_records([_record(title="duvidosa")], _classify, [_source(auth=True)], limit=5, fetcher_factory=lambda: fetcher)[1] == 0
     assert fetcher.urls == []
+
+
+# --- Revisão 29/09/2026: metadados da página de detalhe ---------------------
+
+
+def test_extract_detail_metadata_reads_json_ld_date_and_company() -> None:
+    from job_radar.enrich import extract_detail_metadata
+
+    html = (
+        '<html><head><script type="application/ld+json">'
+        '{"@type":"JobPosting","datePosted":"2026-09-20",'
+        '"hiringOrganization":{"@type":"Organization","name":"Acme Ltda"}}'
+        "</script></head><body></body></html>"
+    )
+
+    metadata = extract_detail_metadata(html)
+
+    assert metadata.company == "Acme Ltda"
+    assert metadata.published_at is not None
+    assert metadata.published_at.startswith("2026-09-20")
+
+
+def test_extract_detail_metadata_without_signals_returns_empty() -> None:
+    from job_radar.enrich import extract_detail_metadata
+
+    metadata = extract_detail_metadata("<html><body><p>Sem dados</p></body></html>")
+
+    assert metadata.company is None
+    assert metadata.published_at is None
+
+
+def test_off_topic_records_are_never_fetched() -> None:
+    fetcher = _Fetcher()
+
+    def classify_off_topic(record):
+        return _with(record, ("FIT:AMBIGUOUS", "RELEVANCE:OFF_TOPIC"))
+
+    result, count = enrich_records(
+        [_record(title="Auxiliar")],
+        classify_off_topic,
+        [_source()],
+        limit=5,
+        fetcher_factory=lambda: fetcher,
+    )
+
+    assert count == 0
+    assert fetcher.urls == []

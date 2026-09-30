@@ -217,7 +217,9 @@ class JobRadarPipeline:
         supports_editable_terms = _supports_queries(source)
         search_source = (
             replace(source, queries=self._profile.search_terms)
-            if self._profile.search_terms and supports_editable_terms
+            if self._profile.search_terms
+            and supports_editable_terms
+            and not source.fixed_queries
             else source
         )
         try:

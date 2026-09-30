@@ -40,7 +40,46 @@ const elements = {
   closeLinkedin: document.querySelector("#close-linkedin"),
   linkedinSearches: document.querySelector("#linkedin-searches"),
   linkedinFilters: document.querySelector("#linkedin-filters"),
+  quickSearchButton: document.querySelector("#quick-search-button"),
+  sourcesButton: document.querySelector("#sources-button"),
+  sourcesPicker: document.querySelector("#sources-picker"),
+  sourcesList: document.querySelector("#sources-list"),
+  sourcesStatus: document.querySelector("#sources-status"),
+  closeSources: document.querySelector("#close-sources"),
+  selectTech: document.querySelector("#select-tech"),
+  selectAll: document.querySelector("#select-all"),
+  searchSelected: document.querySelector("#search-selected"),
+  summaryReview: document.querySelector("#summary-review"),
+  moreRow: document.querySelector("#more-row"),
+  showMore: document.querySelector("#show-more"),
 };
+
+const ROW_PAGE_SIZE = 300;
+let visibleRows = ROW_PAGE_SIZE;
+let configuredSources = [];
+const REASON_LABELS = [
+  ["RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"],
+  ["SENIORITY_MISMATCH:", "nível acima do desejado"],
+  ["LOCATION_MISMATCH:", "fora das localidades escolhidas"],
+  ["WORKPLACE_MISMATCH:", "modelo de trabalho diferente"],
+  ["LOCATION_UNCLEAR:", "local não confirmado"],
+  ["WORKPLACE_UNCLEAR:", "modelo de trabalho não confirmado"],
+  ["SENIORITY_UNCLEAR:", "faixa de nível ampla (júnior/pleno)"],
+  ["ELIGIBILITY_UNCLEAR:", "vaga com público restrito"],
+];
+
+function isOffTopic(job) {
+  return (job.match_labels ?? []).includes("RELEVANCE:OFF_TOPIC");
+}
+
+function fitReasons(job) {
+  const labels = (job.match_labels ?? []).map(String);
+  const reasons = REASON_LABELS
+    .filter(([prefix]) => labels.some((label) => label.startsWith(prefix)))
+    .map(([, text]) => text);
+  if (!reasons.length && fitState(job) === "AMBIGUOUS") reasons.push("poucos dados para avaliar");
+  return reasons;
+}
 
 let dashboardState = { jobs: [], report: {}, status: "IDLE", sources: {} };
 let refreshTimer;
@@ -117,6 +156,12 @@ function filteredJobs() {
     if (text && !haystack.includes(text)) return false;
     if (source && job.source !== source) return false;
     const state = fitState(job);
+    const offTopic = isOffTopic(job);
+    if (match === "offtopic") {
+      if (!offTopic) return false;
+    } else if (match !== "all" && offTopic) {
+      return false;
+    }
     if (match === "ready" && state !== "READY") return false;
     if (match === "review" && !["CONDITIONAL", "AMBIGUOUS"].includes(state)) return false;
     if (match === "exclude" && state !== "EXCLUDE") return false;
@@ -206,7 +251,7 @@ function renderTable() {
   const jobs = filteredJobs();
   elements.tableBody.replaceChildren();
 
-  jobs.forEach((job) => {
+  jobs.slice(0, visibleRows).forEach((job) => {
     const row = document.createElement("tr");
     const trackedStatus = trackingStatus(job);
     if (trackedStatus) row.className = `tracked-${trackedStatus.toLowerCase()}`;
@@ -242,6 +287,11 @@ function renderTable() {
     if ((job.match_labels ?? []).includes("STATUS:NEW")) {
       matchCell.appendChild(textElement("span", "match-pill new", "Nova"));
     }
+    const reasons = fitReasons(job);
+    if (fitState(job) !== "READY" && reasons.length) {
+      matchCell.appendChild(textElement("small", "reason", reasons.slice(0, 2).join(" · ")));
+      matchCell.title = reasons.join(" · ");
+    }
     row.appendChild(matchCell);
     row.appendChild(trackingCell(job));
 
@@ -258,7 +308,12 @@ function renderTable() {
     elements.tableBody.appendChild(row);
   });
 
-  elements.visibleCount.textContent = `${jobs.length} ${jobs.length === 1 ? "vaga" : "vagas"}`;
+  const shown = Math.min(jobs.length, visibleRows);
+  elements.visibleCount.textContent =
+    jobs.length > shown
+      ? `${shown} de ${jobs.length} vagas`
+      : `${jobs.length} ${jobs.length === 1 ? "vaga" : "vagas"}`;
+  elements.moreRow.hidden = jobs.length <= shown;
   elements.emptyState.hidden = jobs.length !== 0;
   const reportParameters = new URLSearchParams();
   if (elements.textFilter.value.trim()) reportParameters.set("text", elements.textFilter.value.trim());
@@ -286,6 +341,8 @@ function renderSummary() {
   elements.summaryJobs.textContent = String(jobs.length);
   elements.summarySources.textContent = String(productiveSources.size);
   elements.summaryMatches.textContent = String(jobs.filter((job) => fitState(job) === "READY").length);
+  const toReview = jobs.filter((job) => fitState(job) === "CONDITIONAL" && !isOffTopic(job)).length;
+  elements.summaryReview.textContent = `mais compatíveis · ${toReview} a revisar`;
 
   const finishedAt = dashboardState.report?.finished_at || dashboardState.finished_at;
   if (finishedAt) {
@@ -372,6 +429,8 @@ function renderSources() {
 function renderRunState() {
   const running = dashboardState.status === "RUNNING";
   elements.searchButton.disabled = running;
+  elements.quickSearchButton.disabled = running;
+  elements.searchSelected.disabled = running;
   elements.searchButton.classList.toggle("running", running);
   const messages = {
     IDLE: "Resultados locais carregados.",
@@ -407,14 +466,85 @@ async function refreshState() {
   refreshTimer = window.setTimeout(refreshState, delay);
 }
 
-async function startSearch() {
+async function loadConfiguredSources() {
+  if (configuredSources.length) return true;
+  try {
+    const response = await fetch("/api/sources", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    configuredSources = payload.sources ?? [];
+    return configuredSources.length > 0;
+  } catch (error) {
+    elements.sourcesStatus.textContent = `Não foi possível listar os portais: ${error.message}`;
+    return false;
+  }
+}
+
+function renderSourcesPicker() {
+  elements.sourcesList.replaceChildren(
+    ...configuredSources.map((source) => {
+      const label = document.createElement("label");
+      label.className = "check-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = source.code;
+      input.checked = true;
+      label.append(input, ` ${source.code} `);
+      if (source.tech_focus) label.appendChild(textElement("span", "tech-tag", "TI"));
+      return label;
+    })
+  );
+}
+
+function pickedSources() {
+  return [...elements.sourcesList.querySelectorAll("input:checked")].map((input) => input.value);
+}
+
+function setPicked(predicate) {
+  elements.sourcesList.querySelectorAll("input").forEach((input) => {
+    const source = configuredSources.find((item) => item.code === input.value);
+    input.checked = Boolean(source) && predicate(source);
+  });
+}
+
+async function showSourcesPicker(show) {
+  elements.sourcesPicker.hidden = !show;
+  elements.sourcesButton.setAttribute("aria-expanded", String(show));
+  if (show && (await loadConfiguredSources())) {
+    if (!elements.sourcesList.children.length) renderSourcesPicker();
+    elements.sourcesStatus.textContent = "";
+  }
+}
+
+async function startQuickSearch() {
+  if (!(await loadConfiguredSources())) {
+    elements.liveStatus.textContent = "Não foi possível listar os portais de TI.";
+    return;
+  }
+  const tech = configuredSources.filter((source) => source.tech_focus).map((source) => source.code);
+  await startSearch(tech.length ? tech : null);
+}
+
+async function startSelectedSearch() {
+  const sources = pickedSources();
+  if (!sources.length) {
+    elements.sourcesStatus.textContent = "Marque ao menos um portal.";
+    return;
+  }
+  const all = sources.length === configuredSources.length;
+  showSourcesPicker(false);
+  await startSearch(all ? null : sources);
+}
+
+async function startSearch(sources = null) {
   elements.searchButton.disabled = true;
+  elements.quickSearchButton.disabled = true;
   elements.liveStatus.textContent = "Iniciando busca…";
   try {
     const response = await fetch("/api/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify(sources ? { sources } : {}),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
@@ -422,6 +552,7 @@ async function startSearch() {
   } catch (error) {
     elements.liveStatus.textContent = `Não foi possível iniciar: ${error.message}`;
     elements.searchButton.disabled = false;
+    elements.quickSearchButton.disabled = false;
   }
 }
 
@@ -571,7 +702,17 @@ async function savePreferences(event) {
   }
 }
 
-elements.searchButton.addEventListener("click", startSearch);
+elements.searchButton.addEventListener("click", () => startSearch());
+elements.quickSearchButton.addEventListener("click", startQuickSearch);
+elements.sourcesButton.addEventListener("click", () => showSourcesPicker(elements.sourcesPicker.hidden));
+elements.closeSources.addEventListener("click", () => showSourcesPicker(false));
+elements.selectTech.addEventListener("click", () => setPicked((source) => source.tech_focus));
+elements.selectAll.addEventListener("click", () => setPicked(() => true));
+elements.searchSelected.addEventListener("click", startSelectedSearch);
+elements.showMore.addEventListener("click", () => {
+  visibleRows += ROW_PAGE_SIZE;
+  renderTable();
+});
 elements.preferencesButton.addEventListener("click", async () => {
   const willShow = elements.preferencesPanel.hidden;
   showPreferences(willShow);
@@ -592,8 +733,12 @@ elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
   elements.sortOrder,
   elements.trackingFilter,
 ].forEach((filter) => {
-  filter.addEventListener("input", renderTable);
-  filter.addEventListener("change", renderTable);
+  const rerender = () => {
+    visibleRows = ROW_PAGE_SIZE;
+    renderTable();
+  };
+  filter.addEventListener("input", rerender);
+  filter.addEventListener("change", rerender);
 });
 elements.toggleSources.addEventListener("click", () => {
   const willShow = elements.sourceStatuses.hidden;

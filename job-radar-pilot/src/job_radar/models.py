@@ -62,6 +62,11 @@ class SourceConfig:
     query_path: str | None = None
     query_param: str | None = None
     browser: BrowserOptions = field(default_factory=BrowserOptions)
+    # True: os termos da fonte não são trocados pelos do perfil (ex.: lista de
+    # empresas monitoradas ou termos amplos que o classificador filtra depois).
+    fixed_queries: bool = False
+    # True: portal focado em tecnologia; entra na "busca rápida" do painel.
+    tech_focus: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -39,6 +39,8 @@ _OPTIONAL_SOURCE_KEYS = {
     "query_path",
     "query_param",
     "browser",
+    "fixed_queries",
+    "tech_focus",
 }
 _SOURCE_KEYS = _REQUIRED_SOURCE_KEYS | _OPTIONAL_SOURCE_KEYS
 _BROWSER_KEYS = {"disable_resources", "blocked_domains", "scroll_to_load"}
@@ -246,6 +248,15 @@ def _load_source(item: Any, index: int) -> SourceConfig:
             f"sources[{index}] aceita query_path ou query_param, nao ambos."
         )
 
+    fixed_queries = item.get("fixed_queries", False)
+    if not isinstance(fixed_queries, bool):
+        raise ConfigError(f"sources[{index}].fixed_queries deve ser booleano.")
+    if fixed_queries and not queries_raw:
+        raise ConfigError(f"sources[{index}].fixed_queries exige queries.")
+    tech_focus = item.get("tech_focus", False)
+    if not isinstance(tech_focus, bool):
+        raise ConfigError(f"sources[{index}].tech_focus deve ser booleano.")
+
     browser = _load_browser_options(item.get("browser", {}), index)
 
     return SourceConfig(
@@ -264,6 +275,8 @@ def _load_source(item: Any, index: int) -> SourceConfig:
         query_path=query_path,
         query_param=query_param.strip() if query_param else None,
         browser=browser,
+        fixed_queries=fixed_queries,
+        tech_focus=tech_focus,
     )
 
 

@@ -238,3 +238,49 @@ def test_validation_failure_preserves_previous_outputs(
     assert previous.read_text(encoding="utf-8") == "previous-valid-output\n"
     assert not (tmp_path / "vagas.csv").exists()
     assert not (tmp_path / "relatorio-execucao.json").exists()
+
+
+# --- Revisão 29/09/2026: busca parcial preserva coleta anterior -------------
+
+
+def test_partial_run_keeps_previous_records_of_other_sources(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    previous = _result()
+    other = replace(_record(), source="gupy", canonical_url="https://gupy.io/1")
+    previous = replace(
+        previous,
+        records=previous.records + (other,),
+        raw_record_count=3,
+        source_results=previous.source_results
+        + (
+            SourceRunResult(
+                source_code="gupy",
+                status=CollectionStatus.SUCCESS,
+                records=(other,),
+                pages_observed=1,
+                cards_observed=1,
+            ),
+        ),
+    )
+    write_outputs(previous, tmp_path)
+
+    partial = _result()  # só "programathor"
+    manifest = write_outputs(partial, tmp_path, merge_unrefreshed=True)
+
+    lines = [
+        json.loads(line)
+        for line in manifest.jsonl_path.read_text(encoding="utf-8").splitlines()
+    ]
+    report = json.loads(manifest.report_path.read_text(encoding="utf-8"))
+
+    assert sorted({line["source"] for line in lines}) == ["gupy", "programathor"]
+    assert len(lines) == 3
+    assert {item["source"] for item in report["sources"]} == {"gupy", "programathor"}
+
+
+def test_full_run_without_merge_replaces_previous_output(tmp_path: Path) -> None:
+    write_outputs(_result(), tmp_path)
+    manifest = write_outputs(_result(), tmp_path)
+
+    assert manifest.record_count == 2

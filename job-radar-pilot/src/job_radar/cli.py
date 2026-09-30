@@ -20,6 +20,7 @@ from job_radar.fetching import (
     ProfileInUseError,
     bootstrap_auth,
 )
+from job_radar.enrich import DEFAULT_ENRICH_LIMIT
 from job_radar.history import SeenHistory
 from job_radar.models import CollectionStatus, SourceKind
 from job_radar.output import validate_jsonl, write_outputs
@@ -51,6 +52,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Limitar a uma fonte; pode ser repetido.",
     )
     collect.add_argument(
+        "--tech-only",
+        action="store_true",
+        help="Coletar apenas os portais focados em tecnologia (busca rapida).",
+    )
+    collect.add_argument(
         "--output",
         type=Path,
         default=_project_root() / "output",
@@ -71,8 +77,11 @@ def _parser() -> argparse.ArgumentParser:
     collect.add_argument(
         "--enrich-limit",
         type=int,
-        default=40,
-        help="Vagas duvidosas enriquecidas pela pagina de detalhe (0 desliga; padrao: 40).",
+        default=DEFAULT_ENRICH_LIMIT,
+        help=(
+            "Vagas candidatas enriquecidas pela pagina de detalhe "
+            f"(0 desliga; padrao: {DEFAULT_ENRICH_LIMIT})."
+        ),
     )
     collect.add_argument(
         "--no-history",
@@ -113,7 +122,10 @@ def _collect(args: argparse.Namespace) -> int:
         preferences = load_preferences(
             default_profile=profile,
             default_search_terms=(
-                query for source in sources for query in source.queries
+                query
+                for source in sources
+                if source.enabled and not source.fixed_queries
+                for query in source.queries
             ),
         )
         profile = apply_preferences(profile, preferences)
@@ -127,8 +139,15 @@ def _collect(args: argparse.Namespace) -> int:
         print(source_error, file=sys.stderr)
         return 2
 
+    requested_codes = set(args.sources or ())
+    if getattr(args, "tech_only", False) and not requested_codes:
+        requested_codes = {source.code for source in enabled if source.tech_focus}
+        if not requested_codes:
+            print("Nenhuma fonte marcada com tech_focus.", file=sys.stderr)
+            return 2
+        args.sources = sorted(requested_codes)
     selected = tuple(
-        source for source in enabled if not args.sources or source.code in args.sources
+        source for source in enabled if not requested_codes or source.code in requested_codes
     )
     if args.dry_run:
         print(
@@ -191,7 +210,11 @@ def _collect(args: argparse.Namespace) -> int:
         for warning in item.warnings:
             if warning.startswith("SOURCE_COUNT_"):
                 print(f"WARNING {item.source_code}: {warning}", flush=True)
-    manifest = write_outputs(result, args.output.resolve())
+    manifest = write_outputs(
+        result,
+        args.output.resolve(),
+        merge_unrefreshed=bool(args.sources),
+    )
     print(f"JSONL: {manifest.jsonl_path}")
     print(f"CSV: {manifest.csv_path}")
     print(f"REPORT: {manifest.report_path}")

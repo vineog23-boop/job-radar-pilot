@@ -35,12 +35,29 @@
             <span class="button-copy"><strong>Buscar vagas agora</strong><small>Consultar todos os portais</small></span>
           </button>
           <div class="secondary-actions">
+            <button id="quick-search-button" class="ghost-button action-button" type="button" title="Consulta só os portais focados em tecnologia">Busca rápida (TI)</button>
+            <button id="sources-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="sources-picker">Escolher portais</button>
             <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
             <a id="download-report" class="ghost-button action-button" href="/api/export/markdown" download>Baixar relatório</a>
             <a id="download-csv" class="ghost-button action-button" href="/api/export/csv?tracked=active" download>Exportar CSV</a>
           </div>
           <button id="linkedin-button" class="linkedin-button" type="button" aria-expanded="false" aria-controls="linkedin-panel">Pesquisar no LinkedIn</button>
           <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
+        </div>
+      </section>
+
+      <section id="sources-picker" class="preferences-panel" hidden aria-labelledby="sources-picker-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">PORTAIS</p><h2 id="sources-picker-title">Escolher portais</h2></div>
+          <button id="close-sources" class="ghost-button" type="button">Fechar</button>
+        </div>
+        <p class="panel-copy">Marque só os portais que quer consultar agora. Os marcados com "TI" são focados em tecnologia.</p>
+        <div id="sources-list" class="sources-list" aria-live="polite"></div>
+        <div class="preferences-footer">
+          <button id="select-tech" class="ghost-button" type="button">Só portais de TI</button>
+          <button id="select-all" class="ghost-button" type="button">Todos</button>
+          <p id="sources-status" class="preferences-status" aria-live="polite"></p>
+          <button id="search-selected" class="primary-button compact-button" type="button">Buscar nos selecionados</button>
         </div>
       </section>
 
@@ -104,7 +121,7 @@
       <section id="summary-cards" class="summary-grid" aria-label="Resumo da busca">
         <article class="summary-card accent-card"><span>Vagas coletadas</span><strong id="summary-jobs">—</strong><small>registros estruturados</small></article>
         <article class="summary-card"><span>Portais com resultado</span><strong id="summary-sources">—</strong><small>fontes nesta execução</small></article>
-        <article class="summary-card"><span>Compatíveis</span><strong id="summary-matches">—</strong><small>classificadas como mais compatíveis</small></article>
+        <article class="summary-card"><span>Compatíveis</span><strong id="summary-matches">—</strong><small id="summary-review">classificadas como mais compatíveis</small></article>
         <article class="summary-card"><span>Última busca</span><strong id="summary-date" class="summary-date">—</strong><small id="summary-time">aguardando dados</small></article>
       </section>
 
@@ -126,10 +143,12 @@
           <label>
             <span class="sr-only">Compatibilidade</span>
             <select id="match-filter">
-              <option value="">Todas as vagas</option>
+              <option value="">Vagas de TI (padrão)</option>
               <option value="ready">Mais compatíveis</option>
               <option value="review">A revisar ou dados insuficientes</option>
               <option value="exclude">Fora do perfil</option>
+              <option value="offtopic">Fora da área de tecnologia</option>
+              <option value="all">Todas, sem filtro</option>
             </select>
           </label>
           <label>
@@ -157,6 +176,9 @@
             <thead><tr><th>Vaga</th><th>Empresa</th><th>Local</th><th>Origem</th><th>Aderência</th><th>Acompanhamento</th><th><span class="sr-only">Abrir</span></th></tr></thead>
             <tbody id="jobs-table-body"></tbody>
           </table>
+          <div class="more-row" id="more-row" hidden>
+            <button id="show-more" class="ghost-button" type="button">Mostrar mais vagas</button>
+          </div>
           <div id="empty-state" class="empty-state" hidden>
             <span>⌕</span><strong>Nenhuma vaga neste filtro</strong><p>Tente remover um filtro ou faça uma nova busca.</p>
           </div>

@@ -134,7 +134,53 @@ def _temp_path(output_dir: Path, name: str) -> Path:
     return output_dir / f".{name}.{uuid4().hex}.tmp"
 
 
-def write_outputs(result: PipelineResult, output_dir: Path) -> OutputManifest:
+def _previous_payloads(path: Path, refreshed: set[str]) -> list[dict[str, Any]]:
+    """Registros da coleta anterior de fontes que NÃO foram refeitas agora."""
+
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return []
+    kept: list[dict[str, Any]] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and payload.get("source") not in refreshed:
+            kept.append(payload)
+    return kept
+
+
+def _previous_report_sources(path: Path, refreshed: set[str]) -> list[dict[str, Any]]:
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    sources = previous.get("sources") if isinstance(previous, dict) else None
+    if not isinstance(sources, list):
+        return []
+    return [
+        item
+        for item in sources
+        if isinstance(item, dict) and item.get("source") not in refreshed
+    ]
+
+
+def write_outputs(
+    result: PipelineResult,
+    output_dir: Path,
+    *,
+    merge_unrefreshed: bool = False,
+) -> OutputManifest:
+    """Grava JSONL, CSV e relatório.
+
+    Com ``merge_unrefreshed`` (busca parcial), preserva as vagas e o status das
+    fontes que não foram consultadas agora, para não apagar a coleta anterior.
+    """
+
     output_dir.mkdir(parents=True, exist_ok=True)
     final_jsonl = output_dir / "vagas.jsonl"
     final_csv = output_dir / "vagas.csv"
@@ -143,7 +189,16 @@ def write_outputs(result: PipelineResult, output_dir: Path) -> OutputManifest:
     temp_csv = _temp_path(output_dir, final_csv.name)
     temp_report = _temp_path(output_dir, final_report.name)
     temporary_files = (temp_jsonl, temp_csv, temp_report)
-    payloads = tuple(_record_payload(record) for record in result.records)
+    payloads_list = [_record_payload(record) for record in result.records]
+    carried_sources: list[dict[str, Any]] = []
+    carried_count = 0
+    if merge_unrefreshed:
+        refreshed = {source.source_code for source in result.source_results}
+        carried = _previous_payloads(final_jsonl, refreshed)
+        carried_count = len(carried)
+        payloads_list.extend(carried)
+        carried_sources = _previous_report_sources(final_report, refreshed)
+    payloads = tuple(payloads_list)
 
     try:
         with temp_jsonl.open("w", encoding="utf-8", newline="\n") as handle:
@@ -165,12 +220,13 @@ def write_outputs(result: PipelineResult, output_dir: Path) -> OutputManifest:
             "started_at": result.started_at,
             "finished_at": result.finished_at,
             "totals": {
-                "raw": result.raw_record_count,
-                "unique": len(result.records),
+                "raw": result.raw_record_count + carried_count,
+                "unique": len(payloads),
                 "ambiguous": len(result.ambiguous),
                 "duplicates": result.duplicate_count,
             },
-            "sources": [
+            "sources": carried_sources
+            + [
                 {
                     "source": source.source_code,
                     "status": source.status.value,

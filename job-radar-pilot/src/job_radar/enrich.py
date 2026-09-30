@@ -1,21 +1,42 @@
-"""Enriquecimento opcional pela página de detalhe das vagas duvidosas."""
+"""Enriquecimento opcional pela página de detalhe das vagas candidatas."""
 
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Callable, Sequence
+from dataclasses import dataclass, replace
+from datetime import datetime
+import json
+import re
+from typing import Any, Callable, Iterator, Sequence
 
-from job_radar.fetching import FetchPolicy, _visible_response_text
+from job_radar.dates import parse_published_at
+from job_radar.fetching import FetchPolicy, _visible_response_text, page_html
 from job_radar.models import (
     CollectionStatus,
-    SearchProfile,
     SourceConfig,
     SourceKind,
     VacancyRecord,
 )
 
 MAX_DETAIL_CHARS = 3000
+DEFAULT_ENRICH_LIMIT = 120
 _SKIP_SOURCES = {"indeed"}
+
+_JSON_LD = re.compile(
+    r"<script[^>]+type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
+    re.IGNORECASE | re.DOTALL,
+)
+_META_PUBLISHED = re.compile(
+    r"<meta[^>]+(?:property|name|itemprop)=[\"'](?:article:published_time|"
+    r"og:published_time|datePublished|datePosted)[\"'][^>]*?content=[\"']([^\"']+)[\"']",
+    re.IGNORECASE,
+)
+_TIME_TAG = re.compile(r"<time[^>]+datetime=[\"']([^\"']+)[\"']", re.IGNORECASE)
+
+
+@dataclass(frozen=True, slots=True)
+class DetailMetadata:
+    published_at: str | None = None
+    company: str | None = None
 
 
 def _main_text(response: object) -> str:
@@ -31,11 +52,77 @@ def _main_text(response: object) -> str:
     return " ".join(_visible_response_text(response).split())
 
 
-def _is_candidate(classified: VacancyRecord) -> bool:
+def _walk_json_ld(node: Any) -> Iterator[dict[str, Any]]:
+    if isinstance(node, list):
+        for item in node:
+            yield from _walk_json_ld(item)
+    elif isinstance(node, dict):
+        kind = node.get("@type")
+        kinds = kind if isinstance(kind, list) else [kind]
+        if "JobPosting" in kinds:
+            yield node
+        yield from _walk_json_ld(node.get("@graph"))
+
+
+def extract_detail_metadata(html: str, *, now: datetime | None = None) -> DetailMetadata:
+    """Lê data de publicação e empresa da página de detalhe.
+
+    Ordem de confiança: JSON-LD ``JobPosting`` (``datePosted`` e
+    ``hiringOrganization``), meta tags de publicação e, por último, ``<time>``.
+    Sem evidência clara devolve ``None`` no campo.
+    """
+
+    published: str | None = None
+    company: str | None = None
+    for block in _JSON_LD.findall(html):
+        try:
+            data = json.loads(block.strip())
+        except (ValueError, TypeError):
+            continue
+        for posting in _walk_json_ld(data):
+            if published is None:
+                raw_date = posting.get("datePosted")
+                if isinstance(raw_date, str):
+                    published = parse_published_at(raw_date, now=now)
+            if company is None:
+                organization = posting.get("hiringOrganization")
+                name = (
+                    organization.get("name")
+                    if isinstance(organization, dict)
+                    else organization
+                )
+                if isinstance(name, str) and name.strip():
+                    company = " ".join(name.split())[:120]
+    if published is None:
+        for pattern in (_META_PUBLISHED, _TIME_TAG):
+            match = pattern.search(html)
+            if match:
+                published = parse_published_at(match.group(1), now=now)
+                if published:
+                    break
+    return DetailMetadata(published_at=published, company=company)
+
+
+def _priority(classified: VacancyRecord) -> int | None:
+    """Ordem de visita: mais compatíveis primeiro, depois as duvidosas com stack."""
+
     labels = classified.match_labels
-    doubtful = "FIT:CONDITIONAL" in labels or "FIT:AMBIGUOUS" in labels
-    has_tech = any(label.startswith("TECH_MATCH:") for label in labels)
-    return doubtful and has_tech
+    if "RELEVANCE:OFF_TOPIC" in labels:
+        return None
+    if "FIT:READY" in labels:
+        return 0
+    if "FIT:CONDITIONAL" in labels:
+        return 1
+    if "FIT:AMBIGUOUS" in labels and any(
+        label.startswith("TECH_MATCH:") for label in labels
+    ):
+        return 2
+    return None
+
+
+def _needs_detail(record: VacancyRecord) -> bool:
+    long_text = len(record.description_summary or "") >= MAX_DETAIL_CHARS // 2
+    return not long_text or not record.published_at or not record.company
 
 
 def enrich_records(
@@ -46,38 +133,41 @@ def enrich_records(
     limit: int,
     fetcher_factory: Callable[[], FetchPolicy] = FetchPolicy,
 ) -> tuple[tuple[VacancyRecord, ...], int]:
-    """Busca o texto da página de detalhe de até ``limit`` vagas duvidosas.
+    """Busca a página de detalhe de até ``limit`` vagas candidatas.
 
-    Retorna os registros (ainda não classificados) e quantos foram enriquecidos.
-    Só usa HTTP estático, respeitando robots.txt e limites do FetchPolicy; falhas
-    são ignoradas e o registro original é mantido.
+    Candidatas: READY, CONDITIONAL e AMBIGUOUS com alguma tecnologia do perfil,
+    nessa ordem. Além do texto, completa data de publicação e empresa quando o
+    portal as expõe (JSON-LD/meta). Retorna os registros (ainda não
+    classificados) e quantos foram enriquecidos. Só usa HTTP estático,
+    respeitando robots.txt e limites do FetchPolicy; falhas são ignoradas e o
+    registro original é mantido.
     """
 
     if limit <= 0:
         return tuple(raw_records), 0
     by_code = {source.code: source for source in sources}
-    picked: dict[int, SourceConfig] = {}
+    ranked: list[tuple[int, int, SourceConfig]] = []
     for index, record in enumerate(raw_records):
-        if len(picked) >= limit:
-            break
         source = by_code.get(record.source)
         if (
             source is None
             or record.source in _SKIP_SOURCES
             or source.requires_auth
             or not record.canonical_url.startswith("https://")
-            or len(record.description_summary or "") >= MAX_DETAIL_CHARS // 2
+            or not _needs_detail(record)
         ):
             continue
-        if _is_candidate(classify_fn(record)):
-            picked[index] = source
+        priority = _priority(classify_fn(record))
+        if priority is not None:
+            ranked.append((priority, index, source))
+    picked = sorted(ranked, key=lambda item: (item[0], item[1]))[:limit]
     if not picked:
         return tuple(raw_records), 0
 
     updated = list(raw_records)
     enriched = 0
     with fetcher_factory() as fetcher:
-        for index, source in picked.items():
+        for _, index, source in picked:
             record = raw_records[index]
             static_source = replace(source, kind=SourceKind.GENERIC, adaptive=False)
             try:
@@ -87,16 +177,25 @@ def enrich_records(
             if fetched.status is not CollectionStatus.SUCCESS or fetched.response is None:
                 continue
             text = _main_text(fetched.response)
-            if len(text) < 80:
+            metadata = extract_detail_metadata(page_html(fetched.response))
+            new_fields: dict[str, Any] = {}
+            if not record.published_at and metadata.published_at:
+                new_fields["published_at"] = metadata.published_at
+            if not record.company and metadata.company:
+                new_fields["company"] = metadata.company
+            if len(text) < 80 and not new_fields:
                 continue
-            base = record.description_summary or ""
-            merged = f"{base} {text}".strip()[:MAX_DETAIL_CHARS]
+            if len(text) >= 80:
+                base = record.description_summary or ""
+                new_fields["description_summary"] = f"{base} {text}".strip()[
+                    :MAX_DETAIL_CHARS
+                ]
             updated[index] = replace(
                 record,
-                description_summary=merged,
                 match_labels=tuple(
                     dict.fromkeys((*record.match_labels, "ENRICHED:DETAIL"))
                 ),
+                **new_fields,
             )
             enriched += 1
     return tuple(updated), enriched

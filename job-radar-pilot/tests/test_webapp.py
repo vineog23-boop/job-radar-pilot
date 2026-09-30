@@ -1313,3 +1313,39 @@ def test_new_untracked_filter_keeps_only_fresh_unmarked_jobs() -> None:
     result = filter_jobs_for_export(jobs, tracked="new", tracking=tracking)
 
     assert [job["canonical_url"] for job in result] == ["https://example.com/1"]
+
+
+# --- Revisão 29/09/2026: fora do escopo e motivos ---------------------------
+
+
+def test_filter_hides_off_topic_unless_requested() -> None:
+    from job_radar.webapp import filter_jobs_for_export
+
+    jobs = [
+        {"title": "Dev Java", "source": "a", "match_labels": ["FIT:READY"]},
+        {
+            "title": "Auxiliar",
+            "source": "a",
+            "match_labels": ["FIT:AMBIGUOUS", "RELEVANCE:OFF_TOPIC"],
+        },
+    ]
+
+    assert [j["title"] for j in filter_jobs_for_export(jobs, match="all")] == [
+        "Dev Java",
+        "Auxiliar",
+    ]
+    assert [j["title"] for j in filter_jobs_for_export(jobs, match="offtopic")] == [
+        "Auxiliar"
+    ]
+    assert [j["title"] for j in filter_jobs_for_export(jobs, match="ready")] == [
+        "Dev Java"
+    ]
+
+
+def test_fit_reasons_explains_ambiguous_job_without_labels() -> None:
+    from job_radar.webapp import fit_reasons
+
+    assert fit_reasons({"match_labels": ["FIT:AMBIGUOUS"]}) == [
+        "poucos dados para avaliar"
+    ]
+    assert fit_reasons({"match_labels": ["FIT:READY"]}) == []

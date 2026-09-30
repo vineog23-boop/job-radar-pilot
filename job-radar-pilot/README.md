@@ -366,6 +366,14 @@ ser usado quando um portal realmente o exigir.
 > `canonical_url`. Separe vagas aplicáveis, condicionais e ambíguas sem inventar
 > informações ausentes.
 
+## Rotina diária e portais de tecnologia
+
+- `collect --tech-only` consulta apenas portais marcados com `tech_focus: true` em `config/sources.yaml`.
+- Portais com `fixed_queries: true` (GeekHunter, Quickin) mantêm suas próprias consultas e não são sobrescritos pelos termos salvos no perfil.
+- Buscas parciais (`--source`/`--tech-only`) preservam as vagas dos demais portais no `vagas.jsonl`.
+- Vagas sem relação com TI recebem `RELEVANCE:OFF_TOPIC` e ficam ocultas no painel (filtro "Fora do escopo").
+- Agendar coleta diária com aviso de vagas novas: `scripts\agendar-coleta.ps1 -Horario 08:00` (remover com `-Remover`).
+- Detalhes da revisão: `docs/REVISAO-2026-09-29.md`.
 ## Desenvolvimento e testes
 
 ```powershell

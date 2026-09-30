@@ -105,6 +105,38 @@ _FIT_NAMES = {
     "EXCLUDE": "Fora do perfil",
 }
 _TRACKING_NAMES = {"SAVED": "Salva", "APPLIED": "Aplicada", "DISCARDED": "Descartada"}
+# Filtro de aderência: "" = relevantes (esconde o que não é de TI), "all" = tudo.
+_MATCH_FILTERS = {"", "all", "ready", "review", "exclude", "offtopic"}
+_REASON_LABELS = (
+    ("RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"),
+    ("SENIORITY_MISMATCH:", "nível acima do desejado"),
+    ("LOCATION_MISMATCH:", "fora das localidades escolhidas"),
+    ("WORKPLACE_MISMATCH:", "modelo de trabalho diferente"),
+    ("LOCATION_UNCLEAR:", "local não confirmado"),
+    ("WORKPLACE_UNCLEAR:", "modelo de trabalho não confirmado"),
+    ("SENIORITY_UNCLEAR:", "faixa de nível ampla (júnior/pleno)"),
+    ("ELIGIBILITY_UNCLEAR:", "vaga com público restrito"),
+)
+
+
+def is_off_topic(job: dict[str, Any]) -> bool:
+    return "RELEVANCE:OFF_TOPIC" in (job.get("match_labels") or [])
+
+
+def fit_reasons(job: dict[str, Any]) -> list[str]:
+    """Explica em português por que a vaga não é 'Mais compatível'."""
+
+    labels = [str(label) for label in job.get("match_labels") or []]
+    reasons = [
+        text
+        for prefix, text in _REASON_LABELS
+        if any(label.startswith(prefix) for label in labels)
+    ]
+    if not reasons and _fit_state(job) == "AMBIGUOUS":
+        reasons.append("poucos dados para avaliar")
+    return reasons
+
+
 _CSV_COLUMNS = (
     "aderencia",
     "acompanhamento",
@@ -118,6 +150,7 @@ _CSV_COLUMNS = (
     "fonte",
     "url",
     "nota",
+    "motivo",
 )
 
 
@@ -147,6 +180,7 @@ def build_jobs_csv(
                 "fonte": job.get("source") or "",
                 "url": job.get("canonical_url") or "",
                 "nota": entry.get("note", ""),
+                "motivo": "; ".join(fit_reasons(job)),
             }
         )
     return buffer.getvalue().encode("utf-8-sig")
@@ -178,6 +212,12 @@ def filter_jobs_for_export(
             if tracked_status != _TRACKED_FILTERS[tracked]:
                 continue
         state = _fit_state(job)
+        off_topic = is_off_topic(job)
+        if match == "offtopic":
+            if not off_topic:
+                continue
+        elif match != "all" and off_topic:
+            continue
         if match == "ready" and state != "READY":
             continue
         if match == "review" and state not in {"CONDITIONAL", "AMBIGUOUS"}:
@@ -472,7 +512,7 @@ def _dashboard_handler(
                 return "Filtro de texto excede o limite."
             if filters["source"] and not re.fullmatch(r"[a-z0-9-]+", filters["source"]):
                 return "Filtro de portal invalido."
-            if filters["match"] not in {"", "ready", "review", "exclude"}:
+            if filters["match"] not in _MATCH_FILTERS:
                 return "Filtro de aderencia invalido."
             if filters["tracked"] and filters["tracked"] not in _TRACKED_FILTERS:
                 return "Filtro de acompanhamento invalido."
@@ -489,7 +529,7 @@ def _dashboard_handler(
                 dict.fromkeys(
                     query
                     for source in sources
-                    if source.enabled
+                    if source.enabled and not source.fixed_queries
                     for query in source.queries
                 )
             )
@@ -499,6 +539,22 @@ def _dashboard_handler(
                 path=preferences_path,
             )
             return preferences_to_dict(preferences)
+
+        def _load_sources_payload(self) -> dict[str, object]:
+            from job_radar.config import load_sources
+
+            sources = load_sources(_project_root() / "config" / "sources.yaml")
+            return {
+                "sources": [
+                    {
+                        "code": source.code,
+                        "kind": source.kind.value,
+                        "tech_focus": source.tech_focus,
+                    }
+                    for source in sources
+                    if source.enabled
+                ]
+            }
 
         def _load_linkedin_plan(self) -> dict[str, object]:
             from job_radar.manual_search import build_linkedin_search_plan
@@ -516,6 +572,14 @@ def _dashboard_handler(
             if path == "/api/preferences":
                 try:
                     payload = self._load_preferences_payload()
+                except (OSError, ValueError) as exc:
+                    self._json(500, {"error": str(exc)})
+                    return
+                self._json(200, payload)
+                return
+            if path == "/api/sources":
+                try:
+                    payload = self._load_sources_payload()
                 except (OSError, ValueError) as exc:
                     self._json(500, {"error": str(exc)})
                     return

@@ -1064,3 +1064,33 @@ def test_remote_united_states_in_english_is_not_remote_brazil() -> None:
     labels = _labels(location="Curitiba, PR", description_summary="Remote - United States")
 
     assert "LOCATION_MATCH:remote_brazil" not in labels
+
+
+# --- Revisão 29/09/2026: novos comportamentos -------------------------------
+
+
+def test_off_topic_job_gets_relevance_label_and_is_not_ready() -> None:
+    classified = classify(
+        _record(
+            title="Auxiliar Administrativo",
+            description_summary="Rotinas de escritório",
+            evidence_snippets=(),
+        ),
+        PROFILE,
+    )
+
+    assert "RELEVANCE:OFF_TOPIC" in classified.match_labels
+    assert "FIT:READY" not in classified.match_labels
+
+
+def test_it_title_is_not_off_topic_even_without_profile_keyword() -> None:
+    classified = classify(
+        _record(
+            title="Desenvolvedor Backend Junior",
+            description_summary=None,
+            evidence_snippets=(),
+        ),
+        PROFILE,
+    )
+
+    assert "RELEVANCE:OFF_TOPIC" not in classified.match_labels

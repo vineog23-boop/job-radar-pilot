@@ -30,7 +30,7 @@ EXPECTED_SOURCES = {
     "infojobs",
     "nerdin",
     "mytechjobs",
-    "geekhunter",
+    "geekhunter", "quickin",
     "empregos-com",
     "trampos",
     "remotar",
@@ -417,3 +417,35 @@ def models_single(path: Path) -> bool:
     from job_radar.config import load_sources
 
     return load_sources(path)[0].single_page
+
+
+def test_tech_focus_and_fixed_queries_defaults_and_validation(tmp_path: Path) -> None:
+    base = (
+        "sources:\n  - code: x\n    kind: generic\n    start_url: https://x.com.br/v?q=a\n"
+        "    enabled: true\n    max_pages: 1\n    min_interval_seconds: 1\n"
+        "    requires_auth: false\n"
+        "    selectors: {card: a, title: a, url: '::attr(href)'}\n"
+    )
+    default = tmp_path / "default.yaml"
+    default.write_text(base, encoding="utf-8")
+    source = load_sources(default)[0]
+    assert source.tech_focus is False and source.fixed_queries is False
+
+    ok = tmp_path / "ok.yaml"
+    ok.write_text(
+        base + "    tech_focus: true\n    fixed_queries: true\n"
+        "    query_param: q\n    queries: [java]\n",
+        encoding="utf-8",
+    )
+    source = load_sources(ok)[0]
+    assert source.tech_focus is True and source.fixed_queries is True
+
+    no_queries = tmp_path / "noq.yaml"
+    no_queries.write_text(base + "    fixed_queries: true\n", encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_sources(no_queries)
+
+    bad_type = tmp_path / "bad.yaml"
+    bad_type.write_text(base + "    tech_focus: talvez\n", encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_sources(bad_type)

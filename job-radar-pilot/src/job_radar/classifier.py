@@ -85,6 +85,20 @@ _ENTRY_MID_RANGE = re.compile(
 # Algarismo romano isolado depois do cargo ("Desenvolvedor Java I"), sem pegar "I/O".
 _ROMAN_ONE_LEVEL = re.compile(r"(?<=\w )i(?=\s*(?:$|[-|,(]))")
 
+# Sinais de que o cargo é da área de tecnologia (título já normalizado, sem
+# acento). Sem nenhum deles, sem stack principal do perfil e fora dos artigos
+# curados, a vaga é marcada RELEVANCE:OFF_TOPIC e some das listas por padrão.
+_IT_TITLE_SIGNALS = re.compile(
+    r"(?<!\w)(?:desenvolv\w*|developer|dev|programador\w*|software|backend|back end|"
+    r"frontend|front end|full ?stack|devops|devsecops|sre|dba|qa|quality assurance|"
+    r"dados|data|bi|machine learning|ia|inteligencia artificial|cloud|ti|tecnologia|"
+    r"sistemas?|infraestrutura|redes|seguranca da informacao|ciberseguranca|mobile|"
+    r"android|ios|python|java|javascript|typescript|node|react|angular|sql|php|golang|"
+    r"kotlin|scrum|product owner|suporte tecnico|help ?desk|service desk|automacao|"
+    r"rpa|sap|erp|totvs|protheus|salesforce|servicenow|engenheir\w* de software|"
+    r"analista de testes?|analista de requisitos|cientista de dados)(?!\w)"
+)
+
 _BRAZIL_STATE_UFS = {
     "acre": "ac",
     "alagoas": "al",
@@ -477,6 +491,17 @@ def classify(
     if workplace_model is WorkplaceModel.UNKNOWN and len(inferred_workplaces) == 1:
         (workplace_model,) = inferred_workplaces
         labels.add(f"WORKPLACE_INFERRED:{workplace_model.value}")
+
+    if (
+        not has_core_technology
+        and record.source not in _CURATED_ARTICLE_SOURCES
+        and not _IT_TITLE_SIGNALS.search(_normalize(record.title))
+        and not any(
+            _IT_TITLE_SIGNALS.search(_normalize(technology))
+            for technology in record.technologies
+        )
+    ):
+        labels.add("RELEVANCE:OFF_TOPIC")
 
     labels.add(f"FIT:{fit}")
     labels.add(f"FIT_SCORE:{score}")

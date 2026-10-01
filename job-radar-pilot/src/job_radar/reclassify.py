@@ -182,10 +182,17 @@ def reclassify_output(
     voltam para a lista (``recovered``); as demais continuam no cesto.
     """
 
-    from job_radar.cleanup import CleanupRules, discard_reason, read_discarded, write_discarded
+    from job_radar.cleanup import (
+        CleanupRules,
+        discard_reason,
+        read_discarded,
+        read_jobs_for_rewrite,
+        write_discarded,
+    )
     from job_radar.output import rewrite_payloads
 
-    previous = read_payloads(output_dir)
+    jobs_path = output_dir / "vagas.jsonl"
+    previous = read_jobs_for_rewrite(jobs_path) if jobs_path.exists() else []
     updated = reclassify_payloads(previous, profile, default_countries)
     present = {payload.get("canonical_url") for payload in updated}
     active_rules = rules or CleanupRules()

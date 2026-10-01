@@ -213,7 +213,7 @@ def clean_output(
     jobs_path = output_dir / "vagas.jsonl"
     if not jobs_path.exists():
         return {"before": 0, "after": 0, "removed": {}, "dry_run": dry_run, "samples": []}
-    payloads = _read_payloads(jobs_path)
+    payloads = read_jobs_for_rewrite(jobs_path)
     samples: list[dict[str, Any]] = []
     kept, removed = prune_payloads(
         payloads,
@@ -241,6 +241,37 @@ def clean_output(
         "dry_run": dry_run,
         "summary": describe_removed(removed),
     }
+
+
+def read_jobs_for_rewrite(path: Path) -> list[dict[str, Any]]:
+    """Lê o JSONL que será regravado; com linha ilegível, recusa.
+
+    Quem regrava o arquivo só escreve o que conseguiu ler: pular a linha
+    estragada seria apagá-la sem aviso nem backup.
+    """
+
+    payloads: list[dict[str, Any]] = []
+    unreadable = 0
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            unreadable += 1
+            continue
+        if isinstance(item, dict):
+            payloads.append(item)
+        else:
+            unreadable += 1
+    if unreadable:
+        plural = unreadable > 1
+        raise CleanupError(
+            f"{path.name} tem {unreadable} linha{'s' if plural else ''} "
+            f"ilegíve{'is' if plural else 'l'}; nada foi alterado. Rode uma nova "
+            "coleta ou corrija o arquivo antes."
+        )
+    return payloads
 
 
 def _read_payloads(path: Path) -> list[dict[str, Any]]:
@@ -307,7 +338,7 @@ def undo_cleanup(output_dir: Path) -> dict[str, Any]:
     if not backup_path.exists():
         raise CleanupError("Não há limpeza para desfazer.")
     current_path = output_dir / "vagas.jsonl"
-    current = _read_payloads(current_path) if current_path.exists() else []
+    current = read_jobs_for_rewrite(current_path) if current_path.exists() else []
     present = {str(job.get("canonical_url")) for job in current}
     restored = [
         job

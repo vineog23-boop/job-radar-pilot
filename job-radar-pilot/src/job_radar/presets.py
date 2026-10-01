@@ -14,7 +14,7 @@ import re
 from typing import Iterable
 import unicodedata
 
-MAX_SEARCH_TERMS = 12
+MAX_SEARCH_TERMS = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,16 +296,107 @@ def _stack_by_id(stack_id: str, custom: Iterable[StackPreset] = ()) -> StackPres
     return next((stack for stack in (*STACKS, *custom) if stack.id == stack_id), None)
 
 
-def suggest(
+# --- termos de busca da área -----------------------------------------------------
+# Recrutador escreve o cargo de vários jeitos ("Desenvolvedor Java Jr",
+# "Programador Java Júnior", "Estagiário Java"). O catálogo combina, para cada
+# stack, a tecnologia principal, os cargos mais usados e os sinônimos de nível, e
+# ordena por prioridade: o que mais traz vaga boa vem primeiro.
+
+LEVEL_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "estagio": ("estagio", "estagiario"),
+    "junior": ("junior", "jr"),
+    "pleno": ("pleno",),
+    "senior": ("senior", "sr"),
+}
+DEV_ROLES = ("desenvolvedor", "programador", "dev")
+# Cargos (sem nível) mais usados em cada área.
+ROLE_TITLES: dict[str, tuple[str, ...]] = {
+    "java": ("desenvolvedor java", "programador java", "dev java", "backend java"),
+    "python": ("desenvolvedor python", "programador python", "dev python", "backend python"),
+    "node": ("desenvolvedor node", "desenvolvedor javascript", "dev node", "backend node"),
+    "frontend": ("desenvolvedor front end", "desenvolvedor react", "programador front end", "dev frontend"),
+    "dotnet": ("desenvolvedor .net", "desenvolvedor c#", "programador c#", "dev .net"),
+    "php": ("desenvolvedor php", "programador php", "dev php"),
+    "go": ("desenvolvedor go", "desenvolvedor golang", "dev golang"),
+    "mobile": ("desenvolvedor mobile", "desenvolvedor android", "desenvolvedor ios", "desenvolvedor flutter"),
+    "dados": ("analista de dados", "engenheiro de dados", "analista de bi", "cientista de dados"),
+    "devops": ("analista devops", "engenheiro devops", "engenheiro de cloud", "analista de infraestrutura cloud"),
+    "qa": ("analista de testes", "analista de qa", "qa automacao", "testador"),
+    "fullstack": ("desenvolvedor full stack", "desenvolvedor fullstack", "programador full stack", "dev full stack"),
+    "kotlin": ("desenvolvedor kotlin", "dev kotlin", "backend kotlin"),
+    "ruby": ("desenvolvedor ruby", "desenvolvedor ruby on rails"),
+    "rust": ("desenvolvedor rust", "dev rust"),
+    "cpp": ("desenvolvedor c++", "programador c++", "desenvolvedor embarcados", "engenheiro de firmware"),
+    "ia": ("engenheiro de machine learning", "cientista de dados", "engenheiro de ia", "analista de ia"),
+    "seguranca": ("analista de seguranca da informacao", "analista soc", "analista de ciberseguranca", "pentester"),
+    "infra": ("analista de suporte", "tecnico de suporte", "analista de infraestrutura", "analista de redes", "help desk"),
+    "salesforce": ("desenvolvedor salesforce", "consultor salesforce", "analista salesforce"),
+    "sap": ("consultor sap", "desenvolvedor abap", "analista sap"),
+    "lowcode": ("desenvolvedor rpa", "desenvolvedor outsystems", "analista rpa", "desenvolvedor power platform"),
+    "games": ("desenvolvedor de jogos", "desenvolvedor unity", "programador de jogos"),
+    "produto": ("product owner", "scrum master", "analista de produto", "product manager"),
+    "ux": ("ux designer", "ui designer", "product designer", "ux ui designer"),
+}
+# Áreas de desenvolvimento: ganham os termos gerais "desenvolvedor junior" etc.
+_DEV_STACKS = {
+    "java", "python", "node", "frontend", "dotnet", "php", "go", "mobile", "fullstack",
+    "kotlin", "ruby", "rust", "cpp", "salesforce", "lowcode", "games",
+}
+GENERAL_TERMS: dict[str, tuple[str, ...]] = {
+    "estagio": ("estagio ti", "estagio desenvolvimento", "estagio programacao", "trainee ti"),
+    "junior": ("desenvolvedor junior", "programador junior", "analista de sistemas junior"),
+    "pleno": ("desenvolvedor pleno", "analista de sistemas pleno"),
+    "senior": ("desenvolvedor senior", "analista de sistemas senior"),
+}
+GENERAL_IT_TERMS: dict[str, tuple[str, ...]] = {
+    "estagio": ("estagio ti", "estagio tecnologia"),
+    "junior": ("analista de ti junior",),
+    "pleno": ("analista de ti pleno",),
+    "senior": ("analista de ti senior",),
+}
+
+
+def _roles_for(stack: StackPreset) -> tuple[str, ...]:
+    roles = ROLE_TITLES.get(stack.id)
+    if roles:
+        return roles
+    core = stack.queries[0] if stack.queries else stack.label.casefold()
+    return tuple(f"{role} {core}" for role in DEV_ROLES)
+
+
+def _stack_terms(stack: StackPreset, levels: list[str]) -> list[tuple[int, str]]:
+    """(prioridade, termo) de uma stack; 1 = mais importante."""
+
+    queries = list(stack.queries) or [stack.label.casefold()]
+    roles = list(_roles_for(stack))
+    core = queries[0]
+    terms: list[tuple[int, str]] = []
+    if not levels:
+        terms += [(1, query) for query in queries]
+        terms += [(2, role) for role in roles]
+        return terms
+    for level in levels:
+        primary, *synonyms = LEVEL_SYNONYMS[level]
+        terms.append((1, f"{core} {primary}"))
+        terms.append((2, f"{roles[0]} {primary}"))
+        terms += [(3, f"{query} {primary}") for query in queries[1:]]
+        terms += [(3, f"{role} {primary}") for role in roles[1:]]
+        for synonym in synonyms:
+            if level == "estagio":
+                terms.append((4, f"{synonym} {core}"))  # "estagiario java"
+            else:
+                terms.append((4, f"{core} {synonym}"))  # "java jr"
+                terms.append((4, f"{roles[0]} {synonym}"))
+    terms += [(5, query) for query in queries]
+    return terms
+
+
+def term_catalog(
     stack_ids: Iterable[str],
     levels: Iterable[str],
     custom: Iterable[StackPreset] = (),
-) -> dict[str, list[str]]:
-    """Tecnologias e termos de busca para as stacks/níveis escolhidos.
-
-    Os termos combinam consulta × nível ("java junior", "spring boot estagio"),
-    alternando entre as stacks para não deixar uma só ocupar o limite de 12.
-    """
+) -> list[dict[str, object]]:
+    """Grupos de termos sugeridos (um por stack + gerais), já com prioridade."""
 
     custom = tuple(custom)
     stacks = [
@@ -313,26 +404,67 @@ def suggest(
         for stack_id in dict.fromkeys(stack_ids)
         if (stack := _stack_by_id(stack_id, custom))
     ]
-    words = [LEVEL_WORDS[level] for level in dict.fromkeys(levels) if level in LEVEL_WORDS]
+    valid_levels = [level for level in dict.fromkeys(levels) if level in LEVEL_SYNONYMS]
+    groups: list[dict[str, object]] = []
+    for stack in stacks:
+        seen: set[str] = set()
+        items = []
+        for priority, term in _stack_terms(stack, valid_levels):
+            if term not in seen:
+                seen.add(term)
+                items.append({"term": term, "priority": priority})
+        groups.append({"id": stack.id, "label": stack.label, "terms": items})
+    if stacks and valid_levels:
+        dev = any(stack.id in _DEV_STACKS or stack.id.startswith("custom-") for stack in stacks)
+        source = GENERAL_TERMS if dev else GENERAL_IT_TERMS
+        items = []
+        seen = set()
+        for level in valid_levels:
+            for index, term in enumerate(source[level]):
+                if term not in seen:
+                    seen.add(term)
+                    items.append({"term": term, "priority": 2 if index == 0 else 4})
+        groups.append({"id": "geral", "label": "Gerais da área", "terms": items})
+    return groups
 
+
+def recommended_terms(groups: list[dict[str, object]], limit: int = MAX_SEARCH_TERMS) -> list[str]:
+    """Escolhe os melhores termos alternando entre os grupos, por prioridade."""
+
+    ranked: list[tuple[int, int, int, str]] = []
+    for group_index, group in enumerate(groups):
+        position: dict[int, int] = {}
+        for item in group["terms"]:  # type: ignore[index]
+            priority = int(item["priority"])
+            order = position.get(priority, 0)
+            position[priority] = order + 1
+            ranked.append((priority, order, group_index, str(item["term"])))
+    picked: list[str] = []
+    for *_, term in sorted(ranked):
+        if term not in picked:
+            picked.append(term)
+        if len(picked) == limit:
+            break
+    return picked
+
+
+def suggest(
+    stack_ids: Iterable[str],
+    levels: Iterable[str],
+    custom: Iterable[StackPreset] = (),
+) -> dict[str, list[str]]:
+    """Tecnologias e termos de busca recomendados para as stacks/níveis escolhidos."""
+
+    custom = tuple(custom)
+    stack_ids = list(dict.fromkeys(stack_ids))
+    stacks = [stack for stack_id in stack_ids if (stack := _stack_by_id(stack_id, custom))]
     technologies: list[str] = []
     for stack in stacks:
         for technology in stack.technologies:
             if technology not in technologies:
                 technologies.append(technology)
-
-    terms: list[str] = []
-    depth = max((len(stack.queries) for stack in stacks), default=0)
-    for position in range(depth):
-        for stack in stacks:
-            if position >= len(stack.queries):
-                continue
-            query = stack.queries[position]
-            for word in words or [""]:
-                term = f"{query} {word}".strip()
-                if term not in terms:
-                    terms.append(term)
+    groups = term_catalog(stack_ids, levels, custom)
     return {
         "technologies": technologies[:40],
-        "search_terms": terms[:MAX_SEARCH_TERMS],
+        "search_terms": recommended_terms(groups),
     }

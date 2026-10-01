@@ -305,3 +305,18 @@ tr.expanded { background: rgba(255,113,71,.045); }
   .new-stack, .refine-grid { grid-template-columns: 1fr; }
   .preferences-footer .check-option { margin: 0; }
 }
+
+/* gerador de termos da área */
+.terms-tools-wrap { display: grid; gap: 8px; margin-top: -6px; }
+.terms-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.terms-tools .hint { color: var(--muted); font-size: 11px; }
+.terms-builder { display: grid; gap: 10px; padding: 14px; border: 1px dashed rgba(255,113,71,.4); border-radius: 11px; background: #0a0e15; }
+.terms-builder[hidden] { display: none; }
+.terms-builder > .hint { margin: 0; color: var(--muted); font-size: 12px; }
+.terms-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.terms-group { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #0d1119; }
+.terms-group h4 { margin: 0; font-size: 12px; color: #dce2eb; }
+.terms-group .chip-row { margin: 8px 0 0; gap: 6px; }
+.terms-builder-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.terms-builder-footer .counter { margin-right: auto; }
+.terms-builder-footer .primary-button { padding: 9px 16px; min-height: 0; font-size: 13px; border-radius: 10px; }

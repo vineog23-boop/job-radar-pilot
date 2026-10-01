@@ -855,6 +855,7 @@ def _dashboard_handler(
 
         def _load_sources_payload(self) -> dict[str, object]:
             from job_radar.config import load_sources
+            from job_radar.pipeline import _supports_queries
 
             sources = load_sources(_project_root() / "config" / "sources.yaml")
             return {
@@ -863,6 +864,7 @@ def _dashboard_handler(
                         "code": source.code,
                         "kind": source.kind.value,
                         "tech_focus": source.tech_focus,
+                        "text_search": _supports_queries(source) and not source.fixed_queries,
                     }
                     for source in sources
                     if source.enabled
@@ -937,6 +939,34 @@ def _dashboard_handler(
                     self._json(500, {"error": str(exc)})
                     return
                 self._json(200, payload)
+                return
+            if path == "/api/presets/terms":
+                from job_radar.presets import (
+                    MAX_SEARCH_TERMS,
+                    load_custom_stacks,
+                    recommended_terms,
+                    term_catalog,
+                )
+
+                query = parse_qs(request_url.query)
+                ids = [
+                    item
+                    for name in ("stacks", "levels")
+                    for item in [query.get(name, [""])[-1]]
+                ]
+                stacks = [s for s in ids[0].split(",") if re.fullmatch(r"[a-z0-9-]{1,60}", s)]
+                levels = [s for s in ids[1].split(",") if re.fullmatch(r"[a-z]{1,20}", s)]
+                groups = term_catalog(
+                    stacks, levels, load_custom_stacks(self._resolved_preferences_path())
+                )
+                self._json(
+                    200,
+                    {
+                        "groups": groups,
+                        "recommended": recommended_terms(groups),
+                        "limit": MAX_SEARCH_TERMS,
+                    },
+                )
                 return
             if path == "/api/presets/suggest":
                 from job_radar.presets import load_custom_stacks, suggest

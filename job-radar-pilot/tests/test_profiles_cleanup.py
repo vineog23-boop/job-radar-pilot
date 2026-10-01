@@ -92,14 +92,16 @@ def test_suggest_combines_stacks_and_levels_within_limit() -> None:
 
     assert "python junior" in result["search_terms"]
     assert "spring boot pleno" in result["search_terms"]
-    assert len(result["search_terms"]) <= 12
+    assert len(result["search_terms"]) <= 20
     assert "django" in result["technologies"] and "jpa" in result["technologies"]
 
 
 def test_suggest_ignores_unknown_ids_and_works_without_levels() -> None:
     result = suggest(["nao-existe", "qa"], ["mestre"])
 
-    assert result["search_terms"] == ["qa", "analista de testes"]
+    # sem nível: primeiro as consultas da stack, depois os cargos
+    assert result["search_terms"][:2] == ["qa", "analista de testes"]
+    assert "analista de qa" in result["search_terms"]
 
 
 # --- níveis no classificador e nas preferências --------------------------------

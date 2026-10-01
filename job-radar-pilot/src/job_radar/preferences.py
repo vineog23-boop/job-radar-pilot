@@ -38,7 +38,7 @@ class SearchPreferences:
             self.search_terms,
             field="search_terms",
             minimum=1,
-            maximum=12,
+            maximum=20,
             item_limit=120,
             casefold=False,
         )
@@ -274,7 +274,7 @@ def load_preferences(
             if identity and identity not in seen_defaults:
                 seen_defaults.add(identity)
                 normalized_defaults.append(" ".join(item.split()))
-            if len(normalized_defaults) == 12:
+            if len(normalized_defaults) == 20:
                 break
         return SearchPreferences(
             search_terms=tuple(normalized_defaults),

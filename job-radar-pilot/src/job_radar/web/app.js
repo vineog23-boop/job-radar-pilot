@@ -40,6 +40,16 @@ const elements = {
   previewPreferences: document.querySelector("#preview-preferences"),
   preferencesImpact: document.querySelector("#preferences-impact"),
   searchTermsCount: document.querySelector("#search-terms-count"),
+  termsEstimate: document.querySelector("#terms-estimate"),
+  termsBuilderToggle: document.querySelector("#terms-builder-toggle"),
+  termsBuilder: document.querySelector("#terms-builder"),
+  termsGroups: document.querySelector("#terms-groups"),
+  termsSelectedCount: document.querySelector("#terms-selected-count"),
+  termsRecommended: document.querySelector("#terms-recommended"),
+  termsClear: document.querySelector("#terms-clear"),
+  termsAdd: document.querySelector("#terms-add"),
+  termsReplace: document.querySelector("#terms-replace"),
+  termsStatus: document.querySelector("#terms-status"),
   suggestMerge: document.querySelector("#suggest-merge"),
   newStackToggle: document.querySelector("#new-stack-toggle"),
   newStackForm: document.querySelector("#new-stack-form"),
@@ -1097,10 +1107,125 @@ function refreshTagInputs() {
   tagInputs.forEach((tag) => tag.render());
 }
 
+const MAX_SEARCH_TERMS = 20;
+let textSearchSources = 0;
+
 function updateSearchTermsCount() {
   const count = linesFrom(elements.searchTerms).length;
-  elements.searchTermsCount.textContent = `${count}/12`;
-  elements.searchTermsCount.classList.toggle("counter-over", count > 12);
+  elements.searchTermsCount.textContent = `${count}/${MAX_SEARCH_TERMS}`;
+  elements.searchTermsCount.classList.toggle("counter-over", count > MAX_SEARCH_TERMS);
+  elements.termsEstimate.textContent = textSearchSources
+    ? `≈ ${count * textSearchSources} consultas por busca completa (${textSearchSources} portais pesquisam por texto). Mais termos = mais vagas, mas a busca demora mais.`
+    : "";
+}
+
+// --- gerador de termos da área ----------------------------------------------------
+let termsState = { groups: [], recommended: [], limit: MAX_SEARCH_TERMS };
+const selectedTerms = new Set();
+
+function stacksForTerms() {
+  if (selectedStacks.size) return [...selectedStacks];
+  // nenhuma stack marcada: deduz pelas tecnologias principais já preenchidas
+  const techs = new Set(linesFrom(elements.technologies).map(normalized));
+  return (presetsState?.stacks ?? [])
+    .filter((stack) => techs.has(normalized(stack.technologies[0])))
+    .map((stack) => stack.id);
+}
+
+function renderTermsBuilder() {
+  const recommended = new Set(termsState.recommended);
+  elements.termsGroups.replaceChildren(
+    ...termsState.groups.map((group) => {
+      const box = document.createElement("div");
+      box.className = "terms-group";
+      box.appendChild(textElement("h4", "", group.label));
+      const row = document.createElement("div");
+      row.className = "chip-row";
+      group.terms.forEach(({ term }) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip chip-small";
+        chip.dataset.term = term;
+        const on = selectedTerms.has(term);
+        chip.setAttribute("aria-pressed", String(on));
+        chip.classList.toggle("chip-on", on);
+        chip.textContent = recommended.has(term) ? `★ ${term}` : term;
+        chip.title = recommended.has(term) ? "Recomendado" : "";
+        chip.addEventListener("click", () => {
+          if (selectedTerms.has(term)) selectedTerms.delete(term);
+          else selectedTerms.add(term);
+          renderTermsBuilder();
+        });
+        row.appendChild(chip);
+      });
+      box.appendChild(row);
+      return box;
+    })
+  );
+  const count = selectedTerms.size;
+  elements.termsSelectedCount.textContent = `${count} selecionados (cabem ${termsState.limit})`;
+  elements.termsSelectedCount.classList.toggle("counter-over", count > termsState.limit);
+}
+
+async function loadTermsBuilder() {
+  await loadPresets();
+  const stacks = stacksForTerms();
+  if (!stacks.length) {
+    termsState = { groups: [], recommended: [], limit: MAX_SEARCH_TERMS };
+    selectedTerms.clear();
+    renderTermsBuilder();
+    elements.termsStatus.textContent =
+      "Marque ao menos uma stack acima (ou tenha a tecnologia principal dela em Tecnologias).";
+    return;
+  }
+  const query = new URLSearchParams({
+    stacks: stacks.join(","),
+    levels: checkedValues(SENIORITY_BOXES()).join(","),
+  });
+  try {
+    const response = await fetch(`/api/presets/terms?${query}`, { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    termsState = payload;
+    selectedTerms.clear();
+    payload.recommended.forEach((term) => selectedTerms.add(term));
+    renderTermsBuilder();
+    elements.termsStatus.textContent = "";
+  } catch (error) {
+    elements.termsStatus.textContent = `Não foi possível gerar os termos: ${error.message}`;
+  }
+}
+
+async function showTermsBuilder(show) {
+  elements.termsBuilder.hidden = !show;
+  elements.termsBuilderToggle.setAttribute("aria-expanded", String(show));
+  if (show) await loadTermsBuilder();
+}
+
+function chosenTerms() {
+  // recomendados primeiro (já estão em ordem de prioridade), depois os demais
+  const ordered = [
+    ...termsState.recommended,
+    ...termsState.groups.flatMap((group) => group.terms.map(({ term }) => term)),
+  ];
+  return [...new Set(ordered)].filter((term) => selectedTerms.has(term));
+}
+
+function applyTerms(mode) {
+  const chosen = chosenTerms();
+  if (!chosen.length) {
+    elements.termsStatus.textContent = "Marque ao menos um termo.";
+    return;
+  }
+  const before = mode === "add" ? linesFrom(elements.searchTerms) : [];
+  if (mode === "add") mergeLines(elements.searchTerms, chosen, MAX_SEARCH_TERMS);
+  else elements.searchTerms.value = chosen.slice(0, MAX_SEARCH_TERMS).join("\n");
+  const total = linesFrom(elements.searchTerms).length;
+  const added = total - before.length;
+  const left = chosen.filter((term) => !linesFrom(elements.searchTerms).includes(term)).length;
+  updateSearchTermsCount();
+  elements.termsStatus.textContent =
+    `${added} termo(s) aplicados${left ? `; ${left} ficaram de fora (limite de ${MAX_SEARCH_TERMS})` : ""}. Salve as configurações para valer na próxima busca.`;
 }
 
 function fillPreferencesForm(payload) {
@@ -1261,7 +1386,7 @@ async function applySuggestions() {
     if (!response.ok) throw new Error(suggestion.error || `HTTP ${response.status}`);
     if (elements.suggestMerge.checked) {
       mergeLines(elements.technologies, suggestion.technologies, 40);
-      mergeLines(elements.searchTerms, suggestion.search_terms, 12);
+      mergeLines(elements.searchTerms, suggestion.search_terms, MAX_SEARCH_TERMS);
     } else {
       elements.technologies.value = suggestion.technologies.join("\n");
       elements.searchTerms.value = suggestion.search_terms.join("\n");
@@ -1596,7 +1721,9 @@ async function loadPreferences() {
     fillPreferencesForm(payload);
     preferencesLoaded = true;
     elements.preferencesStatus.textContent = "Configurações atuais carregadas.";
-    await Promise.all([loadPresets(), loadProfiles(), loadInsights()]);
+    await Promise.all([loadPresets(), loadProfiles(), loadInsights(), loadConfiguredSources()]);
+    textSearchSources = configuredSources.filter((source) => source.text_search).length;
+    updateSearchTermsCount();
     return true;
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível carregar: ${error.message}`;
@@ -1682,6 +1809,27 @@ elements.applySuggestions.addEventListener("click", applySuggestions);
 document.querySelectorAll("textarea.tag-source").forEach(setupTagInput);
 elements.searchTerms.addEventListener("input", updateSearchTermsCount);
 elements.previewPreferences.addEventListener("click", previewPreferences);
+elements.termsBuilderToggle.addEventListener("click", () => showTermsBuilder(elements.termsBuilder.hidden));
+elements.termsRecommended.addEventListener("click", () => {
+  selectedTerms.clear();
+  termsState.recommended.forEach((term) => selectedTerms.add(term));
+  renderTermsBuilder();
+});
+elements.termsClear.addEventListener("click", () => {
+  selectedTerms.clear();
+  renderTermsBuilder();
+});
+elements.termsAdd.addEventListener("click", () => applyTerms("add"));
+elements.termsReplace.addEventListener("click", () => applyTerms("replace"));
+// stacks ou níveis mudaram com o gerador aberto: recalcula
+elements.stackChips.addEventListener("click", () => {
+  if (!elements.termsBuilder.hidden) window.setTimeout(loadTermsBuilder, 0);
+});
+SENIORITY_BOXES().forEach((box) =>
+  box.addEventListener("change", () => {
+    if (!elements.termsBuilder.hidden) loadTermsBuilder();
+  })
+);
 elements.newStackToggle.addEventListener("click", () => showNewStack(elements.newStackForm.hidden));
 elements.newStackCancel.addEventListener("click", () => showNewStack(false));
 elements.newStackSave.addEventListener("click", saveCustomStack);

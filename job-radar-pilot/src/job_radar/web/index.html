@@ -252,10 +252,28 @@
             </div>
           </fieldset>
           <label class="wide-field" for="search-terms">
-            <strong>Termos de busca <span id="search-terms-count" class="counter">0/12</span></strong>
-            <small>Um por linha, até 12. Vão para os portais que pesquisam por texto — prefira termos curtos que um recrutador usaria no título (ex.: "java junior", "estágio backend").</small>
-            <textarea id="search-terms" rows="4" maxlength="1452" required></textarea>
+            <strong>Termos de busca <span id="search-terms-count" class="counter">0/20</span></strong>
+            <small>Um por linha, até 20. Vão para os portais que pesquisam por texto — prefira termos curtos que um recrutador usaria no título (ex.: "java junior", "estágio backend").</small>
+            <textarea id="search-terms" rows="5" maxlength="2440" required></textarea>
           </label>
+          <div class="wide-field terms-tools-wrap">
+            <div class="terms-tools">
+              <button id="terms-builder-toggle" class="ghost-button" type="button" aria-expanded="false" aria-controls="terms-builder">✨ Gerar termos da área</button>
+              <small id="terms-estimate" class="hint"></small>
+            </div>
+            <div id="terms-builder" class="terms-builder" hidden>
+              <p class="hint">Combina as stacks e os níveis marcados com os jeitos que os recrutadores mais escrevem o cargo (desenvolvedor, programador, dev, backend, estagiário, jr…). Os recomendados já vêm marcados; clique em um termo para marcar ou desmarcar.</p>
+              <div id="terms-groups" class="terms-groups"></div>
+              <div class="terms-builder-footer">
+                <span id="terms-selected-count" class="counter">0 selecionados</span>
+                <button id="terms-recommended" class="ghost-button" type="button">Marcar recomendados</button>
+                <button id="terms-clear" class="ghost-button" type="button">Desmarcar todos</button>
+                <button id="terms-add" class="ghost-button" type="button">Somar aos atuais</button>
+                <button id="terms-replace" class="primary-button compact-button" type="button">Usar selecionados</button>
+              </div>
+              <small id="terms-status" class="hint" aria-live="polite"></small>
+            </div>
+          </div>
 
           <fieldset>
             <legend>Nível</legend>

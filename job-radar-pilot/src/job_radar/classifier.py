@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import lru_cache
 import re
 import unicodedata
 
@@ -21,6 +22,27 @@ _TERM_ALIASES: dict[str, tuple[str, ...]] = {
     "junior": ("junior", "jr", "nivel 1", "entry level", "iniciante"),
     "pleno": ("pleno", "plena", "mid level", "mid-level"),
     "senior": ("senior", "sr"),
+    # Apelidos de tecnologia (1.2): o perfil e a vaga podem usar qualquer forma.
+    "spring boot": ("spring boot", "springboot"),
+    "node": ("node", "node.js", "nodejs"),
+    "javascript": ("javascript", "js"),
+    "kubernetes": ("kubernetes", "k8s"),
+    "postgresql": ("postgresql", "postgres"),
+    "c#": ("c#", "csharp", "c sharp"),
+    ".net": (".net", "dotnet"),
+    "golang": ("golang", "go"),
+}
+# Termos de até 2 letras ("go", "js", "r", "c", "c#") colidem com siglas e
+# palavras comuns: exigem limites mais rígidos que \w (ver _alias_pattern).
+_SHORT_ALIAS_LENGTH = 2
+# Contextos em que o termo curto não é a tecnologia.
+_SHORT_ALIAS_NOT_AFTER = {
+    # UF de Goiás: "Goiânia - GO", "Goiânia, GO", "Goiânia/GO", "(GO)".
+    "go": ("- ", ", ", "/ ", "-", ",", "/", "("),
+}
+_SHORT_ALIAS_NOT_BEFORE = {
+    "go": r"\s*-?\s*(?:live|to)\b",  # go-live, go live, go-to-market
+    "r": r"\.",  # "R. Augusta" (rua)
 }
 
 # Níveis que o perfil pode escolher, do mais júnior ao mais sênior.
@@ -118,7 +140,7 @@ def _other_stacks(profile: SearchProfile, searchable_text: str) -> list[str]:
     own = {_canonical_term(keyword) for keyword in profile.positive_keywords}
     found: list[str] = []
     for name, aliases in _STACK_SIGNALS.items():
-        if name in own or own.intersection(aliases):
+        if own.intersection({_canonical_term(alias) for alias in (name, *aliases)}):
             continue
         if any(_contains_term(searchable_text, alias) for alias in aliases):
             found.append(name)
@@ -181,7 +203,7 @@ _IT_TITLE_SIGNALS = re.compile(
     r"(?<!\w)(?:desenvolv\w*|developer|dev|programador\w*|software|backend|back end|"
     r"frontend|front end|full ?stack|devops|devsecops|sre|dba|qa|quality assurance|"
     r"dados|data|bi|machine learning|ia|inteligencia artificial|cloud|ti|tecnologia|"
-    r"sistemas?|infraestrutura|redes|seguranca da informacao|ciberseguranca|mobile|"
+    r"sistemas?|infraestrutura|redes(?! sociais)|seguranca da informacao|ciberseguranca|mobile|"
     r"android|ios|python|java|javascript|typescript|node|react|angular|sql|php|golang|"
     r"kotlin|scrum|product owner|suporte tecnico|help ?desk|service desk|automacao|"
     r"rpa|sap|erp|totvs|protheus|salesforce|servicenow|engenheir\w* de software|"
@@ -208,6 +230,7 @@ _ADVANCED_ENGLISH = re.compile(
     r"|(?<!\w)(?:fluent|advanced|proficient)\s+(?:in\s+)?english(?!\w)"
     r"|(?<!\w)english fluency(?!\w)"
 )
+_SENTENCE_END = re.compile(r"[.;!?\n]")
 _NICE_TO_HAVE = re.compile(r"diferencia|desejavel|nice to have|\bplus\b|bonus|nao obrigatorio")
 # Prefixos dos rótulos que o perfil do painel pode gerar e que tiram a vaga do perfil.
 PREFERENCE_BLOCK_PREFIXES = (
@@ -220,13 +243,32 @@ PREFERENCE_BLOCK_PREFIXES = (
 )
 
 
+# "Não aceitamos PJ", "sem CLT", "(não CLT)": negação logo antes do contrato.
+_NEGATION_BEFORE = re.compile(r"(?<!\w)(?:nao|sem|exceto|nem)(?:\s+[\w-]+){0,2}\s*$")
+
+
+def _mentions_contract(text: str, marker: str) -> bool:
+    """Contrato citado de forma afirmativa (ignora "não aceitamos PJ")."""
+
+    for pattern in _term_patterns(marker):
+        for match in pattern.finditer(text):
+            before = _SENTENCE_END.split(text[max(0, match.start() - 30) : match.start()])[-1]
+            before = re.split(r"[,(]", before)[-1]
+            if not _NEGATION_BEFORE.search(before):
+                return True
+    return False
+
+
 def _english_requirement(text: str) -> str | None:
     """'required', 'plus' (diferencial) ou None quando a vaga não fala disso."""
 
     found = None
     for match in _ADVANCED_ENGLISH.finditer(text):
-        window = text[max(0, match.start() - 40) : match.end() + 60]
-        if _NICE_TO_HAVE.search(window):
+        # "diferencial" só vale na mesma frase: "English: advanced. Bonus points
+        # for Docker" continua exigindo inglês.
+        before = _SENTENCE_END.split(text[max(0, match.start() - 40) : match.start()])[-1]
+        after = _SENTENCE_END.split(text[match.end() : match.end() + 60])[0]
+        if _NICE_TO_HAVE.search(f"{before} {after}"):
             found = found or "plus"
         else:
             return "required"
@@ -269,7 +311,7 @@ def _preference_labels(
     detected = {
         kind
         for kind, markers in _CONTRACT_MARKERS.items()
-        if any(_contains_term(contract_text, marker) for marker in markers)
+        if any(_mentions_contract(contract_text, marker) for marker in markers)
     }
     labels.update(f"CONTRACT:{kind}" for kind in detected)
     if profile.contract_types and detected and detected.isdisjoint(profile.contract_types):
@@ -326,6 +368,7 @@ def _normalize(value: str | None) -> str:
     )
 
 
+@lru_cache(maxsize=8192)
 def _canonical_term(value: str) -> str:
     normalized = _normalize(value)
     return _CANONICAL_TERMS.get(normalized, normalized)
@@ -334,16 +377,33 @@ def _canonical_term(value: str) -> str:
 _LEADERSHIP_CANONICAL = frozenset(_canonical_term(term) for term in LEADERSHIP_TERMS)
 
 
-def _contains_term(searchable_text: str, term: str) -> bool:
+@lru_cache(maxsize=4096)
+def _alias_pattern(alias: str) -> re.Pattern[str] | None:
+    """Padrão de um apelido: espaço e hífen intercambiáveis, palavra inteira."""
+
+    parts = [re.escape(part) for part in re.split(r"[\s-]+", alias) if part]
+    body = r"[\s-]+".join(parts)
+    if not body:
+        return None
+    if len(alias) > _SHORT_ALIAS_LENGTH:
+        return re.compile(rf"(?<!\w){body}(?!\w)")
+    # Curto: não pode estar colado a "." ("node.js" não é "js"), "#"/"+" ("c#",
+    # "c++" não são "c"), nem ser seguido de "$" ("R$") ou "-palavra"/".palavra".
+    before = "".join(f"(?<!{re.escape(text)})" for text in _SHORT_ALIAS_NOT_AFTER.get(alias, ()))
+    after = _SHORT_ALIAS_NOT_BEFORE.get(alias)
+    extra = f"(?!{after})" if after else ""
+    return re.compile(rf"(?<![\w.#+-]){before}{body}(?![\w#+$]|[-.]\w){extra}")
+
+
+@lru_cache(maxsize=4096)
+def _term_patterns(term: str) -> tuple[re.Pattern[str], ...]:
     canonical = _canonical_term(term)
     aliases = _TERM_ALIASES.get(canonical, (canonical,))
+    return tuple(pattern for alias in aliases if (pattern := _alias_pattern(alias)))
 
-    for alias in aliases:
-        parts = [re.escape(part) for part in re.split(r"[\s-]+", alias) if part]
-        pattern = r"[\s-]+".join(parts)
-        if pattern and re.search(rf"(?<!\w){pattern}(?!\w)", searchable_text):
-            return True
-    return False
+
+def _contains_term(searchable_text: str, term: str) -> bool:
+    return any(pattern.search(searchable_text) for pattern in _term_patterns(term))
 
 
 def _is_entry_mid_range(explicit_seniority_text: str) -> bool:

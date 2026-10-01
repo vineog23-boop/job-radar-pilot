@@ -2129,6 +2129,8 @@ async function undoCleanup() {
   elements.cleanupStatus.textContent = "Desfazendo…";
   try {
     const result = await profileRequest("/api/cleanup/undo", {});
+    // O backup foi consumido: a caixa some junto com a mensagem, sem esperar recarregar.
+    elements.undoBox.hidden = true;
     elements.cleanupStatus.textContent = `${result.restored} vagas devolvidas. A lista tem ${result.total} vagas.`;
     await refreshState();
     await refreshCleanupOverview();

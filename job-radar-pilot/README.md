@@ -390,7 +390,7 @@ ser usado quando um portal realmente o exigir.
 
 O Radar não é só para Java júnior. No painel, em **Configurar busca**:
 
-1. **Stacks de interesse** — 26 stacks prontas (Java, Python, Node/TypeScript, Front-end, Full stack, .NET, PHP, Go, Kotlin, Ruby, Rust, C/C++/Embarcados, Mobile, Dados, IA/ML, DevOps, QA, Segurança, Suporte/Infra, Salesforce, SAP/ABAP, Low-code/RPA, Games, Produto, UX/UI…). Marque e clique em *Preencher sugestões*: o painel monta as tecnologias (que pontuam a vaga) e os termos de busca (enviados aos portais). *Somar ao que já está preenchido* acrescenta em vez de substituir.
+1. **Stacks de interesse** — 25 stacks prontas (Java, Python, Node/TypeScript, Front-end, Full stack, .NET, PHP, Go, Kotlin, Ruby, Rust, C/C++/Embarcados, Mobile, Dados, IA/ML, DevOps, QA, Segurança, Suporte/Infra, Salesforce, SAP/ABAP, Low-code/RPA, Games, Produto, UX/UI…). Marque e clique em *Preencher sugestões*: o painel monta as tecnologias (que pontuam a vaga) e os termos de busca (enviados aos portais). *Somar ao que já está preenchido* acrescenta em vez de substituir.
 2. **+ Criar stack** — não achou a sua? Dê um nome, liste as tecnologias e (opcional) os termos de busca. A stack fica salva em `custom-stacks.json` (ao lado das preferências), aparece com borda tracejada e pode ser excluída no ×.
 3. **Nível** — estágio, júnior, pleno e/ou sênior. Vagas de outro nível ficam fora do perfil; um nível marcado nunca é tratado como exclusão (quem escolhe sênior também aceita cargos de liderança).
 4. **Modelo de trabalho e localidades** — remoto/híbrido/presencial; use "Cidade UF", um estado, `brasil` ou `remoto-brasil`.

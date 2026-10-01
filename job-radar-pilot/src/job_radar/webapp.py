@@ -47,6 +47,20 @@ def parse_progress_line(line: str) -> dict[str, Any] | None:
     }
 
 
+def output_version(output_dir: Path) -> str:
+    """Muda sempre que vagas.jsonl ou o relatório são regravados."""
+
+    parts = []
+    for name in ("vagas.jsonl", "relatorio-execucao.json"):
+        try:
+            info = (output_dir / name).stat()
+        except OSError:
+            parts.append("0")
+            continue
+        parts.append(f"{info.st_mtime_ns}.{info.st_size}.{info.st_ino}")
+    return "-".join(parts)
+
+
 def load_output(output_dir: Path) -> dict[str, Any]:
     jobs_path = output_dir / "vagas.jsonl"
     report_path = output_dir / "relatorio-execucao.json"
@@ -531,8 +545,15 @@ class SearchController:
             if progress is not None:
                 self._sources[progress["source"]] = progress
 
-    def snapshot(self) -> dict[str, Any]:
-        output = load_output(self._output_dir)
+    def snapshot(self, since: str | None = None) -> dict[str, Any]:
+        """Estado da busca + vagas; com ``since`` igual à versão atual, sem vagas."""
+
+        version = output_version(self._output_dir)
+        if since is not None and since == version:
+            output: dict[str, Any] = {"unchanged": True}
+        else:
+            output = load_output(self._output_dir)
+        output["output_version"] = version
         with self._lock:
             state = {
                 "status": self._status,
@@ -917,7 +938,8 @@ def _dashboard_handler(
             request_url = urlsplit(self.path)
             path = request_url.path
             if path == "/api/state":
-                self._json(200, controller.snapshot())
+                since = parse_qs(request_url.query).get("since", [None])[-1]
+                self._json(200, controller.snapshot(since=since))
                 return
             if path == "/api/preferences":
                 try:

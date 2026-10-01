@@ -746,13 +746,33 @@ function render() {
   renderRunState();
 }
 
+// Versão do vagas.jsonl já desenhada: o servidor só manda as vagas se ela mudou.
+let outputVersion = "";
+
 async function refreshState() {
   window.clearTimeout(refreshTimer);
   try {
-    const response = await fetch("/api/state", { cache: "no-store" });
+    const query = outputVersion ? `?since=${encodeURIComponent(outputVersion)}` : "";
+    const response = await fetch(`/api/state${query}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    dashboardState = await response.json();
-    render();
+    const fresh = await response.json();
+    if (fresh.unchanged) {
+      // Mesmas vagas: atualiza progresso e resumo sem recriar a tabela (mantém
+      // o foco do teclado e as linhas expandidas).
+      dashboardState = {
+        ...fresh,
+        jobs: dashboardState.jobs,
+        report: dashboardState.report,
+        read_error: dashboardState.read_error,
+      };
+      renderSummary();
+      renderSources();
+      renderRunState();
+    } else {
+      dashboardState = fresh;
+      render();
+    }
+    outputVersion = fresh.output_version || "";
   } catch (error) {
     elements.liveStatus.textContent = `Interface sem conexão com o coletor: ${error.message}`;
   }

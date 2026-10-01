@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import csv
 import io
 import json
@@ -17,6 +18,7 @@ from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
 from job_radar.export_document import build_markdown_report
+from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock
 from job_radar.tracking import TrackingError, TrackingStore
 
 
@@ -64,6 +66,8 @@ def load_output(output_dir: Path) -> dict[str, Any]:
 
 
 ProgressCallback = Callable[[str], None]
+# Mesmo código de cli.EXIT_BUSY (sem importar a CLI inteira no painel).
+_EXIT_BUSY = 5
 CollectionRunner = Callable[[Path, list[str] | None, int, ProgressCallback], int]
 
 
@@ -543,6 +547,8 @@ class SearchController:
             )
             status = "DONE" if exit_code == 0 else "PARTIAL" if exit_code == 3 else "ERROR"
             error = None if exit_code in {0, 3} else f"Coleta encerrou com codigo {exit_code}."
+            if exit_code == _EXIT_BUSY:
+                error = BUSY_MESSAGE
         except Exception as exc:  # noqa: BLE001 - boundary de thread
             exit_code = 1
             status = "ERROR"
@@ -939,7 +945,11 @@ def _dashboard_handler(
                     load_profile(_project_root() / "config" / "profile.yaml"),
                     preferences_from_dict(self._load_preferences_payload()),
                 )
-                result = import_into_output(controller.output_dir, text, profile)
+                with OutputLock(controller.output_dir):
+                    result = import_into_output(controller.output_dir, text, profile)
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
                 return
@@ -1304,13 +1314,18 @@ def _dashboard_handler(
                         url for url, entry in tracked.items()
                         if entry.get("status") == "DISCARDED"
                     }
-                result = clean_output(
-                    controller.output_dir,
-                    keep_urls=set(tracked) - remove_urls,
-                    rules=rules,
-                    dry_run=dry_run,
-                    remove_urls=remove_urls,
-                )
+                # A prévia só lê; a limpeza de verdade regrava o arquivo.
+                with nullcontext() if dry_run else OutputLock(controller.output_dir):
+                    result = clean_output(
+                        controller.output_dir,
+                        keep_urls=set(tracked) - remove_urls,
+                        rules=rules,
+                        dry_run=dry_run,
+                        remove_urls=remove_urls,
+                    )
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
                 return
@@ -1326,7 +1341,11 @@ def _dashboard_handler(
                 self._json(409, {"error": "Espere a busca terminar para desfazer."})
                 return
             try:
-                result = undo_cleanup(controller.output_dir)
+                with OutputLock(controller.output_dir):
+                    result = undo_cleanup(controller.output_dir)
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
             except (CleanupError, OSError, ValueError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
@@ -1441,9 +1460,12 @@ def _dashboard_handler(
 
                     try:
                         profile, countries = self._profile_for(preferences)
-                        body["reapplied"] = reclassify_output(
-                            controller.output_dir, profile, countries
-                        )
+                        with OutputLock(controller.output_dir):
+                            body["reapplied"] = reclassify_output(
+                                controller.output_dir, profile, countries
+                            )
+                    except OutputBusyError as exc:
+                        body["reapply_skipped"] = str(exc)
                     except (OSError, ValueError, RuntimeError) as exc:
                         body["reapply_skipped"] = f"Não foi possível reaplicar: {exc}"
             self._json(200, body)

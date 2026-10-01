@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from dataclasses import replace
 import ipaddress
 from pathlib import Path
@@ -24,6 +25,7 @@ from job_radar.enrich import DEFAULT_ENRICH_LIMIT
 from job_radar.history import SeenHistory
 from job_radar.models import CollectionStatus, SourceKind
 from job_radar.output import validate_jsonl, write_outputs
+from job_radar.output_lock import OutputBusyError, OutputLock
 from job_radar.pipeline import JobRadarPipeline
 from job_radar.preferences import (
     PreferencesError,
@@ -39,6 +41,8 @@ from job_radar.tracking import TrackingError, TrackingStore
 
 # Código de saída quando a pessoa interrompe a busca pelo painel.
 EXIT_STOPPED = 4
+# Outra coleta (ex.: a agendada) já está gravando a mesma pasta de saída.
+EXIT_BUSY = 5
 
 
 def _project_root() -> Path:
@@ -199,6 +203,16 @@ def _collect(args: argparse.Namespace) -> int:
             )
         return 0
 
+    with ExitStack() as held:
+        try:
+            held.enter_context(OutputLock(args.output.resolve()))
+        except OutputBusyError as exc:
+            print(f"COLLECTION_BUSY: {exc}", file=sys.stderr)
+            return EXIT_BUSY
+        return _collect_locked(args, sources, profile)
+
+
+def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
     def print_source_progress(source: object) -> None:
         print(
             f"{source.source_code}: {source.status.value}; "

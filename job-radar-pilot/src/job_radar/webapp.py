@@ -19,7 +19,7 @@ import webbrowser
 
 from job_radar.dates import parse_iso_datetime
 from job_radar.export_document import build_markdown_report
-from job_radar.fit import fit_name, fit_reasons, fit_state, is_off_topic
+from job_radar.fit import fit_name, fit_reasons, fit_state, is_off_topic, job_technologies
 from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock
 from job_radar.tracking import TrackingError, TrackingStore
 
@@ -137,7 +137,7 @@ def build_jobs_csv(
                 "local": job.get("location") or job.get("remote_scope") or "",
                 "modalidade": job.get("workplace_model") or "",
                 "senioridade": job.get("seniority") or "",
-                "tecnologias": ", ".join(job.get("technologies") or []),
+                "tecnologias": ", ".join(job_technologies(job)),
                 "publicada_em": job.get("published_at") or "",
                 "fonte": job.get("source") or "",
                 "url": job.get("canonical_url") or "",
@@ -191,7 +191,7 @@ def build_jobs_ai_text(
                     cell(level_name(job)),
                     WORKPLACE_NAMES.get(str(job.get("workplace_model")), "—"),
                     cell(job.get("location") or job.get("remote_scope")),
-                    cell(", ".join(job.get("technologies") or [])),
+                    cell(", ".join(job_technologies(job))),
                     published,
                     cell(job.get("canonical_url")),
                 ]

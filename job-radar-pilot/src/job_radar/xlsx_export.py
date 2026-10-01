@@ -16,7 +16,7 @@ from xml.sax.saxutils import escape, quoteattr
 import zipfile
 
 from job_radar.dates import parse_iso_datetime
-from job_radar.fit import fit_state
+from job_radar.fit import fit_state, job_technologies
 
 _ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 _LEVEL_NAMES = {
@@ -309,7 +309,7 @@ def build_jobs_xlsx(
                 (status, status_style),
                 ((published.date() - epoch).days if published else None, _S_DATE),
                 (url or "", _S_LINK if url else _S_TEXT),
-                (", ".join(job.get("technologies") or []), _S_TEXT),
+                (", ".join(job_technologies(job)), _S_TEXT),
                 (job.get("source") or "", _S_CENTER),
                 (_observations(job, entry.get("note", ""), reasons), _S_TEXT),
             ]

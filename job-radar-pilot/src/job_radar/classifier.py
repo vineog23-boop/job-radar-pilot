@@ -801,21 +801,9 @@ def classify(
         seniority = next(
             level for level in SENIORITY_LEVELS if level in detected_levels
         )
-    known_technologies = {technology.casefold() for technology in record.technologies}
-    technologies = record.technologies + tuple(
-        technology
-        for technology in sorted(
-            label.removeprefix("TECH_MATCH:")
-            for label in labels
-            if label.startswith("TECH_MATCH:")
-        )
-        if technology.casefold() not in known_technologies
-    )
-
     return replace(
         record,
         match_labels=tuple(sorted(labels)),
         workplace_model=workplace_model,
         seniority=seniority,
-        technologies=technologies,
     )

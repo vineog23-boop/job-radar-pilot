@@ -91,3 +91,29 @@ def fit_reasons(job_or_labels: Mapping[str, Any] | Iterable[Any] | None) -> list
     if not reasons and fit_state(labels) == "AMBIGUOUS":
         reasons.append("poucos dados para avaliar")
     return reasons
+
+
+def job_technologies(job: Mapping[str, Any]) -> list[str]:
+    """Tecnologias para mostrar: as do portal + as que o classificador achou.
+
+    ``technologies`` é dado do portal; ``TECH_MATCH:`` é o que o classificador
+    encontrou no texto para o perfil atual. Só a exibição junta os dois, para o
+    palpite não virar dado nem ser relido na próxima reclassificação.
+    """
+
+    shown: list[str] = []
+    seen: set[str] = set()
+    source = job.get("technologies") or ()
+    if isinstance(source, (str, bytes)):
+        source = ()
+    matched = sorted(
+        label.removeprefix("TECH_MATCH:")
+        for label in labels_of(job)
+        if label.startswith("TECH_MATCH:")
+    )
+    for technology in (*(str(item) for item in source), *matched):
+        key = technology.casefold()
+        if technology and key not in seen:
+            seen.add(key)
+            shown.append(technology)
+    return shown

@@ -256,7 +256,7 @@ function detailRow(job) {
   box.appendChild(list);
   const techs = document.createElement("div");
   techs.className = "detail-techs";
-  (job.technologies ?? []).forEach((tech) => techs.appendChild(textElement("span", "tech-chip", tech)));
+  jobTechnologies(job).forEach((tech) => techs.appendChild(textElement("span", "tech-chip", tech)));
   if (techs.childElementCount) box.appendChild(techs);
   cell.appendChild(box);
   row.appendChild(cell);
@@ -282,6 +282,22 @@ const REASON_LABELS = [
   ["CONTRACT_MISMATCH:", "tipo de contrato diferente"],
   ["LANGUAGE_MISMATCH:", "exige inglês avançado"],
 ];
+
+// Tecnologias do portal + as que o classificador achou (rótulos TECH_MATCH:).
+function jobTechnologies(job) {
+  const matched = (job.match_labels ?? [])
+    .map(String)
+    .filter((label) => label.startsWith("TECH_MATCH:"))
+    .map((label) => label.slice("TECH_MATCH:".length))
+    .sort();
+  const seen = new Set();
+  return [...(job.technologies ?? []).map(String), ...matched].filter((tech) => {
+    const key = tech.toLowerCase();
+    if (!tech || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 function isOffTopic(job) {
   return (job.match_labels ?? []).includes("RELEVANCE:OFF_TOPIC");
@@ -486,7 +502,7 @@ function renderTable() {
         "span",
         "job-meta",
         [
-          (job.technologies ?? []).slice(0, 4).join(" · ") || "Tecnologias não informadas",
+          jobTechnologies(job).slice(0, 4).join(" · ") || "Tecnologias não informadas",
           publishedLabel(job) && `publicada em ${publishedLabel(job)}`,
           alsoSeenIn(job).length && `também em ${alsoSeenIn(job).join(", ")}`,
         ].filter(Boolean).join(" — ")

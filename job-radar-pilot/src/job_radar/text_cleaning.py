@@ -38,3 +38,20 @@ def clean_title(value: str | None) -> str | None:
     if separator and head.strip() and not _SENIORITY_HINT.search(_fold(tail)):
         title = head.strip()
     return title or None
+
+
+# Começos de célula que o Excel/LibreOffice interpretam como fórmula.
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def spreadsheet_safe(value):
+    """Neutraliza fórmula em célula de CSV (OWASP "CSV injection").
+
+    Títulos e empresas vêm dos portais: um "=HYPERLINK(...)" viraria link ativo
+    ao abrir o CSV no Excel. Com o apóstrofo na frente, a célula é só texto.
+    Valores que não são texto passam intactos.
+    """
+
+    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
+        return "'" + value
+    return value

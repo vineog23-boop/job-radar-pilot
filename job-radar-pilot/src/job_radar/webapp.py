@@ -21,6 +21,7 @@ from job_radar.dates import parse_iso_datetime
 from job_radar.export_document import build_markdown_report
 from job_radar.fit import fit_name, fit_reasons, fit_state, is_off_topic, job_technologies
 from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock
+from job_radar.text_cleaning import spreadsheet_safe
 from job_radar.tracking import TrackingError, TrackingStore
 
 
@@ -128,23 +129,22 @@ def build_jobs_csv(
     writer.writeheader()
     for job in jobs:
         entry = tracking.get(str(job.get("canonical_url")), {})
-        writer.writerow(
-            {
-                "aderencia": fit_name(job),
-                "acompanhamento": _TRACKING_NAMES.get(entry.get("status", ""), ""),
-                "titulo": job.get("title") or "",
-                "empresa": job.get("company") or "",
-                "local": job.get("location") or job.get("remote_scope") or "",
-                "modalidade": job.get("workplace_model") or "",
-                "senioridade": job.get("seniority") or "",
-                "tecnologias": ", ".join(job_technologies(job)),
-                "publicada_em": job.get("published_at") or "",
-                "fonte": job.get("source") or "",
-                "url": job.get("canonical_url") or "",
-                "nota": entry.get("note", ""),
-                "motivo": "; ".join(fit_reasons(job)),
-            }
-        )
+        row = {
+            "aderencia": fit_name(job),
+            "acompanhamento": _TRACKING_NAMES.get(entry.get("status", ""), ""),
+            "titulo": job.get("title") or "",
+            "empresa": job.get("company") or "",
+            "local": job.get("location") or job.get("remote_scope") or "",
+            "modalidade": job.get("workplace_model") or "",
+            "senioridade": job.get("seniority") or "",
+            "tecnologias": ", ".join(job_technologies(job)),
+            "publicada_em": job.get("published_at") or "",
+            "fonte": job.get("source") or "",
+            "url": job.get("canonical_url") or "",
+            "nota": entry.get("note", ""),
+            "motivo": "; ".join(fit_reasons(job)),
+        }
+        writer.writerow({key: spreadsheet_safe(value) for key, value in row.items()})
     return buffer.getvalue().encode("utf-8-sig")
 
 

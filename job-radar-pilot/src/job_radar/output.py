@@ -16,6 +16,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from job_radar.identity import canonicalize_url
 from job_radar.models import VacancyRecord
 from job_radar.pipeline import PipelineResult
+from job_radar.text_cleaning import spreadsheet_safe
 
 
 class OutputError(RuntimeError):
@@ -179,7 +180,7 @@ def _csv_text(payloads: Any) -> str:
     for payload in payloads:
         row = {field: payload.get(field) for field in _CSV_FIELDS}
         row["match_labels"] = ";".join(payload.get("match_labels") or [])
-        writer.writerow(row)
+        writer.writerow({key: spreadsheet_safe(value) for key, value in row.items()})
     return buffer.getvalue()
 
 
@@ -334,7 +335,7 @@ def write_outputs(
             for payload in payloads:
                 row = {field: payload[field] for field in _CSV_FIELDS}
                 row["match_labels"] = ";".join(payload["match_labels"])
-                writer.writerow(row)
+                writer.writerow({key: spreadsheet_safe(value) for key, value in row.items()})
 
         report = {
             "scrapling_version": importlib.metadata.version("scrapling"),

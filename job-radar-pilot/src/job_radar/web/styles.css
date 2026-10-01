@@ -142,6 +142,7 @@ tbody tr:hover { background: rgba(255,255,255,.025); }
 .match-pill.ready { background: rgba(79,214,156,.1); color: var(--green); }
 .match-pill.conditional { background: rgba(244,201,93,.1); color: var(--yellow); }
 .match-pill.ambiguous { background: rgba(103,119,146,.16); color: #aab4c3; }
+.match-pill.other_stack { background: rgba(167,139,250,.12); color: #c4b5fd; }
 .match-pill.exclude { background: rgba(251,113,133,.1); color: var(--red); }
 .open-link { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 9px; color: #aeb8c8; text-decoration: none; transition: color .15s, border .15s; }
 .open-link:hover { color: var(--accent); border-color: rgba(255,113,71,.4); }

@@ -11,12 +11,13 @@ from __future__ import annotations
 from typing import Any, Iterable, Mapping
 
 # Ordem de leitura quando, por algum motivo, houver mais de um rótulo FIT:.
-FIT_STATES = ("READY", "CONDITIONAL", "EXCLUDE", "AMBIGUOUS")
+FIT_STATES = ("READY", "CONDITIONAL", "EXCLUDE", "OTHER_STACK", "AMBIGUOUS")
 DEFAULT_FIT = "AMBIGUOUS"
 FIT_NAMES = {
     "READY": "Mais compatível",
     "CONDITIONAL": "Condicional",
     "AMBIGUOUS": "Dados insuficientes",
+    "OTHER_STACK": "Outra stack",
     "EXCLUDE": "Fora do perfil",
 }
 
@@ -84,6 +85,9 @@ def fit_reasons(job_or_labels: Mapping[str, Any] | Iterable[Any] | None) -> list
         for prefix, text in REASON_LABELS
         if any(label.startswith(prefix) for label in labels)
     ]
+    stacks = [label.removeprefix("OTHER_STACK:") for label in labels if label.startswith("OTHER_STACK:")]
+    if stacks:
+        reasons.append(f"stack diferente da sua ({', '.join(stacks)})")
     if not reasons and fit_state(labels) == "AMBIGUOUS":
         reasons.append("poucos dados para avaliar")
     return reasons

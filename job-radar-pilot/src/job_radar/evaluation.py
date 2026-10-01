@@ -26,7 +26,7 @@ from job_radar.reclassify import reclassify_payloads
 OFF_TOPIC = "OFF_TOPIC"
 CATEGORY_NAMES = {**FIT_NAMES, OFF_TOPIC: "Fora da área de tecnologia"}
 # Ordem de exibição das faixas no relatório.
-CATEGORY_ORDER = ("READY", "CONDITIONAL", "AMBIGUOUS", "EXCLUDE", OFF_TOPIC)
+CATEGORY_ORDER = ("READY", "CONDITIONAL", "AMBIGUOUS", "OTHER_STACK", "EXCLUDE", OFF_TOPIC)
 MAX_EXAMPLES = 15
 
 

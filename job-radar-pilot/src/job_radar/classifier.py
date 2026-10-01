@@ -56,18 +56,73 @@ _CURATED_ARTICLE_SOURCES = {
     "otrainee",
     "seja-trainee",
 }
-_CORE_TECH_TERMS = {"java", "spring boot", "backend", "api rest", "jpa", "hibernate"}
+# Função/área, não stack: "Backend Python" e "Backend Java" têm o mesmo termo.
+# Só contam como stack principal quando o perfil não tem nenhuma tecnologia
+# específica (ex.: perfil montado apenas com "backend").
+_GENERIC_ROLE_TERMS = {
+    "backend", "back end", "frontend", "front end", "full stack", "fullstack",
+    "api rest", "rest api", "mobile", "desenvolvedor", "programador", "software",
+}
+
+# Linguagens/frameworks que definem a stack de uma vaga. Quando a vaga cita
+# alguma delas e nenhuma do perfil, ela é de outra stack (FIT:OTHER_STACK), e
+# não "dados insuficientes". Chave = nome mostrado; valor = como aparece.
+_STACK_SIGNALS: dict[str, tuple[str, ...]] = {
+    "java": ("java",),
+    "kotlin": ("kotlin",),
+    "scala": ("scala",),
+    "python": ("python", "django", "flask", "fastapi"),
+    "node.js": ("node", "node.js", "nodejs", "nestjs"),
+    "javascript": ("javascript",),
+    "typescript": ("typescript",),
+    "react": ("react", "reactjs", "react.js", "next.js", "nextjs"),
+    "angular": ("angular", "angularjs"),
+    "vue": ("vue", "vue.js", "vuejs", "nuxt"),
+    ".net": (".net", "dotnet", "c#", "csharp", "asp.net"),
+    "php": ("php", "laravel", "symfony"),
+    "golang": ("golang",),
+    "ruby": ("ruby", "rails"),
+    "rust": ("rust",),
+    "c++": ("c++",),
+    "flutter": ("flutter", "dart"),
+    "react native": ("react native",),
+    "swift": ("swift",),
+    "android": ("android",),
+    "ios": ("ios",),
+    "delphi": ("delphi",),
+    "cobol": ("cobol",),
+    "elixir": ("elixir",),
+    "abap": ("abap",),
+    "salesforce": ("salesforce", "apex"),
+    "outsystems": ("outsystems",),
+    "power bi": ("power bi",),
+}
+MAX_OTHER_STACK_LABELS = 3
 
 
 def _core_terms(profile: SearchProfile) -> set[str]:
-    """Stack principal do perfil: palavras-chave que não são ferramentas de apoio."""
+    """Stack principal do perfil: tecnologias que não são apoio nem função genérica."""
 
-    core = {
+    candidates = {
         canonical
         for canonical in (_canonical_term(keyword) for keyword in profile.positive_keywords)
         if canonical and canonical not in _SECONDARY_TERMS
     }
-    return core | (_CORE_TECH_TERMS & {_canonical_term(k) for k in profile.positive_keywords})
+    specific = candidates - _GENERIC_ROLE_TERMS
+    return specific or candidates
+
+
+def _other_stacks(profile: SearchProfile, searchable_text: str) -> list[str]:
+    """Stacks citadas na vaga que não são do perfil (na ordem de _STACK_SIGNALS)."""
+
+    own = {_canonical_term(keyword) for keyword in profile.positive_keywords}
+    found: list[str] = []
+    for name, aliases in _STACK_SIGNALS.items():
+        if name in own or own.intersection(aliases):
+            continue
+        if any(_contains_term(searchable_text, alias) for alias in aliases):
+            found.append(name)
+    return found
 _CONDITIONAL_ELIGIBILITY_MARKERS = (
     "pcd",
     "pessoa com deficiencia",
@@ -610,6 +665,7 @@ def classify(
                     labels.add(f"WORKPLACE_MISMATCH:{workplace.value}")
                 has_workplace_mismatch = True
 
+    other_stacks: list[str] = []
     if record.source in _CURATED_ARTICLE_SOURCES:
         labels.add("SOURCE_TYPE:CURATED_ARTICLE")
         fit = "AMBIGUOUS"
@@ -646,7 +702,20 @@ def classify(
         elif has_core_technology:
             fit = "CONDITIONAL"
         else:
-            fit = "AMBIGUOUS"
+            # Sem stack principal no perfil (só ferramentas de apoio) não existe
+            # "outra stack": a vaga continua com poucos dados.
+            other_stacks = _other_stacks(profile, searchable_text) if core_terms else []
+            if other_stacks:
+                # Vaga de TI de outra stack: "backend"/"docker" não valem como
+                # ponto de tecnologia para ela.
+                fit = "OTHER_STACK"
+                score -= int(has_technology)
+                labels.update(
+                    f"OTHER_STACK:{name}"
+                    for name in other_stacks[:MAX_OTHER_STACK_LABELS]
+                )
+            else:
+                fit = "AMBIGUOUS"
 
     workplace_model = record.workplace_model
     if workplace_model is WorkplaceModel.UNKNOWN and len(inferred_workplaces) == 1:

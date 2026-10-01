@@ -40,6 +40,7 @@ _CLASSIFIER_PREFIXES = (
     "LANGUAGE:",
     "LANGUAGE_MISMATCH:",
     "TITLE_EXCLUDED:",
+    "OTHER_STACK:",
 )
 _TUPLE_FIELDS = {
     "technologies",
@@ -137,6 +138,7 @@ def summarize(
         "ready": counts["ready"],
         "conditional": counts["conditional"],
         "ambiguous": counts["ambiguous"],
+        "other_stack": counts["other_stack"],
         "exclude": counts["exclude"],
         "off_topic": counts["off_topic"],
         "by_preferences": counts["by_preferences"],

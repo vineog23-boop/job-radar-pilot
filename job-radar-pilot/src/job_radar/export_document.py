@@ -43,6 +43,7 @@ def build_markdown_report(
         "ready": [],
         "conditional": [],
         "ambiguous": [],
+        "other_stack": [],
         "exclude": [],
     }
     for job in jobs:
@@ -92,6 +93,7 @@ def build_markdown_report(
         ("ready", "Mais compativeis"),
         ("conditional", "A revisar"),
         ("ambiguous", "Dados insuficientes"),
+        ("other_stack", "Outra stack"),
         ("exclude", "Fora do perfil"),
     )
     for key, label in headings:

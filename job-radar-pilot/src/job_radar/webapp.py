@@ -98,7 +98,7 @@ _TRACKED_FILTERS = {
 }
 _TRACKING_NAMES = {"SAVED": "Salva", "APPLIED": "Aplicada", "DISCARDED": "Descartada"}
 # Filtro de aderência: "" = relevantes (esconde o que não é de TI), "all" = tudo.
-_MATCH_FILTERS = {"", "all", "ready", "fit", "review", "exclude", "offtopic"}
+_MATCH_FILTERS = {"", "all", "ready", "fit", "review", "otherstack", "exclude", "offtopic"}
 _CSV_COLUMNS = (
     "aderencia",
     "acompanhamento",
@@ -281,6 +281,8 @@ def filter_jobs_for_export(
             continue
         if match == "review" and state not in {"CONDITIONAL", "AMBIGUOUS"}:
             continue
+        if match == "otherstack" and state != "OTHER_STACK":
+            continue
         if match == "exclude" and state != "EXCLUDE":
             continue
         if normalized_filter:
@@ -316,6 +318,7 @@ _MATCH_NAMES = {
     "ready": "Só mais compatíveis",
     "fit": "Mais compatíveis e a revisar",
     "review": "A revisar",
+    "otherstack": "Outra stack",
     "exclude": "Fora do perfil",
     "offtopic": "Fora da área de tecnologia",
 }

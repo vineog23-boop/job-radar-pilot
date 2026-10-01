@@ -292,6 +292,8 @@ function fitReasons(job) {
   const reasons = REASON_LABELS
     .filter(([prefix]) => labels.some((label) => label.startsWith(prefix)))
     .map(([, text]) => text);
+  const stacks = labels.filter((label) => label.startsWith("OTHER_STACK:")).map((label) => label.slice(12));
+  if (stacks.length) reasons.push(`stack diferente da sua (${stacks.join(", ")})`);
   if (!reasons.length && fitState(job) === "AMBIGUOUS") reasons.push("poucos dados para avaliar");
   return reasons;
 }
@@ -318,7 +320,7 @@ function normalized(value) {
 
 function fitState(job) {
   const label = (job.match_labels ?? []).find((item) =>
-    /^FIT:(READY|CONDITIONAL|EXCLUDE|AMBIGUOUS)$/.test(String(item))
+    /^FIT:(READY|CONDITIONAL|EXCLUDE|OTHER_STACK|AMBIGUOUS)$/.test(String(item))
   );
   return label ? String(label).slice(4) : "AMBIGUOUS";
 }
@@ -336,6 +338,7 @@ function fitLabel(state) {
     CONDITIONAL: "A revisar",
     EXCLUDE: "Fora do perfil",
     AMBIGUOUS: "Dados insuficientes",
+    OTHER_STACK: "Outra stack",
   }[state] || "Dados insuficientes";
 }
 
@@ -379,10 +382,11 @@ function filteredJobs() {
     }
     if (match === "ready" && state !== "READY") return false;
     if (match === "review" && !["CONDITIONAL", "AMBIGUOUS"].includes(state)) return false;
+    if (match === "otherstack" && state !== "OTHER_STACK") return false;
     if (match === "exclude" && state !== "EXCLUDE") return false;
     return true;
   }).sort((left, right) => {
-    const order = { READY: 0, CONDITIONAL: 1, AMBIGUOUS: 2, EXCLUDE: 3 };
+    const order = { READY: 0, CONDITIONAL: 1, AMBIGUOUS: 2, OTHER_STACK: 3, EXCLUDE: 4 };
     const byState = order[fitState(left)] - order[fitState(right)];
     const byFit =
       byState ||
@@ -1471,6 +1475,7 @@ function impactText(summary, prefix) {
     `${summary.conditional + summary.ambiguous} a revisar`,
     `${summary.exclude} fora do perfil`,
   ];
+  if (summary.other_stack) parts.splice(2, 0, `${summary.other_stack} de outra stack`);
   if (summary.by_preferences) parts.push(`${summary.by_preferences} cortadas pelos filtros finos`);
   if (summary.boosted) parts.push(`${summary.boosted} com diferencial ou empresa favorita`);
   const changed = summary.changed ? ` ${summary.changed} mudaram de faixa.` : "";

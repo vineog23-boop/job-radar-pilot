@@ -336,7 +336,9 @@ def test_classify_does_not_match_java_inside_javascript() -> None:
     )
 
     assert "TECH_MATCH:java" not in classified.match_labels
-    assert "FIT:AMBIGUOUS" in classified.match_labels
+    # 1.1: JavaScript é de TI, só que de outra stack (não "dados insuficientes").
+    assert "FIT:OTHER_STACK" in classified.match_labels
+    assert "OTHER_STACK:javascript" in classified.match_labels
 
 
 def test_classify_does_not_match_sql_inside_nosql() -> None:
@@ -390,7 +392,7 @@ def test_classify_marks_technology_without_all_gates_conditional() -> None:
     assert "FIT:CONDITIONAL" in classified.match_labels
 
 
-def test_classify_marks_android_title_without_positive_technology_ambiguous() -> None:
+def test_classify_marks_android_title_without_positive_technology_other_stack() -> None:
     classified = classify(
         _record(
             title="Desenvolvedor Android Junior",
@@ -402,7 +404,9 @@ def test_classify_marks_android_title_without_positive_technology_ambiguous() ->
 
     assert "SENIORITY_MATCH:junior" in classified.match_labels
     assert not any(label.startswith("TECH_MATCH:") for label in classified.match_labels)
-    assert "FIT:AMBIGUOUS" in classified.match_labels
+    # 1.1: Android é outra stack para um perfil Java.
+    assert "FIT:OTHER_STACK" in classified.match_labels
+    assert "OTHER_STACK:android" in classified.match_labels
 
 
 def test_classify_does_not_promote_supporting_skill_without_backend_anchor() -> None:

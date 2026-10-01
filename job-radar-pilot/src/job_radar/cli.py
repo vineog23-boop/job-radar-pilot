@@ -116,6 +116,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Nao ler nem gravar o historico local de vagas ja vistas.",
     )
     collect.add_argument(
+        "--no-export",
+        action="store_true",
+        help="Nao gerar as planilhas automaticas (Documentos\\Radar de Vagas) nesta coleta.",
+    )
+    collect.add_argument(
         "--control-file",
         type=Path,
         default=None,
@@ -311,6 +316,8 @@ def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
     )
     if manifest.discarded:
         print(f"DISCARDED: {manifest.discarded} vagas inuteis nao foram salvas.")
+    if not getattr(args, "no_export", False):
+        _auto_export(args.output.resolve())
     print(f"JSONL: {manifest.jsonl_path}")
     print(f"CSV: {manifest.csv_path}")
     print(f"REPORT: {manifest.report_path}")
@@ -319,6 +326,24 @@ def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
         return EXIT_STOPPED
     complete_statuses = {CollectionStatus.SUCCESS, CollectionStatus.EMPTY}
     return 0 if all(item.status in complete_statuses for item in result.source_results) else 3
+
+
+def _auto_export(output_dir: Path) -> None:
+    """Planilhas da coleta na pasta do usuário; falha só avisa (a coleta já foi salva)."""
+
+    from job_radar.auto_export import export_after_collection, load_settings
+
+    try:
+        tracking = TrackingStore().load()
+    except TrackingError:
+        tracking = {}
+    try:
+        written = export_after_collection(output_dir, load_settings(preferences_path()), tracking)
+    except (OSError, ValueError) as exc:
+        print(f"WARNING: exportacao automatica falhou: {exc}", file=sys.stderr, flush=True)
+        return
+    for path in written:
+        print(f"EXPORT: {path}", flush=True)
 
 
 def _run_pipeline(args, sources, profile, history, print_source_progress, preferred_urls=()):

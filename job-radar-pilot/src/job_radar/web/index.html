@@ -131,6 +131,20 @@
         <p class="export-table-note">Prefere exportar exatamente o que está na tabela agora, com os filtros dela?
           <a id="download-report" href="/api/export/markdown" download>Relatório (.md)</a> ·
           <a id="download-csv" href="/api/export/csv?tracked=active" download>CSV</a></p>
+        <section class="auto-export" aria-labelledby="auto-export-title">
+          <h3 id="auto-export-title">Exportação automática</h3>
+          <p class="panel-copy">Ao fim de cada busca (inclusive a agendada) o Radar salva nesta pasta a planilha das melhores vagas e um CSV com todas as de TI. O arquivo <strong>ultima-busca.xlsx</strong> é sempre o mais recente.</p>
+          <label class="check"><input id="auto-export-enabled" type="checkbox" checked> Exportar automaticamente após cada busca</label>
+          <label class="auto-export-folder">Pasta
+            <input id="auto-export-folder" type="text" spellcheck="false" autocomplete="off">
+          </label>
+          <div class="auto-export-actions">
+            <button id="auto-export-save" type="button" class="ghost-button">Salvar pasta</button>
+            <button id="auto-export-open" type="button" class="ghost-button">Abrir pasta</button>
+            <button id="auto-export-run" type="button" class="ghost-button">Exportar agora para a pasta</button>
+          </div>
+          <p id="auto-export-status" class="preferences-status" aria-live="polite"></p>
+        </section>
       </section>
 
       <section id="cleanup-panel" class="preferences-panel cleanup-panel" hidden aria-labelledby="cleanup-title">

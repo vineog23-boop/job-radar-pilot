@@ -6,6 +6,7 @@ import csv
 import io
 import json
 from datetime import datetime, timezone
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import re
@@ -454,6 +455,7 @@ class SearchController:
         self._error: str | None = None
         self._sources: dict[str, dict[str, Any]] = {}
         self._logs: list[str] = []
+        self._exports: list[str] = []
         self._control = "run"
 
     @property
@@ -493,6 +495,7 @@ class SearchController:
             self._error = None
             self._sources = {}
             self._logs = []
+            self._exports = []
             self._control = "run"
             try:
                 from job_radar.run_control import write_state
@@ -545,6 +548,8 @@ class SearchController:
         progress = parse_progress_line(line)
         with self._lock:
             self._logs = [*self._logs[-79:], line]
+            if line.startswith("EXPORT: "):
+                self._exports.append(line.removeprefix("EXPORT: ").strip())
             if progress is not None:
                 self._sources[progress["source"]] = progress
 
@@ -568,6 +573,7 @@ class SearchController:
                 "error": self._error,
                 "sources": dict(self._sources),
                 "logs": list(self._logs),
+                "exports": list(self._exports),
             }
         return {**state, **output}
 
@@ -1033,6 +1039,11 @@ def _dashboard_handler(
             if path == "/api/profiles":
                 self._json(200, self._profiles_payload())
                 return
+            if path == "/api/auto-export":
+                from job_radar.auto_export import load_settings
+
+                self._json(200, load_settings(self._resolved_preferences_path()).to_dict())
+                return
             if path == "/api/cleanup/status":
                 from job_radar.cleanup import backup_info
 
@@ -1250,6 +1261,46 @@ def _dashboard_handler(
 
             return load_rules(self._resolved_preferences_path())
 
+        def _post_auto_export_run(self) -> None:
+            from job_radar.auto_export import (
+                AutoExportSettings,
+                export_after_collection,
+                load_settings,
+            )
+
+            settings = load_settings(self._resolved_preferences_path())
+            try:
+                tracking = tracking_store.load()
+            except TrackingError:
+                tracking = {}
+            try:
+                # Botão "Exportar agora": vale mesmo com a automática desligada.
+                files = export_after_collection(
+                    controller.output_dir,
+                    AutoExportSettings(enabled=True, folder=settings.resolved_folder),
+                    tracking,
+                )
+            except (OSError, ValueError) as exc:
+                self._json(500, {"error": f"Não foi possível exportar: {exc}"})
+                return
+            self._json(200, {"files": [str(path) for path in files], "folder": str(settings.resolved_folder)})
+
+        def _post_auto_export_open(self) -> None:
+            from job_radar.auto_export import load_settings
+
+            folder = load_settings(self._resolved_preferences_path()).resolved_folder
+            opener = getattr(os, "startfile", None)
+            if opener is None:
+                self._json(501, {"error": f"Abra a pasta manualmente: {folder}", "folder": str(folder)})
+                return
+            try:
+                folder.mkdir(parents=True, exist_ok=True)
+                opener(str(folder))  # Windows: abre no Explorador de Arquivos
+            except OSError as exc:
+                self._json(500, {"error": f"Não foi possível abrir {folder}: {exc}"})
+                return
+            self._json(200, {"folder": str(folder)})
+
         def _rules_payload(self) -> dict[str, Any]:
             from job_radar.cleanup import REASON_NAMES, load_rules
 
@@ -1370,6 +1421,12 @@ def _dashboard_handler(
             if path == "/api/linkedin/import":
                 self._post_linkedin_import()
                 return
+            if path == "/api/auto-export/run":
+                self._post_auto_export_run()
+                return
+            if path == "/api/auto-export/open":
+                self._post_auto_export_open()
+                return
             if path != "/api/search":
                 self._json(404, {"error": "Recurso nao encontrado."})
                 return
@@ -1421,6 +1478,17 @@ def _dashboard_handler(
                 return
             if path == "/api/cleanup/rules":
                 self._put_cleanup_rules()
+                return
+            if path == "/api/auto-export":
+                from job_radar.auto_export import save_settings, settings_from_dict
+
+                try:
+                    settings = settings_from_dict(self._read_json_body())
+                    save_settings(self._resolved_preferences_path(), settings)
+                except (OSError, ValueError, json.JSONDecodeError) as exc:
+                    self._json(400, {"error": str(exc)})
+                    return
+                self._json(200, settings.to_dict())
                 return
             if path != "/api/preferences":
                 self._json(404, {"error": "Recurso nao encontrado."})

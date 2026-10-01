@@ -244,6 +244,14 @@ tr.expanded { background: rgba(255,113,71,.045); }
 .tech-chip { color: var(--green); border: 1px solid rgba(79,214,156,.3); border-radius: 99px; padding: 2px 9px; font-size: 10px; }
 .export-table-note { margin: 14px 0 0; color: var(--muted); font-size: 11px; }
 .export-table-note a { color: var(--accent); }
+.auto-export { margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #0d1119; display: grid; gap: 10px; }
+.auto-export h3 { margin: 0; font-size: 14px; }
+.auto-export .panel-copy { margin: 0; }
+.auto-export .check { display: inline-flex; align-items: center; gap: 8px; color: #aeb8c8; font-size: 12px; }
+.auto-export .check input { accent-color: var(--accent); }
+.auto-export-folder { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; }
+.auto-export-folder input { color: #dfe6f1; background: #080b11; border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; font-size: 13px; min-width: 0; }
+.auto-export-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .filters select { font-size: 13px; padding-left: 12px; padding-right: 8px; }
 
 /* --- menu de limpeza --- */

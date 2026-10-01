@@ -96,6 +96,12 @@ const elements = {
   exportXlsx: document.querySelector("#export-xlsx"),
   exportCsv: document.querySelector("#export-csv"),
   exportMd: document.querySelector("#export-md"),
+  autoExportEnabled: document.querySelector("#auto-export-enabled"),
+  autoExportFolder: document.querySelector("#auto-export-folder"),
+  autoExportSave: document.querySelector("#auto-export-save"),
+  autoExportOpen: document.querySelector("#auto-export-open"),
+  autoExportRun: document.querySelector("#auto-export-run"),
+  autoExportStatus: document.querySelector("#auto-export-status"),
   linkedinButton: document.querySelector("#linkedin-button"),
   linkedinPanel: document.querySelector("#linkedin-panel"),
   closeLinkedin: document.querySelector("#close-linkedin"),
@@ -713,6 +719,10 @@ function renderRunState() {
   } else if (running && dashboardState.paused) {
     message = "Busca pausada. Nenhuma página nova é consultada até você retomar.";
   }
+  const exports = dashboardState.exports ?? [];
+  if (!running && exports.length) {
+    message += ` Planilha salva em ${exports[exports.length - 1]}.`;
+  }
   elements.liveStatus.textContent = dashboardState.read_error
     ? `Não foi possível ler a saída: ${dashboardState.read_error}`
     : message;
@@ -1025,6 +1035,66 @@ function showExport(show) {
   );
   elements.exportSource.value = sources.has(selected) ? selected : "";
   refreshExportLinks();
+  loadAutoExport();
+}
+
+// --- Exportação automática (pasta do usuário, ao fim de cada busca) ---
+async function autoExportRequest(path, method, body) {
+  const response = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: "no-store",
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+  return payload;
+}
+
+async function loadAutoExport() {
+  try {
+    const settings = await autoExportRequest("/api/auto-export", "GET");
+    elements.autoExportEnabled.checked = settings.enabled;
+    elements.autoExportFolder.value = settings.folder;
+  } catch (error) {
+    elements.autoExportStatus.textContent = `Não foi possível ler a configuração: ${error.message}`;
+  }
+}
+
+async function saveAutoExport() {
+  try {
+    const settings = await autoExportRequest("/api/auto-export", "PUT", {
+      enabled: elements.autoExportEnabled.checked,
+      folder: elements.autoExportFolder.value.trim(),
+    });
+    elements.autoExportFolder.value = settings.folder;
+    elements.autoExportStatus.textContent = settings.enabled
+      ? `Ligada: cada busca salva as planilhas em ${settings.folder}.`
+      : "Desligada: as buscas não geram planilhas sozinhas.";
+  } catch (error) {
+    elements.autoExportStatus.textContent = `Não foi possível salvar: ${error.message}`;
+  }
+}
+
+async function runAutoExport() {
+  elements.autoExportStatus.textContent = "Exportando…";
+  try {
+    const result = await autoExportRequest("/api/auto-export/run", "POST", {});
+    elements.autoExportStatus.textContent = result.files.length
+      ? `Pronto: ${result.files.length} arquivos em ${result.folder}.`
+      : "Ainda não há vagas de TI para exportar.";
+  } catch (error) {
+    elements.autoExportStatus.textContent = error.message;
+  }
+}
+
+async function openAutoExportFolder() {
+  try {
+    const result = await autoExportRequest("/api/auto-export/open", "POST", {});
+    elements.autoExportStatus.textContent = `Pasta aberta: ${result.folder}`;
+  } catch (error) {
+    elements.autoExportStatus.textContent = error.message;
+  }
 }
 
 async function importLinkedinText() {
@@ -1919,6 +1989,10 @@ elements.linkedinButton.addEventListener("click", async () => {
 });
 elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
 elements.exportButton.addEventListener("click", () => showExport(elements.exportPanel.hidden));
+elements.autoExportEnabled.addEventListener("change", saveAutoExport);
+elements.autoExportSave.addEventListener("click", saveAutoExport);
+elements.autoExportRun.addEventListener("click", runAutoExport);
+elements.autoExportOpen.addEventListener("click", openAutoExportFolder);
 elements.closeExport.addEventListener("click", () => showExport(false));
 document.querySelectorAll("[data-preset]").forEach((chip) =>
   chip.addEventListener("click", () => applyExportPreset(chip.dataset.preset))

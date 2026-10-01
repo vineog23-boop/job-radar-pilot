@@ -703,7 +703,11 @@ async function controlSearch(action) {
   elements.pauseButton.disabled = true;
   elements.stopButton.disabled = true;
   try {
-    const response = await fetch(`/api/search/${action}`, { method: "POST" });
+    const response = await fetch(`/api/search/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     Object.assign(dashboardState, payload);

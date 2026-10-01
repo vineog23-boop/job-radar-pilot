@@ -306,7 +306,12 @@ def test_api_search_control_endpoints(tmp_path: Path) -> None:
     base = f"http://127.0.0.1:{server.server_port}"
 
     def post(path: str):
-        request = Request(f"{base}{path}", data=b"", method="POST")
+        request = Request(
+            f"{base}{path}",
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
         try:
             with urlopen(request, timeout=3) as response:
                 return response.status, json.loads(response.read())

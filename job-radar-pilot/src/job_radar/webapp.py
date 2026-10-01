@@ -736,6 +736,10 @@ class SearchController:
         )
 
 
+# Nomes pelos quais o próprio navegador do usuário chega ao painel local.
+_LOCAL_HOST_NAMES = ("127.0.0.1", "localhost")
+
+
 def _dashboard_handler(
     controller: SearchController,
     static_dir: Path,
@@ -750,6 +754,46 @@ def _dashboard_handler(
     }
 
     class DashboardHandler(BaseHTTPRequestHandler):
+        def _allowed_hosts(self) -> set[str]:
+            port = self.server.server_address[1]
+            return {f"{name}:{port}" for name in _LOCAL_HOST_NAMES}
+
+        def _request_refusal(self, *, needs_json: bool) -> tuple[int, str] | None:
+            """Barra DNS rebinding (Host), outro site (Origin) e formulários (CSRF)."""
+
+            host = (self.headers.get("Host") or "").strip().casefold()
+            allowed = self._allowed_hosts()
+            if host not in allowed:
+                return 403, "Endereco nao permitido: abra o painel por http://127.0.0.1."
+            if not needs_json:
+                return None
+            origin = self.headers.get("Origin")
+            if origin is not None and origin.strip().casefold() not in {
+                f"http://{item}" for item in allowed
+            }:
+                return 403, "Pedido de outro site recusado."
+            content_type = self.headers.get("Content-Type", "").split(";", maxsplit=1)[0]
+            if content_type.strip().casefold() != "application/json":
+                return 415, "Use application/json."
+            return None
+
+        def _guarded(self, route: Callable[[], None], *, needs_json: bool) -> None:
+            refusal = self._request_refusal(needs_json=needs_json)
+            if refusal is not None:
+                status, message = refusal
+                self._json(status, {"error": message})
+                return
+            route()
+
+        def do_GET(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+            self._guarded(self._route_get, needs_json=False)
+
+        def do_POST(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+            self._guarded(self._route_post, needs_json=True)
+
+        def do_PUT(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+            self._guarded(self._route_put, needs_json=True)
+
         def _write(
             self,
             status: int,
@@ -904,7 +948,7 @@ def _dashboard_handler(
                 return
             self._json(200, result)
 
-        def do_GET(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+        def _route_get(self) -> None:
             request_url = urlsplit(self.path)
             path = request_url.path
             if path == "/api/state":
@@ -1283,7 +1327,7 @@ def _dashboard_handler(
                 return
             self._json(200, result)
 
-        def do_POST(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+        def _route_post(self) -> None:
             path = self.path.split("?", maxsplit=1)[0]
             if path == "/api/cleanup/undo":
                 self._post_cleanup_undo()
@@ -1337,7 +1381,7 @@ def _dashboard_handler(
                 return
             self._json(202, {"accepted": True})
 
-        def do_PUT(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+        def _route_put(self) -> None:
             path = self.path.split("?", maxsplit=1)[0]
             if path == "/api/tracking":
                 try:

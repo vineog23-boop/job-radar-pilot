@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, Collection, Iterable, Mapping
 from uuid import uuid4
 
+from job_radar.dates import parse_iso_datetime
+from job_radar.fit import fit_state
+
 REASON_OFF_TOPIC = "off_topic"
 REASON_EXCLUDED = "excluded"
 REASON_EXPIRED = "expired"
@@ -99,19 +102,6 @@ REASON_NAMES = {
 }
 
 
-def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    text = value.strip().replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
-
-
 def discard_reason(
     job: dict[str, Any],
     *,
@@ -130,13 +120,13 @@ def discard_reason(
     labels = job.get("match_labels") or []
     if active.off_topic and "RELEVANCE:OFF_TOPIC" in labels:
         return REASON_OFF_TOPIC
-    if active.excluded and "FIT:EXCLUDE" in labels:
+    if active.excluded and fit_state(labels) == "EXCLUDE":
         return REASON_EXCLUDED
-    deadline = _parse_datetime(job.get("application_deadline"))
+    deadline = parse_iso_datetime(job.get("application_deadline"))
     if active.expired and deadline is not None and deadline < now:
         return REASON_EXPIRED
     if max_age_days is not None:
-        published = _parse_datetime(job.get("published_at"))
+        published = parse_iso_datetime(job.get("published_at"))
         if published is not None and published < now - timedelta(days=max_age_days):
             return REASON_STALE
     return None

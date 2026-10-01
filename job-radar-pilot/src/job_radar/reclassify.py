@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from job_radar.classifier import PREFERENCE_BLOCK_PREFIXES, _canonical_term, classify
+from job_radar.fit import fit_state
 from job_radar.models import CollectionStatus, SearchProfile, VacancyRecord, WorkplaceModel
 
 # Rótulos que o classificador recalcula; os demais (STATUS:NEW, ALSO_SEEN_IN:,
@@ -70,10 +71,7 @@ def record_from_payload(payload: Mapping[str, Any]) -> VacancyRecord:
 
 
 def _fit(labels: Iterable[str]) -> str:
-    return next(
-        (label.removeprefix("FIT:") for label in labels if label.startswith("FIT:")),
-        "AMBIGUOUS",
-    )
+    return fit_state(list(labels))
 
 
 def reclassify_payloads(

@@ -17,7 +17,9 @@ import unicodedata
 from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
+from job_radar.dates import parse_iso_datetime
 from job_radar.export_document import build_markdown_report
+from job_radar.fit import fit_name, fit_state
 from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock
 from job_radar.tracking import TrackingError, TrackingStore
 
@@ -86,14 +88,6 @@ def _normalized_search_text(value: Any) -> str:
     )
 
 
-def _fit_state(job: dict[str, Any]) -> str:
-    labels = job.get("match_labels") or []
-    for state in ("READY", "CONDITIONAL", "EXCLUDE", "AMBIGUOUS"):
-        if f"FIT:{state}" in labels:
-            return state
-    return "AMBIGUOUS"
-
-
 # Filtro de acompanhamento: "" = todas, "active" = oculta descartadas.
 _TRACKED_FILTERS = {
     "active": None,
@@ -101,12 +95,6 @@ _TRACKED_FILTERS = {
     "saved": "SAVED",
     "applied": "APPLIED",
     "discarded": "DISCARDED",
-}
-_FIT_NAMES = {
-    "READY": "Mais compatível",
-    "CONDITIONAL": "Condicional",
-    "AMBIGUOUS": "Dados insuficientes",
-    "EXCLUDE": "Fora do perfil",
 }
 _TRACKING_NAMES = {"SAVED": "Salva", "APPLIED": "Aplicada", "DISCARDED": "Descartada"}
 # Filtro de aderência: "" = relevantes (esconde o que não é de TI), "all" = tudo.
@@ -142,7 +130,7 @@ def fit_reasons(job: dict[str, Any]) -> list[str]:
         for prefix, text in _REASON_LABELS
         if any(label.startswith(prefix) for label in labels)
     ]
-    if not reasons and _fit_state(job) == "AMBIGUOUS":
+    if not reasons and fit_state(job) == "AMBIGUOUS":
         reasons.append("poucos dados para avaliar")
     return reasons
 
@@ -178,7 +166,7 @@ def build_jobs_csv(
         entry = tracking.get(str(job.get("canonical_url")), {})
         writer.writerow(
             {
-                "aderencia": _FIT_NAMES.get(_fit_state(job), "Dados insuficientes"),
+                "aderencia": fit_name(job),
                 "acompanhamento": _TRACKING_NAMES.get(entry.get("status", ""), ""),
                 "titulo": job.get("title") or "",
                 "empresa": job.get("company") or "",
@@ -204,7 +192,7 @@ def build_jobs_ai_text(
 ) -> bytes:
     """Markdown enxuto, ordenado por score, para colar em outra IA revisar."""
 
-    from job_radar.xlsx_export import _WORKPLACE_NAMES, _level, job_score
+    from job_radar.xlsx_export import WORKPLACE_NAMES, job_score, level_name
 
     now = now or datetime.now(timezone.utc)
     ranked = sorted(jobs, key=lambda job: -job_score(job, now))
@@ -236,8 +224,8 @@ def build_jobs_ai_text(
                     str(job_score(job, now)),
                     title,
                     cell(job.get("company")),
-                    cell(_level(job)),
-                    _WORKPLACE_NAMES.get(str(job.get("workplace_model")), "—"),
+                    cell(level_name(job)),
+                    WORKPLACE_NAMES.get(str(job.get("workplace_model")), "—"),
                     cell(job.get("location") or job.get("remote_scope")),
                     cell(", ".join(job.get("technologies") or [])),
                     published,
@@ -260,7 +248,7 @@ def _passes_extra_filters(
     max_age_days: int | None,
     now: datetime,
 ) -> bool:
-    from job_radar.xlsx_export import _parse_datetime, job_score
+    from job_radar.xlsx_export import job_score
 
     if min_score and job_score(job, now) < min_score:
         return False
@@ -276,7 +264,7 @@ def _passes_extra_filters(
         if not found & set(levels):
             return False
     if max_age_days is not None:
-        published = _parse_datetime(job.get("published_at"))
+        published = parse_iso_datetime(job.get("published_at"))
         # Sem data publicada não dá para provar que é recente: fica de fora.
         if published is None or (now - published).days > max_age_days:
             return False
@@ -316,7 +304,7 @@ def filter_jobs_for_export(
         if tracked in _TRACKED_FILTERS and tracked not in {"active", "new"}:
             if tracked_status != _TRACKED_FILTERS[tracked]:
                 continue
-        state = _fit_state(job)
+        state = fit_state(job)
         off_topic = is_off_topic(job)
         if match == "offtopic":
             if not off_topic:
@@ -1223,11 +1211,7 @@ def _dashboard_handler(
             return {"profiles": list_profiles(path), "active": active_profile(path)}
 
         def _post_profiles(self, action: str) -> None:
-            from job_radar.preferences import (
-                PreferencesError,
-                preferences_to_dict,
-                validate_preferences_payload,
-            )
+            from job_radar.preferences import PreferencesError, validate_preferences_payload
             from job_radar.profiles import (
                 activate_profile,
                 delete_profile,

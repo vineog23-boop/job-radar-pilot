@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterator, Sequence
 
 from job_radar.dates import parse_published_at
 from job_radar.fetching import FetchPolicy, _visible_response_text, page_html
+from job_radar.fit import fit_state
 from job_radar.models import (
     CollectionStatus,
     SourceConfig,
@@ -109,11 +110,12 @@ def _priority(classified: VacancyRecord) -> int | None:
     labels = classified.match_labels
     if "RELEVANCE:OFF_TOPIC" in labels:
         return None
-    if "FIT:READY" in labels:
+    state = fit_state(labels)
+    if state == "READY":
         return 0
-    if "FIT:CONDITIONAL" in labels:
+    if state == "CONDITIONAL":
         return 1
-    if "FIT:AMBIGUOUS" in labels and any(
+    if state == "AMBIGUOUS" and any(
         label.startswith("TECH_MATCH:") for label in labels
     ):
         return 2

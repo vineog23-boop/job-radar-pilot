@@ -15,6 +15,9 @@ from typing import Any, Mapping, Sequence
 from xml.sax.saxutils import escape, quoteattr
 import zipfile
 
+from job_radar.dates import parse_iso_datetime
+from job_radar.fit import fit_state
+
 _ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 _LEVEL_NAMES = {
     "estagio": "Estágio",
@@ -22,7 +25,7 @@ _LEVEL_NAMES = {
     "pleno": "Pleno",
     "senior": "Sênior",
 }
-_WORKPLACE_NAMES = {
+WORKPLACE_NAMES = {
     "REMOTE": "Remoto",
     "HYBRID": "Híbrido",
     "ONSITE": "Presencial",
@@ -109,26 +112,8 @@ def _column_letter(index: int) -> str:
     return letters
 
 
-def _parse_datetime(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-
-
 def _labels(job: Mapping[str, Any]) -> list[str]:
     return [str(label) for label in job.get("match_labels") or []]
-
-
-def fit_state(job: Mapping[str, Any]) -> str:
-    labels = _labels(job)
-    for state in ("READY", "CONDITIONAL", "EXCLUDE", "AMBIGUOUS"):
-        if f"FIT:{state}" in labels:
-            return state
-    return "AMBIGUOUS"
 
 
 def fit_points(job: Mapping[str, Any]) -> int:
@@ -161,7 +146,7 @@ def job_score(job: Mapping[str, Any], now: datetime | None = None) -> int:
     if state == "EXCLUDE" or points < 0:
         return 0
     score = points * 20 + (10 if state == "READY" else 0) + boost_points(job)
-    published = _parse_datetime(job.get("published_at"))
+    published = parse_iso_datetime(job.get("published_at"))
     if published is not None:
         age = ((now or datetime.now(timezone.utc)) - published).days
         for limit, bonus in ((3, 10), (7, 7), (14, 4), (30, 2)):
@@ -194,7 +179,7 @@ def _status(job: Mapping[str, Any], tracking_status: str) -> tuple[str, int]:
     return "Descoberta", _S_CENTER
 
 
-def _level(job: Mapping[str, Any]) -> str:
+def level_name(job: Mapping[str, Any]) -> str:
     raw = str(job.get("seniority") or "").casefold()
     return _LEVEL_NAMES.get(raw, raw.title())
 
@@ -290,7 +275,7 @@ def build_jobs_xlsx(
         ((job_score(job, now), job) for job in jobs),
         key=lambda item: (
             -item[0],
-            -(_parse_datetime(item[1].get("published_at")) or datetime.min.replace(tzinfo=timezone.utc)).timestamp(),
+            -(parse_iso_datetime(item[1].get("published_at")) or datetime.min.replace(tzinfo=timezone.utc)).timestamp(),
         ),
     )
     header = [(name, _S_HEADER) for name, _ in COLUMNS]
@@ -306,7 +291,7 @@ def build_jobs_xlsx(
             "HYBRID": _S_YELLOW,
             "ONSITE": _S_ORANGE,
         }.get(workplace, _S_CENTER)
-        published = _parse_datetime(job.get("published_at"))
+        published = parse_iso_datetime(job.get("published_at"))
         score_style = _S_SCORE_HIGH if score >= 80 else _S_SCORE_MID if score >= 60 else _S_SCORE_LOW
         url = _safe_link(job.get("canonical_url"))
         row_number = len(rows) + 1
@@ -317,8 +302,8 @@ def build_jobs_xlsx(
             [
                 (job.get("company") or "Não informada", _S_TEXT),
                 (job.get("title") or "Cargo não informado", _S_TEXT),
-                (_level(job), _S_CENTER),
-                (_WORKPLACE_NAMES.get(workplace, workplace), workplace_style),
+                (level_name(job), _S_CENTER),
+                (WORKPLACE_NAMES.get(workplace, workplace), workplace_style),
                 (job.get("location") or job.get("remote_scope") or "", _S_TEXT),
                 (score, score_style),
                 (status, status_style),

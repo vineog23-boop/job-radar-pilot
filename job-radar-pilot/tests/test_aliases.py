@@ -215,3 +215,23 @@ def test_network_role_is_still_it() -> None:
     ).match_labels
 
     assert "RELEVANCE:OFF_TOPIC" not in labels
+
+
+@pytest.mark.parametrize(
+    ("description", "present", "absent"),
+    [
+        ("PJ não aceito; contratação somente CLT.", {"CONTRACT:CLT"}, {"CONTRACT:PJ"}),
+        ("CLT: não. Contrato PJ.", {"CONTRACT:PJ"}, {"CONTRACT:CLT"}),
+        ("Vaga PJ não é aceita, apenas CLT.", {"CONTRACT:CLT"}, {"CONTRACT:PJ"}),
+        ("Contrato PJ, não exige CNPJ prévio.", {"CONTRACT:PJ"}, set()),
+    ],
+)
+def test_negation_after_the_contract_marker(description: str, present: set, absent: set) -> None:
+    labels = set(
+        classify(
+            _record("Desenvolvedor Java Júnior", description), JAVA, default_country="BR"
+        ).match_labels
+    )
+
+    assert present <= labels
+    assert not (absent & labels)

@@ -245,6 +245,10 @@ PREFERENCE_BLOCK_PREFIXES = (
 
 # "Não aceitamos PJ", "sem CLT", "(não CLT)": negação logo antes do contrato.
 _NEGATION_BEFORE = re.compile(r"(?<!\w)(?:nao|sem|exceto|nem)(?:\s+[\w-]+){0,2}\s*$")
+# "PJ não aceito", "CLT: não", "PJ não é aceita": negação logo depois do contrato.
+_NEGATION_AFTER = re.compile(
+    r"^\s*[:(-]?\s*nao(?:\s+(?:e|sera|serao|sao))?(?:\s+(?:aceit|permitid|possivel|considerad)\w*)?\s*(?:$|[).;,])"
+)
 
 
 def _mentions_contract(text: str, marker: str) -> bool:
@@ -254,7 +258,8 @@ def _mentions_contract(text: str, marker: str) -> bool:
         for match in pattern.finditer(text):
             before = _SENTENCE_END.split(text[max(0, match.start() - 30) : match.start()])[-1]
             before = re.split(r"[,(]", before)[-1]
-            if not _NEGATION_BEFORE.search(before):
+            after = re.split(r"[.;!?\n,]", text[match.end() : match.end() + 40])[0]
+            if not _NEGATION_BEFORE.search(before) and not _NEGATION_AFTER.search(after):
                 return True
     return False
 

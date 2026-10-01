@@ -93,8 +93,10 @@ def test_export_writes_best_xlsx_full_csv_and_latest_copy(tmp_path: Path) -> Non
 
     names = sorted(path.name for path in written)
     assert names == [
+        "melhores-vagas-2026-10-01-0830.md",
         "melhores-vagas-2026-10-01-0830.xlsx",
         "todas-de-ti-2026-10-01-0830.csv",
+        "ultima-busca.md",
         "ultima-busca.xlsx",
     ]
     best = _xlsx_titles(folder / "melhores-vagas-2026-10-01-0830.xlsx")
@@ -105,6 +107,10 @@ def test_export_writes_best_xlsx_full_csv_and_latest_copy(tmp_path: Path) -> Non
     csv_text = (folder / "todas-de-ti-2026-10-01-0830.csv").read_text(encoding="utf-8-sig")
     assert "Dev Python" in csv_text and "Auxiliar" not in csv_text
     assert "Dev Java descartada" not in csv_text
+    markdown_text = (folder / "melhores-vagas-2026-10-01-0830.md").read_text(encoding="utf-8-sig")
+    assert "Dev Java Júnior" in markdown_text and "Dev Java Pleno" in markdown_text
+    assert "Dev Python" not in markdown_text and "Auxiliar" not in markdown_text
+    assert (folder / "ultima-busca.md").read_text(encoding="utf-8-sig") == markdown_text
 
 
 def test_disabled_or_empty_output_writes_nothing(tmp_path: Path) -> None:

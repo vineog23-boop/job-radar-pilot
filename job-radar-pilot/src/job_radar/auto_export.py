@@ -5,8 +5,10 @@ vagas prontas numa pasta do usuário (padrão: Documentos\\Radar de Vagas):
 
 - ``melhores-vagas-AAAA-MM-DD-HHMM.xlsx``: "Mais compatível" + "A revisar",
   sem as descartadas, ordenadas pelo Score;
+- ``melhores-vagas-AAAA-MM-DD-HHMM.md``: a mesma seleção em Markdown, para
+  colar ou abrir direto no Google Docs (Drive reconhece .md);
 - ``todas-de-ti-AAAA-MM-DD-HHMM.csv``: todas as vagas de tecnologia;
-- ``ultima-busca.xlsx``: cópia da planilha mais recente (nome fixo).
+- ``ultima-busca.xlsx`` / ``ultima-busca.md``: cópias mais recentes (nomes fixos).
 
 Os arquivos ficam fora do repositório; nada é apagado da pasta.
 """
@@ -22,6 +24,7 @@ from typing import Any, Mapping
 
 SETTINGS_NAME = "auto-export.json"
 LATEST_NAME = "ultima-busca.xlsx"
+LATEST_MD_NAME = "ultima-busca.md"
 _MAX_FOLDER_LENGTH = 400
 
 
@@ -106,6 +109,7 @@ def export_after_collection(
 
     if not settings.enabled:
         return []
+    from job_radar.export_document import build_markdown_report
     from job_radar.fit import fit_reasons
     from job_radar.webapp import (
         build_jobs_csv,
@@ -135,10 +139,24 @@ def export_after_collection(
         reasons_for=fit_reasons,
         now=moment,
     )
+    report = output["report"] if isinstance(output["report"], dict) else {}
+    report_sources = report.get("sources", [])
+    if not isinstance(report_sources, list):
+        report_sources = []
+    markdown = build_markdown_report(
+        best,
+        generated_at=moment.strftime("%d/%m/%Y %H:%M"),
+        sources=report_sources,
+        applied_filters={"match": "fit", "tracked": "active"},
+    ).encode("utf-8-sig")
     best_path = folder / f"melhores-vagas-{stamp}.xlsx"
     csv_path = folder / f"todas-de-ti-{stamp}.csv"
+    markdown_path = folder / f"melhores-vagas-{stamp}.md"
     latest_path = folder / LATEST_NAME
+    latest_markdown_path = folder / LATEST_MD_NAME
     _write_bytes(best_path, workbook)
     _write_bytes(csv_path, build_jobs_csv(all_it, tracked))
+    _write_bytes(markdown_path, markdown)
     _write_bytes(latest_path, workbook)
-    return [best_path, csv_path, latest_path]
+    _write_bytes(latest_markdown_path, markdown)
+    return [best_path, csv_path, markdown_path, latest_path, latest_markdown_path]

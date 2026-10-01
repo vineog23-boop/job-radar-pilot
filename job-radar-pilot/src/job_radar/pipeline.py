@@ -25,6 +25,8 @@ from job_radar.models import (
     WorkplaceModel,
 )
 from job_radar.geo import state_names_from_scopes
+from job_radar import run_control
+from job_radar.run_control import RunControl
 from job_radar.sources import SourceAdapter, adapter_for
 
 
@@ -37,6 +39,9 @@ class PipelineResult:
     source_results: tuple[SourceRunResult, ...]
     raw_record_count: int
     duplicate_count: int
+    # True quando a pessoa pediu para parar: portais sem resultado não foram
+    # consultados e os interrompidos no meio ficaram parciais.
+    stopped: bool = False
 
 
 def _supports_queries(source: SourceConfig) -> bool:
@@ -247,7 +252,10 @@ class JobRadarPipeline:
         history: SeenHistory | None = None,
         enrich_limit: int = 0,
         enrich_fetcher_factory: Callable[[], FetchPolicy] | None = None,
+        control: RunControl | None = None,
     ) -> None:
+        self._control = control or run_control.current()
+        self.stopped = False
         if workers < 1 or workers > 4:
             raise ValueError("workers deve estar entre 1 e 4")
         if fetcher is not None and fetcher_factory is not None:
@@ -285,8 +293,11 @@ class JobRadarPipeline:
         source: SourceConfig,
         fetcher: FetchPolicy,
         adaptive_locator: AdaptiveCardLocator,
-    ) -> SourceRunResult:
+    ) -> SourceRunResult | None:
+        """Coleta um portal; None se a pessoa parou antes da primeira consulta."""
+
         query_results: list[SourceRunResult] = []
+        interrupted = False
         supports_editable_terms = _supports_queries(source)
         search_source = (
             replace(source, queries=self._profile.search_terms)
@@ -309,6 +320,10 @@ class JobRadarPipeline:
                 errors=(f"Falha interna no adaptador {source.code}",),
             )
         for search_url in _search_urls(search_source, self._profile):
+            if self._control.should_stop():
+                self.stopped = True
+                interrupted = True
+                break
             query_source = replace(source, start_url=search_url, queries=())
             try:
                 query_result = adapter.collect(query_source, fetcher)
@@ -335,7 +350,16 @@ class JobRadarPipeline:
                 "ACCESS_DENIED",
             }:
                 break
-        return _combine_query_results(source, query_results)
+        if interrupted and not query_results:
+            return None
+        combined = _combine_query_results(source, query_results)
+        if interrupted:
+            combined = replace(
+                combined,
+                status=CollectionStatus.PARTIAL,
+                stop_reason=run_control.STOP_REASON,
+            )
+        return combined
 
     @staticmethod
     def _worker_error(source: SourceConfig) -> SourceRunResult:
@@ -394,16 +418,20 @@ class JobRadarPipeline:
                 raise RuntimeError("fetcher reutilizado entre workers")
             with fetcher_candidate as fetcher:
                 for source in sources:
-                    results.append(
-                        self._collect_source(source, fetcher, adaptive_locator)
-                    )
+                    if self._control.should_stop():
+                        self.stopped = True
+                        break
+                    result = self._collect_source(source, fetcher, adaptive_locator)
+                    if result is None:
+                        break
+                    results.append(result)
         except Exception:
             results = [self._with_worker_error(result) for result in results]
             completed_codes = {result.source_code for result in results}
             results.extend(
                 self._worker_error(source)
                 for source in sources
-                if source.code not in completed_codes
+                if source.code not in completed_codes and not self.stopped
             )
         for result in results:
             self._notify_source_done(result)
@@ -448,7 +476,12 @@ class JobRadarPipeline:
         elif self._workers == 1 and self._fetcher is not None:
             source_results = []
             for source in selected:
+                if self._control.should_stop():
+                    self.stopped = True
+                    break
                 result = self._collect_source(source, self._fetcher, adaptive_locator)
+                if result is None:
+                    break
                 source_results.append(result)
                 self._notify_source_done(result)
         elif self._workers == 1:
@@ -483,10 +516,18 @@ class JobRadarPipeline:
                             self._notify_source_done(result)
                     unordered_results.extend(batch_results)
             by_code = {result.source_code: result for result in unordered_results}
-            source_results = [by_code[source.code] for source in selected]
+            source_results = [
+                by_code[source.code] for source in selected if source.code in by_code
+            ]
 
         if self._history is not None:
-            count_warnings = self._history.check_source_counts(source_results)
+            count_warnings = self._history.check_source_counts(
+                [
+                    result
+                    for result in source_results
+                    if result.stop_reason != run_control.STOP_REASON
+                ]
+            )
             source_results = [
                 replace(result, warnings=(*result.warnings, count_warnings[result.source_code]))
                 if result.source_code in count_warnings
@@ -510,7 +551,7 @@ class JobRadarPipeline:
                 default_country=default_countries.get(record.source),
             )
 
-        if self._enrich_limit > 0:
+        if self._enrich_limit > 0 and not self.stopped and not self._control.should_stop():
             enriched_records, self.enriched_count = enrich_records(
                 raw_records,
                 classify_one,
@@ -532,4 +573,5 @@ class JobRadarPipeline:
             source_results=tuple(source_results),
             raw_record_count=len(raw_records),
             duplicate_count=deduplicated.duplicate_count,
+            stopped=self.stopped,
         )

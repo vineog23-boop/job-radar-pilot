@@ -24,6 +24,14 @@ class SearchPreferences:
     # Vazio = usar positive_keywords/excluded_terms do profile.yaml.
     technologies: tuple[str, ...] = ()
     excluded_terms: tuple[str, ...] = ()
+    # Refinos (todos opcionais): ver SearchProfile.
+    required_keywords: tuple[str, ...] = ()
+    bonus_keywords: tuple[str, ...] = ()
+    blocked_keywords: tuple[str, ...] = ()
+    excluded_companies: tuple[str, ...] = ()
+    favorite_companies: tuple[str, ...] = ()
+    contract_types: tuple[str, ...] = ()
+    avoid_advanced_english: bool = False
 
     def __post_init__(self) -> None:
         search_terms = _validated_texts(
@@ -61,7 +69,43 @@ class SearchPreferences:
                     casefold=True,
                 ),
             )
+        for field_name, maximum in _REFINE_LIMITS.items():
+            object.__setattr__(
+                self,
+                field_name,
+                _validated_texts(
+                    getattr(self, field_name),
+                    field=field_name,
+                    minimum=0,
+                    maximum=maximum,
+                    item_limit=80,
+                    casefold=True,
+                ),
+            )
+        contracts = _validated_texts(
+            self.contract_types,
+            field="contract_types",
+            minimum=0,
+            maximum=len(CONTRACT_TYPES),
+            item_limit=20,
+            casefold=False,
+        )
+        contracts = tuple(item.upper() for item in contracts)
+        if not set(contracts) <= set(CONTRACT_TYPES):
+            raise PreferencesError("contract_types aceita apenas CLT, PJ e FREELANCE.")
+        object.__setattr__(self, "contract_types", contracts)
+        if not isinstance(self.avoid_advanced_english, bool):
+            raise PreferencesError("avoid_advanced_english deve ser verdadeiro ou falso.")
 
+
+CONTRACT_TYPES = ("CLT", "PJ", "FREELANCE")
+_REFINE_LIMITS = {
+    "required_keywords": 20,
+    "bonus_keywords": 40,
+    "blocked_keywords": 40,
+    "excluded_companies": 60,
+    "favorite_companies": 60,
+}
 
 _REQUIRED_FIELDS = {
     "search_terms",
@@ -69,7 +113,13 @@ _REQUIRED_FIELDS = {
     "workplace_models",
     "location_scopes",
 }
-_OPTIONAL_FIELDS = {"technologies", "excluded_terms"}
+_OPTIONAL_FIELDS = {
+    "technologies",
+    "excluded_terms",
+    *_REFINE_LIMITS,
+    "contract_types",
+    "avoid_advanced_english",
+}
 _FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
 _MAX_FILTER_TERMS = 40
 _SENIORITY_LEVELS = {"estagio", "junior", "pleno", "senior"}
@@ -181,6 +231,9 @@ def preferences_from_dict(payload: Mapping[str, object]) -> SearchPreferences:
         location_scopes=payload["location_scopes"],  # type: ignore[arg-type]
         technologies=payload.get("technologies", ()),  # type: ignore[arg-type]
         excluded_terms=payload.get("excluded_terms", ()),  # type: ignore[arg-type]
+        **{name: payload.get(name, ()) for name in _REFINE_LIMITS},  # type: ignore[arg-type]
+        contract_types=payload.get("contract_types", ()),  # type: ignore[arg-type]
+        avoid_advanced_english=payload.get("avoid_advanced_english", False),  # type: ignore[arg-type]
     )
 
 
@@ -191,15 +244,8 @@ def validate_preferences_payload(
     return preferences_from_dict(payload)
 
 
-def preferences_to_dict(preferences: SearchPreferences) -> dict[str, list[str]]:
-    validated = SearchPreferences(
-        search_terms=preferences.search_terms,
-        seniority_levels=preferences.seniority_levels,
-        workplace_models=preferences.workplace_models,
-        location_scopes=preferences.location_scopes,
-        technologies=preferences.technologies,
-        excluded_terms=preferences.excluded_terms,
-    )
+def preferences_to_dict(preferences: SearchPreferences) -> dict[str, object]:
+    validated = replace(preferences)  # revalida (__post_init__)
     return {
         "search_terms": list(validated.search_terms),
         "seniority_levels": list(validated.seniority_levels),
@@ -207,6 +253,9 @@ def preferences_to_dict(preferences: SearchPreferences) -> dict[str, list[str]]:
         "location_scopes": list(validated.location_scopes),
         "technologies": list(validated.technologies),
         "excluded_terms": list(validated.excluded_terms),
+        **{name: list(getattr(validated, name)) for name in _REFINE_LIMITS},
+        "contract_types": list(validated.contract_types),
+        "avoid_advanced_english": validated.avoid_advanced_english,
     }
 
 
@@ -316,4 +365,11 @@ def apply_preferences(
         location_scopes=preferences.location_scopes,
         positive_keywords=preferences.technologies or profile.positive_keywords,
         excluded_terms=excluded,
+        required_keywords=preferences.required_keywords,
+        bonus_keywords=preferences.bonus_keywords,
+        blocked_keywords=preferences.blocked_keywords,
+        excluded_companies=preferences.excluded_companies,
+        favorite_companies=preferences.favorite_companies,
+        contract_types=preferences.contract_types,
+        avoid_advanced_english=preferences.avoid_advanced_english,
     )

@@ -45,6 +45,14 @@ class SearchProfile:
     excluded_terms: tuple[str, ...] = ()
     search_terms: tuple[str, ...] = ()
     workplace_models: tuple[WorkplaceModel, ...] = ()
+    # Refinos opcionais do painel (vazios = sem efeito).
+    required_keywords: tuple[str, ...] = ()  # ao menos uma precisa aparecer
+    bonus_keywords: tuple[str, ...] = ()  # diferenciais: sobem a vaga no ranking
+    blocked_keywords: tuple[str, ...] = ()  # em qualquer parte da vaga: exclui
+    excluded_companies: tuple[str, ...] = ()
+    favorite_companies: tuple[str, ...] = ()
+    contract_types: tuple[str, ...] = ()  # CLT, PJ, FREELANCE; vazio = qualquer
+    avoid_advanced_english: bool = False
 
 
 @dataclass(frozen=True, slots=True)

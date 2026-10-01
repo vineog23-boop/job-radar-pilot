@@ -139,6 +139,15 @@ def fit_points(job: Mapping[str, Any]) -> int:
     return 0
 
 
+def boost_points(job: Mapping[str, Any]) -> int:
+    """Diferenciais (+5 cada, até 10) e empresa favorita (+10) do perfil."""
+
+    labels = [str(label) for label in job.get("match_labels") or []]
+    bonus = sum(label.startswith("BONUS_MATCH:") for label in labels)
+    favorite = any(label.startswith("COMPANY_FAVORITE:") for label in labels)
+    return min(10, bonus * 5) + (10 if favorite else 0)
+
+
 def job_score(job: Mapping[str, Any], now: datetime | None = None) -> int:
     """Nota de 0 a 100: aderência ao perfil (até 90) + frescor da vaga (até 10).
 
@@ -151,7 +160,7 @@ def job_score(job: Mapping[str, Any], now: datetime | None = None) -> int:
     points = fit_points(job)
     if state == "EXCLUDE" or points < 0:
         return 0
-    score = points * 20 + (10 if state == "READY" else 0)
+    score = points * 20 + (10 if state == "READY" else 0) + boost_points(job)
     published = _parse_datetime(job.get("published_at"))
     if published is not None:
         age = ((now or datetime.now(timezone.utc)) - published).days

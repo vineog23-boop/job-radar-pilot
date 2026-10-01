@@ -29,6 +29,29 @@ const elements = {
   locationScopes: document.querySelector("#location-scopes"),
   technologies: document.querySelector("#technologies"),
   excludedTerms: document.querySelector("#excluded-terms"),
+  requiredKeywords: document.querySelector("#required-keywords"),
+  bonusKeywords: document.querySelector("#bonus-keywords"),
+  blockedKeywords: document.querySelector("#blocked-keywords"),
+  excludedCompanies: document.querySelector("#excluded-companies"),
+  favoriteCompanies: document.querySelector("#favorite-companies"),
+  contractBoxes: [...document.querySelectorAll("#contract-clt, #contract-pj, #contract-freelance")],
+  avoidEnglish: document.querySelector("#avoid-english"),
+  reapplySaved: document.querySelector("#reapply-saved"),
+  previewPreferences: document.querySelector("#preview-preferences"),
+  preferencesImpact: document.querySelector("#preferences-impact"),
+  searchTermsCount: document.querySelector("#search-terms-count"),
+  suggestMerge: document.querySelector("#suggest-merge"),
+  newStackToggle: document.querySelector("#new-stack-toggle"),
+  newStackForm: document.querySelector("#new-stack-form"),
+  newStackLabel: document.querySelector("#new-stack-label"),
+  newStackTechs: document.querySelector("#new-stack-techs"),
+  newStackQueries: document.querySelector("#new-stack-queries"),
+  newStackSave: document.querySelector("#new-stack-save"),
+  newStackCancel: document.querySelector("#new-stack-cancel"),
+  newStackStatus: document.querySelector("#new-stack-status"),
+  techInsights: document.querySelector("#tech-insights"),
+  techInsightsChips: document.querySelector("#tech-insights-chips"),
+  companyInsights: document.querySelector("#company-insights"),
   seniorityInternship: document.querySelector("#seniority-internship"),
   seniorityJunior: document.querySelector("#seniority-junior"),
   workplaceRemote: document.querySelector("#workplace-remote"),
@@ -36,6 +59,9 @@ const elements = {
   workplaceOnsite: document.querySelector("#workplace-onsite"),
   downloadReport: document.querySelector("#download-report"),
   clearFilters: document.querySelector("#clear-filters"),
+  runControls: document.querySelector("#run-controls"),
+  pauseButton: document.querySelector("#pause-button"),
+  stopButton: document.querySelector("#stop-button"),
   cleanupButton: document.querySelector("#cleanup-button"),
   cleanupPanel: document.querySelector("#cleanup-panel"),
   closeCleanup: document.querySelector("#close-cleanup"),
@@ -163,13 +189,25 @@ const CRITERIA_LABELS = [
   ["SENIORITY_MATCH:", "Nível"],
   ["LOCATION_MATCH:", "Local"],
   ["WORKPLACE_MATCH:", "Modelo"],
+  ["KEYWORD_MATCH:", "Obrigatória"],
+  ["BONUS_MATCH:", "Diferencial"],
+  ["COMPANY_FAVORITE:", "Empresa favorita"],
+  ["CONTRACT:", "Contrato"],
 ];
+
+// Diferenciais (+5 cada, até 10) e empresa favorita (+10) entram no score e no ranking.
+function boostPoints(job) {
+  const labels = (job.match_labels ?? []).map(String);
+  const bonus = labels.filter((label) => label.startsWith("BONUS_MATCH:")).length;
+  const favorite = labels.some((label) => label.startsWith("COMPANY_FAVORITE:"));
+  return Math.min(10, bonus * 5) + (favorite ? 10 : 0);
+}
 
 function jobScore(job) {
   const state = fitState(job);
   const points = fitScore(job);
   if (state === "EXCLUDE" || points < 0 || !Number.isFinite(points)) return 0;
-  let score = points * 20 + (state === "READY" ? 10 : 0);
+  let score = points * 20 + (state === "READY" ? 10 : 0) + boostPoints(job);
   const published = publishedTime(job);
   if (published !== -Infinity) {
     const days = (Date.now() - published) / 86400000;
@@ -227,6 +265,12 @@ const REASON_LABELS = [
   ["WORKPLACE_UNCLEAR:", "modelo de trabalho não confirmado"],
   ["SENIORITY_UNCLEAR:", "faixa de nível ampla (júnior/pleno)"],
   ["ELIGIBILITY_UNCLEAR:", "vaga com público restrito"],
+  ["TITLE_EXCLUDED:", "cargo com um termo que você não quer"],
+  ["KEYWORD_BLOCKED:", "cita uma palavra proibida"],
+  ["KEYWORD_MISSING:", "não cita nenhuma palavra obrigatória"],
+  ["COMPANY_EXCLUDED:", "empresa que você quer evitar"],
+  ["CONTRACT_MISMATCH:", "tipo de contrato diferente"],
+  ["LANGUAGE_MISMATCH:", "exige inglês avançado"],
 ];
 
 function isOffTopic(job) {
@@ -330,7 +374,10 @@ function filteredJobs() {
   }).sort((left, right) => {
     const order = { READY: 0, CONDITIONAL: 1, AMBIGUOUS: 2, EXCLUDE: 3 };
     const byState = order[fitState(left)] - order[fitState(right)];
-    const byFit = byState || fitScore(right) - fitScore(left);
+    const byFit =
+      byState ||
+      fitScore(right) - fitScore(left) ||
+      boostPoints(right) - boostPoints(left);
     if (elements.sortOrder.value !== "recent") return byFit;
     return publishedTime(right) - publishedTime(left) || byFit;
   });
@@ -590,7 +637,7 @@ function renderSources() {
       textElement(
         "small",
         "",
-        `${source.records ?? 0} registros · ${source.stop_reason || "concluído"}`
+        `${source.records ?? 0} registros · ${source.stop_reason === "STOPPED_BY_USER" ? "interrompido por você" : source.stop_reason || "concluído"}`
       )
     );
     const reported = reportSources.find((item) => item.source === source.source);
@@ -615,17 +662,46 @@ function renderRunState() {
   elements.searchButton.disabled = running;
   elements.quickSearchButton.disabled = running;
   elements.searchSelected.disabled = running;
-  elements.searchButton.classList.toggle("running", running);
+  elements.searchButton.classList.toggle("running", running && !dashboardState.paused);
+  elements.runControls.hidden = !running;
+  elements.pauseButton.textContent = dashboardState.paused ? "▶ Retomar busca" : "⏸ Pausar busca";
+  elements.pauseButton.disabled = Boolean(dashboardState.stopping);
+  elements.stopButton.disabled = Boolean(dashboardState.stopping);
   const messages = {
     IDLE: "Resultados locais carregados.",
     RUNNING: "Buscando vagas… acompanhe os portais abaixo.",
     DONE: "Busca concluída com sucesso.",
     PARTIAL: "Busca concluída; alguns portais exigem atenção.",
+    STOPPED: "Busca interrompida. O que já tinha sido encontrado foi salvo.",
     ERROR: dashboardState.error || "A busca encontrou um erro.",
   };
+  let message = messages[dashboardState.status] || "Painel pronto.";
+  if (running && dashboardState.stopping) {
+    message = "Encerrando… terminando a consulta atual e salvando as vagas.";
+  } else if (running && dashboardState.paused) {
+    message = "Busca pausada. Nenhuma página nova é consultada até você retomar.";
+  }
   elements.liveStatus.textContent = dashboardState.read_error
     ? `Não foi possível ler a saída: ${dashboardState.read_error}`
-    : messages[dashboardState.status] || "Painel pronto.";
+    : message;
+}
+
+async function controlSearch(action) {
+  if (action === "stop" && !window.confirm("Parar a busca agora? As vagas já encontradas serão salvas.")) {
+    return;
+  }
+  elements.pauseButton.disabled = true;
+  elements.stopButton.disabled = true;
+  try {
+    const response = await fetch(`/api/search/${action}`, { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    Object.assign(dashboardState, payload);
+    renderRunState();
+  } catch (error) {
+    elements.liveStatus.textContent = `Não foi possível ${action === "stop" ? "parar" : "pausar"}: ${error.message}`;
+  }
+  await refreshState();
 }
 
 function render() {
@@ -923,11 +999,123 @@ async function importLinkedinText() {
   }
 }
 
+// --- campos de etiquetas (tecnologias, palavras-chave, empresas) -------------------
+// O <textarea> original continua sendo a fonte do valor (uma etiqueta por linha);
+// a caixa de etiquetas só desenha e edita esse valor.
+const tagInputs = new Map();
+
+function setupTagInput(textarea) {
+  textarea.hidden = true;
+  const box = document.createElement("div");
+  box.className = "tag-input";
+  const list = document.createElement("span");
+  list.className = "tag-list";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "tag-entry";
+  input.id = `${textarea.id}-entry`;
+  input.placeholder = textarea.dataset.placeholder || "Digite e tecle Enter";
+  input.setAttribute("aria-label", textarea.getAttribute("aria-label") || textarea.id);
+  input.autocomplete = "off";
+  box.append(list, input);
+  textarea.after(box);
+
+  const values = () => linesFrom(textarea);
+  const render = () => {
+    list.replaceChildren(
+      ...values().map((item, index) => {
+        const chip = document.createElement("span");
+        chip.className = "tag";
+        chip.append(document.createTextNode(item));
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "tag-remove";
+        remove.setAttribute("aria-label", `Remover ${item}`);
+        remove.textContent = "×";
+        remove.addEventListener("click", () => {
+          const items = values();
+          items.splice(index, 1);
+          write(items);
+        });
+        chip.append(remove);
+        return chip;
+      })
+    );
+  };
+  const write = (items) => {
+    textarea.value = items.join("\n");
+    render();
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  const add = (raw) => {
+    const parts = String(raw).split(/[,;\n]/).map((part) => part.trim()).filter(Boolean);
+    if (!parts.length) return;
+    const items = values();
+    const seen = new Set(items.map((item) => normalized(item)));
+    parts.forEach((part) => {
+      if (!seen.has(normalized(part))) {
+        items.push(part);
+        seen.add(normalized(part));
+      }
+    });
+    write(items);
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
+      add(input.value);
+      input.value = "";
+    } else if (event.key === "Backspace" && !input.value) {
+      const items = values();
+      if (items.length) {
+        items.pop();
+        write(items);
+      }
+    }
+  });
+  input.addEventListener("blur", () => {
+    if (input.value.trim()) {
+      add(input.value);
+      input.value = "";
+    }
+  });
+  input.addEventListener("paste", (event) => {
+    const text = event.clipboardData?.getData("text") ?? "";
+    if (/[,;\n]/.test(text)) {
+      event.preventDefault();
+      add(text);
+    }
+  });
+  box.addEventListener("click", (event) => {
+    if (event.target === box || event.target === list) input.focus();
+  });
+  tagInputs.set(textarea.id, { render, add });
+  render();
+}
+
+function refreshTagInputs() {
+  tagInputs.forEach((tag) => tag.render());
+}
+
+function updateSearchTermsCount() {
+  const count = linesFrom(elements.searchTerms).length;
+  elements.searchTermsCount.textContent = `${count}/12`;
+  elements.searchTermsCount.classList.toggle("counter-over", count > 12);
+}
+
 function fillPreferencesForm(payload) {
   elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
   elements.locationScopes.value = (payload.location_scopes ?? []).join("\n");
   elements.technologies.value = (payload.technologies ?? []).join("\n");
   elements.excludedTerms.value = (payload.excluded_terms ?? []).join("\n");
+  elements.requiredKeywords.value = (payload.required_keywords ?? []).join("\n");
+  elements.bonusKeywords.value = (payload.bonus_keywords ?? []).join("\n");
+  elements.blockedKeywords.value = (payload.blocked_keywords ?? []).join("\n");
+  elements.excludedCompanies.value = (payload.excluded_companies ?? []).join("\n");
+  elements.favoriteCompanies.value = (payload.favorite_companies ?? []).join("\n");
+  const contracts = payload.contract_types ?? [];
+  elements.contractBoxes.forEach((box) => setChecked(box, contracts));
+  elements.avoidEnglish.checked = Boolean(payload.avoid_advanced_english);
   const levels = payload.seniority_levels ?? [];
   [
     elements.seniorityInternship,
@@ -939,6 +1127,9 @@ function fillPreferencesForm(payload) {
   [elements.workplaceRemote, elements.workplaceHybrid, elements.workplaceOnsite].forEach(
     (box) => setChecked(box, models)
   );
+  refreshTagInputs();
+  updateSearchTermsCount();
+  elements.preferencesImpact.hidden = true;
 }
 
 const SENIORITY_BOXES = () => [
@@ -951,32 +1142,107 @@ const SENIORITY_BOXES = () => [
 let presetsState = null;
 const selectedStacks = new Set();
 
-async function loadPresets() {
-  if (presetsState) return;
+function stackChip(stack) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = stack.custom ? "chip chip-custom" : "chip";
+  chip.dataset.stack = stack.id;
+  const on = selectedStacks.has(stack.id);
+  chip.setAttribute("aria-pressed", String(on));
+  chip.classList.toggle("chip-on", on);
+  chip.textContent = stack.label;
+  chip.title = stack.technologies.join(", ");
+  chip.addEventListener("click", () => {
+    const active = !selectedStacks.has(stack.id);
+    if (active) selectedStacks.add(stack.id);
+    else selectedStacks.delete(stack.id);
+    chip.setAttribute("aria-pressed", String(active));
+    chip.classList.toggle("chip-on", active);
+  });
+  if (!stack.custom) return chip;
+  const group = document.createElement("span");
+  group.className = "chip-group";
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "chip-delete";
+  remove.setAttribute("aria-label", `Excluir a stack ${stack.label}`);
+  remove.textContent = "×";
+  remove.addEventListener("click", () => deleteCustomStack(stack));
+  group.append(chip, remove);
+  return group;
+}
+
+function renderStackChips() {
+  elements.stackChips.replaceChildren(...(presetsState?.stacks ?? []).map(stackChip));
+}
+
+async function loadPresets(force = false) {
+  if (presetsState && !force) return;
   try {
     const response = await fetch("/api/presets", { cache: "no-store" });
     presetsState = await response.json();
-    elements.stackChips.replaceChildren(
-      ...presetsState.stacks.map((stack) => {
-        const chip = document.createElement("button");
-        chip.type = "button";
-        chip.className = "chip";
-        chip.dataset.stack = stack.id;
-        chip.setAttribute("aria-pressed", "false");
-        chip.textContent = stack.label;
-        chip.addEventListener("click", () => {
-          const on = !selectedStacks.has(stack.id);
-          if (on) selectedStacks.add(stack.id);
-          else selectedStacks.delete(stack.id);
-          chip.setAttribute("aria-pressed", String(on));
-          chip.classList.toggle("chip-on", on);
-        });
-        return chip;
-      })
-    );
+    renderStackChips();
   } catch (error) {
     elements.stackChips.textContent = `Não foi possível carregar as stacks: ${error.message}`;
   }
+}
+
+function showNewStack(show) {
+  elements.newStackForm.hidden = !show;
+  elements.newStackToggle.setAttribute("aria-expanded", String(show));
+  elements.newStackStatus.textContent = "";
+  if (show) elements.newStackLabel.focus();
+}
+
+async function saveCustomStack() {
+  const label = elements.newStackLabel.value.trim();
+  const technologies = elements.newStackTechs.value;
+  if (!label || !technologies.trim()) {
+    elements.newStackStatus.textContent = "Dê um nome e informe ao menos uma tecnologia.";
+    return;
+  }
+  try {
+    const payload = await profileRequest("/api/stacks", {
+      label,
+      technologies,
+      queries: elements.newStackQueries.value,
+    });
+    presetsState = payload;
+    if (payload.created) selectedStacks.add(payload.created);
+    renderStackChips();
+    [elements.newStackLabel, elements.newStackTechs, elements.newStackQueries].forEach((input) => {
+      input.value = "";
+    });
+    showNewStack(false);
+    elements.preferencesStatus.textContent =
+      `Stack "${label}" criada e marcada. Clique em Preencher sugestões para usar.`;
+  } catch (error) {
+    elements.newStackStatus.textContent = `Não foi possível criar: ${error.message}`;
+  }
+}
+
+async function deleteCustomStack(stack) {
+  if (!window.confirm(`Excluir a stack "${stack.label}"?`)) return;
+  try {
+    presetsState = await profileRequest("/api/stacks/delete", { id: stack.id });
+    selectedStacks.delete(stack.id);
+    renderStackChips();
+    elements.preferencesStatus.textContent = `Stack "${stack.label}" excluída.`;
+  } catch (error) {
+    elements.preferencesStatus.textContent = `Não foi possível excluir: ${error.message}`;
+  }
+}
+
+function mergeLines(element, additions, limit) {
+  const items = linesFrom(element);
+  const seen = new Set(items.map((item) => normalized(item)));
+  additions.forEach((item) => {
+    if (!seen.has(normalized(item)) && items.length < limit) {
+      items.push(item);
+      seen.add(normalized(item));
+    }
+  });
+  element.value = items.join("\n");
 }
 
 async function applySuggestions() {
@@ -993,12 +1259,58 @@ async function applySuggestions() {
     const response = await fetch(`/api/presets/suggest?${query}`, { cache: "no-store" });
     const suggestion = await response.json();
     if (!response.ok) throw new Error(suggestion.error || `HTTP ${response.status}`);
-    elements.technologies.value = suggestion.technologies.join("\n");
-    elements.searchTerms.value = suggestion.search_terms.join("\n");
+    if (elements.suggestMerge.checked) {
+      mergeLines(elements.technologies, suggestion.technologies, 40);
+      mergeLines(elements.searchTerms, suggestion.search_terms, 12);
+    } else {
+      elements.technologies.value = suggestion.technologies.join("\n");
+      elements.searchTerms.value = suggestion.search_terms.join("\n");
+    }
+    refreshTagInputs();
+    updateSearchTermsCount();
     elements.preferencesStatus.textContent =
       "Sugestões preenchidas. Ajuste se quiser e clique em Salvar configurações.";
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível sugerir: ${error.message}`;
+  }
+}
+
+function insightChip(text, title, onClick) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "chip chip-small";
+  chip.textContent = text;
+  if (title) chip.title = title;
+  chip.addEventListener("click", () => {
+    onClick();
+    chip.remove();
+  });
+  return chip;
+}
+
+async function loadInsights() {
+  try {
+    const response = await fetch("/api/preferences/insights", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    const techs = payload.technologies ?? [];
+    elements.techInsights.hidden = techs.length === 0;
+    elements.techInsightsChips.replaceChildren(
+      ...techs.slice(0, 16).map(({ term, count }) =>
+        insightChip(`+ ${term} (${count})`, "", () => tagInputs.get("technologies")?.add(term))
+      )
+    );
+    elements.companyInsights.replaceChildren(
+      ...(payload.companies ?? []).slice(0, 6).map(({ name, count }) =>
+        insightChip(
+          `+ ${name} (${count})`,
+          "Empresa com várias vagas compatíveis na sua lista",
+          () => tagInputs.get("favorite-companies")?.add(name)
+        )
+      )
+    );
+  } catch {
+    elements.techInsights.hidden = true;
   }
 }
 
@@ -1014,7 +1326,37 @@ function currentPreferencesPayload() {
     location_scopes: linesFrom(elements.locationScopes),
     technologies: linesFrom(elements.technologies),
     excluded_terms: linesFrom(elements.excludedTerms),
+    required_keywords: linesFrom(elements.requiredKeywords),
+    bonus_keywords: linesFrom(elements.bonusKeywords),
+    blocked_keywords: linesFrom(elements.blockedKeywords),
+    excluded_companies: linesFrom(elements.excludedCompanies),
+    favorite_companies: linesFrom(elements.favoriteCompanies),
+    contract_types: checkedValues(elements.contractBoxes),
+    avoid_advanced_english: elements.avoidEnglish.checked,
   };
+}
+
+function impactText(summary, prefix) {
+  const parts = [
+    `${summary.ready} mais compatíveis`,
+    `${summary.conditional + summary.ambiguous} a revisar`,
+    `${summary.exclude} fora do perfil`,
+  ];
+  if (summary.by_preferences) parts.push(`${summary.by_preferences} cortadas pelos filtros finos`);
+  if (summary.boosted) parts.push(`${summary.boosted} com diferencial ou empresa favorita`);
+  const changed = summary.changed ? ` ${summary.changed} mudaram de faixa.` : "";
+  return `${prefix} ${parts.join(" · ")} (de ${summary.total - summary.off_topic} vagas de TI).${changed}`;
+}
+
+async function previewPreferences() {
+  elements.preferencesImpact.hidden = false;
+  elements.preferencesImpact.textContent = "Calculando impacto…";
+  try {
+    const summary = await profileRequest("/api/preferences/preview", currentPreferencesPayload());
+    elements.preferencesImpact.textContent = impactText(summary, "Com estas configurações:");
+  } catch (error) {
+    elements.preferencesImpact.textContent = `Não foi possível calcular: ${error.message}`;
+  }
 }
 
 function renderProfiles(payload) {
@@ -1254,7 +1596,7 @@ async function loadPreferences() {
     fillPreferencesForm(payload);
     preferencesLoaded = true;
     elements.preferencesStatus.textContent = "Configurações atuais carregadas.";
-    await Promise.all([loadPresets(), loadProfiles()]);
+    await Promise.all([loadPresets(), loadProfiles(), loadInsights()]);
     return true;
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível carregar: ${error.message}`;
@@ -1292,7 +1634,8 @@ async function savePreferences(event) {
     return;
   }
   try {
-    const response = await fetch("/api/preferences", {
+    const reapply = elements.reapplySaved.checked;
+    const response = await fetch(`/api/preferences${reapply ? "?reapply=1" : ""}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -1302,6 +1645,14 @@ async function savePreferences(event) {
     preferencesLoaded = true;
     linkedinLoaded = false;
     elements.preferencesStatus.textContent = "Configurações salvas. Clique em Buscar vagas agora quando quiser.";
+    if (saved.reapplied) {
+      elements.preferencesImpact.hidden = false;
+      elements.preferencesImpact.textContent = impactText(saved.reapplied, "Reaplicado às vagas salvas:");
+      await refreshState();
+    } else if (saved.reapply_skipped) {
+      elements.preferencesImpact.hidden = false;
+      elements.preferencesImpact.textContent = saved.reapply_skipped;
+    }
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível salvar: ${error.message}`;
   } finally {
@@ -1328,6 +1679,20 @@ elements.preferencesButton.addEventListener("click", async () => {
 elements.closePreferences.addEventListener("click", () => showPreferences(false));
 elements.preferencesForm.addEventListener("submit", savePreferences);
 elements.applySuggestions.addEventListener("click", applySuggestions);
+document.querySelectorAll("textarea.tag-source").forEach(setupTagInput);
+elements.searchTerms.addEventListener("input", updateSearchTermsCount);
+elements.previewPreferences.addEventListener("click", previewPreferences);
+elements.newStackToggle.addEventListener("click", () => showNewStack(elements.newStackForm.hidden));
+elements.newStackCancel.addEventListener("click", () => showNewStack(false));
+elements.newStackSave.addEventListener("click", saveCustomStack);
+[elements.newStackLabel, elements.newStackTechs, elements.newStackQueries].forEach((input) =>
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveCustomStack();
+    }
+  })
+);
 elements.profileSave.addEventListener("click", saveProfile);
 elements.profileSelect.addEventListener("change", switchProfile);
 elements.profileDelete.addEventListener("click", deleteProfile);
@@ -1338,6 +1703,10 @@ elements.cleanupPreview.addEventListener("click", () => runCleanup(true));
 elements.cleanupButton.addEventListener("click", () => showCleanup(elements.cleanupPanel.hidden));
 elements.closeCleanup.addEventListener("click", () => showCleanup(false));
 elements.cleanupUndo.addEventListener("click", undoCleanup);
+elements.pauseButton.addEventListener("click", () =>
+  controlSearch(dashboardState.paused ? "resume" : "pause")
+);
+elements.stopButton.addEventListener("click", () => controlSearch("stop"));
 elements.cleanupDiscarded.addEventListener("change", refreshCleanupOverview);
 elements.cleanupRun.addEventListener("click", () => runCleanup(false));
 document.querySelectorAll("[data-location]").forEach((chip) => {

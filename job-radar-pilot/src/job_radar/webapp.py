@@ -116,6 +116,12 @@ _REASON_LABELS = (
     ("WORKPLACE_UNCLEAR:", "modelo de trabalho não confirmado"),
     ("SENIORITY_UNCLEAR:", "faixa de nível ampla (júnior/pleno)"),
     ("ELIGIBILITY_UNCLEAR:", "vaga com público restrito"),
+    ("TITLE_EXCLUDED:", "cargo com um termo que você não quer"),
+    ("KEYWORD_BLOCKED:", "cita uma palavra proibida"),
+    ("KEYWORD_MISSING:", "não cita nenhuma palavra obrigatória"),
+    ("COMPANY_EXCLUDED:", "empresa que você quer evitar"),
+    ("CONTRACT_MISMATCH:", "tipo de contrato diferente"),
+    ("LANGUAGE_MISMATCH:", "exige inglês avançado"),
 )
 
 
@@ -415,6 +421,7 @@ def build_collection_command(
     *,
     workers: int = 1,
     executable: Path | None = None,
+    control_file: Path | None = None,
 ) -> list[str]:
     command = [
         str(executable or Path(sys.executable)),
@@ -428,6 +435,8 @@ def build_collection_command(
     ]
     for source in sources or []:
         command.extend(["--source", source])
+    if control_file is not None:
+        command.extend(["--control-file", str(control_file)])
     return command
 
 
@@ -437,8 +446,15 @@ def run_collection(
     workers: int,
     on_line: ProgressCallback,
 ) -> int:
+    from job_radar.run_control import CONTROL_FILE_NAME
+
     return stream_process(
-        build_collection_command(output_dir, sources, workers=workers),
+        build_collection_command(
+            output_dir,
+            sources,
+            workers=workers,
+            control_file=output_dir / CONTROL_FILE_NAME,
+        ),
         on_line,
     )
 
@@ -465,6 +481,30 @@ class SearchController:
         self._error: str | None = None
         self._sources: dict[str, dict[str, Any]] = {}
         self._logs: list[str] = []
+        self._control = "run"
+
+    @property
+    def _control_path(self) -> Path:
+        from job_radar.run_control import CONTROL_FILE_NAME
+
+        return self._output_dir / CONTROL_FILE_NAME
+
+    def control(self, action: str) -> str | None:
+        """pause / resume / stop da busca em andamento; devolve o erro, se houver."""
+
+        from job_radar.run_control import write_state
+
+        states = {"pause": "pause", "resume": "run", "stop": "stop"}
+        if action not in states:
+            return "Ação inválida."
+        with self._lock:
+            if self._thread is None or not self._thread.is_alive():
+                return "Nenhuma busca em andamento."
+            if self._control == "stop":
+                return "A busca já está sendo encerrada."
+            write_state(self._control_path, states[action])
+            self._control = states[action]
+        return None
 
     def start(self, sources: list[str] | None = None) -> bool:
         with self._lock:
@@ -477,6 +517,13 @@ class SearchController:
             self._error = None
             self._sources = {}
             self._logs = []
+            self._control = "run"
+            try:
+                from job_radar.run_control import write_state
+
+                write_state(self._control_path, "run")
+            except OSError:
+                pass
             self._thread = Thread(
                 target=self._run,
                 args=(sources,),
@@ -501,10 +548,20 @@ class SearchController:
             status = "ERROR"
             error = str(exc)
         with self._lock:
+            if self._control == "stop" or exit_code == 4:
+                status = "STOPPED"
+                error = None
             self._exit_code = exit_code
             self._status = status
             self._error = error
             self._finished_at = datetime.now(timezone.utc).isoformat()
+            self._control = "run"
+            try:
+                from job_radar.run_control import write_state
+
+                write_state(self._control_path, "run")
+            except OSError:
+                pass
 
     def _on_line(self, line: str) -> None:
         progress = parse_progress_line(line)
@@ -518,6 +575,8 @@ class SearchController:
         with self._lock:
             state = {
                 "status": self._status,
+                "paused": self._status == "RUNNING" and self._control == "pause",
+                "stopping": self._status == "RUNNING" and self._control == "stop",
                 "exit_code": self._exit_code,
                 "started_at": self._started_at,
                 "finished_at": self._finished_at,
@@ -526,6 +585,14 @@ class SearchController:
                 "logs": list(self._logs),
             }
         return {**state, **output}
+
+    def run_flags(self) -> dict[str, bool]:
+        with self._lock:
+            running = self._status == "RUNNING"
+            return {
+                "paused": running and self._control == "pause",
+                "stopping": running and self._control == "stop",
+            }
 
     @property
     def output_dir(self) -> Path:
@@ -850,12 +917,29 @@ def _dashboard_handler(
                 self._json(200, payload)
                 return
             if path == "/api/presets":
-                from job_radar.presets import presets_payload
+                from job_radar.presets import load_custom_stacks, presets_payload
 
-                self._json(200, presets_payload())
+                self._json(
+                    200,
+                    presets_payload(load_custom_stacks(self._resolved_preferences_path())),
+                )
+                return
+            if path == "/api/preferences/insights":
+                from job_radar.preferences import preferences_from_dict
+                from job_radar.reclassify import insights, read_payloads
+
+                try:
+                    profile, _ = self._profile_for(
+                        preferences_from_dict(self._load_preferences_payload())
+                    )
+                    payload = insights(read_payloads(controller.output_dir), profile)
+                except (OSError, ValueError) as exc:
+                    self._json(500, {"error": str(exc)})
+                    return
+                self._json(200, payload)
                 return
             if path == "/api/presets/suggest":
-                from job_radar.presets import suggest
+                from job_radar.presets import load_custom_stacks, suggest
 
                 query = parse_qs(request_url.query)
 
@@ -863,11 +947,16 @@ def _dashboard_handler(
                     return [
                         item
                         for item in query.get(name, [""])[-1].split(",")
-                        if re.fullmatch(r"[a-z0-9-]{1,20}", item)
+                        if re.fullmatch(r"[a-z0-9-]{1,60}", item)
                     ]
 
                 self._json(
-                    200, suggest(_csv_param("stacks"), _csv_param("levels"))
+                    200,
+                    suggest(
+                        _csv_param("stacks"),
+                        _csv_param("levels"),
+                        load_custom_stacks(self._resolved_preferences_path()),
+                    ),
                 )
                 return
             if path == "/api/profiles":
@@ -973,6 +1062,71 @@ def _dashboard_handler(
                 return
             self._write(200, content_type, body)
 
+        def _profile_for(self, preferences: Any) -> tuple[Any, dict[str, str | None]]:
+            """Perfil efetivo (profile.yaml + preferências) e país padrão por portal."""
+
+            from job_radar.config import load_profile, load_sources
+            from job_radar.preferences import apply_preferences
+
+            project = _project_root()
+            profile = apply_preferences(
+                load_profile(project / "config" / "profile.yaml"), preferences
+            )
+            countries = {
+                source.code: source.default_country
+                for source in load_sources(project / "config" / "sources.yaml")
+            }
+            return profile, countries
+
+        def _post_preferences_preview(self) -> None:
+            from job_radar.preferences import PreferencesError, validate_preferences_payload
+            from job_radar.reclassify import reclassify_output
+
+            try:
+                preferences = validate_preferences_payload(self._read_json_body(limit=65_536))
+                profile, countries = self._profile_for(preferences)
+                result = reclassify_output(
+                    controller.output_dir, profile, countries, dry_run=True
+                )
+            except TypeError as exc:
+                self._json(415, {"error": str(exc)})
+                return
+            except (PreferencesError, OSError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(200, result)
+
+        def _post_stacks(self, action: str) -> None:
+            from job_radar.presets import (
+                StackError,
+                delete_custom_stack,
+                make_custom_stack,
+                presets_payload,
+                save_custom_stack,
+            )
+
+            path = self._resolved_preferences_path()
+            try:
+                payload = self._read_json_body()
+                if action == "delete":
+                    stacks = delete_custom_stack(path, payload.get("id"))
+                    created = None
+                else:
+                    stack = make_custom_stack(
+                        payload.get("label"),
+                        payload.get("technologies"),
+                        payload.get("queries", ()),
+                    )
+                    stacks = save_custom_stack(path, stack)
+                    created = stack.id
+            except TypeError as exc:
+                self._json(415, {"error": str(exc)})
+                return
+            except (StackError, OSError, ValueError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(200, {**presets_payload(stacks), "created": created})
+
         def _resolved_preferences_path(self) -> Path:
             from job_radar.preferences import preferences_path as default_path
 
@@ -998,7 +1152,7 @@ def _dashboard_handler(
 
             path = self._resolved_preferences_path()
             try:
-                payload = self._read_json_body()
+                payload = self._read_json_body(limit=65_536)
                 if action == "save":
                     preferences = validate_preferences_payload(
                         payload.get("preferences") or {}
@@ -1104,6 +1258,19 @@ def _dashboard_handler(
             if path == "/api/cleanup/undo":
                 self._post_cleanup_undo()
                 return
+            if path == "/api/preferences/preview":
+                self._post_preferences_preview()
+                return
+            if path in {"/api/stacks", "/api/stacks/delete"}:
+                self._post_stacks("delete" if path.endswith("/delete") else "save")
+                return
+            if path in {"/api/search/pause", "/api/search/resume", "/api/search/stop"}:
+                error = controller.control(path.rsplit("/", 1)[-1])
+                if error:
+                    self._json(409, {"error": error})
+                else:
+                    self._json(200, {"status": "ok", **controller.run_flags()})
+                return
             if path in {"/api/profiles/activate", "/api/profiles/delete"}:
                 self._post_profiles(path.rsplit("/", 1)[-1])
                 return
@@ -1175,7 +1342,7 @@ def _dashboard_handler(
                     validate_preferences_payload,
                 )
 
-                payload = self._read_json_body()
+                payload = self._read_json_body(limit=65_536)
                 preferences = validate_preferences_payload(payload)
                 save_preferences(preferences, path=preferences_path)
             except TypeError as exc:
@@ -1184,7 +1351,23 @@ def _dashboard_handler(
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
-            self._json(200, preferences_to_dict(preferences))
+            body: dict[str, Any] = dict(preferences_to_dict(preferences))
+            query = parse_qs(urlsplit(self.path).query)
+            if query.get("reapply", [""])[-1] == "1":
+                body["reapplied"] = None
+                if controller.is_running():
+                    body["reapply_skipped"] = "Busca em andamento: a próxima coleta já usa o perfil novo."
+                else:
+                    from job_radar.reclassify import reclassify_output
+
+                    try:
+                        profile, countries = self._profile_for(preferences)
+                        body["reapplied"] = reclassify_output(
+                            controller.output_dir, profile, countries
+                        )
+                    except (OSError, ValueError, RuntimeError) as exc:
+                        body["reapply_skipped"] = f"Não foi possível reaplicar: {exc}"
+            self._json(200, body)
 
         def log_message(self, format: str, *args: Any) -> None:
             return

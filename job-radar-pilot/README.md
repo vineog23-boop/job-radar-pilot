@@ -193,6 +193,7 @@ Validar um arquivo:
 - `2`: argumento, fonte ou configuração inválida.
 - `3`: coleta terminou honestamente com fonte parcial, bloqueada, autenticada ou
   em erro; consulte `relatorio-execucao.json`.
+- `4`: busca interrompida pela pessoa (botão Parar no painel); o que já foi encontrado foi salvo.
 
 `EMPTY` significa que a página declarou ausência de resultados. Se os seletores
 esperados desaparecerem, o status é `ERROR/LAYOUT_CHANGED`, não vazio.
@@ -389,13 +390,32 @@ ser usado quando um portal realmente o exigir.
 
 O Radar não é só para Java júnior. No painel, em **Configurar busca**:
 
-1. **Stacks de interesse** — marque Java, Python, Node/TypeScript, Front-end, .NET, PHP, Go, Mobile, Dados, DevOps ou QA e clique em *Preencher sugestões*: o painel monta as tecnologias (que pontuam a vaga) e os termos de busca (enviados aos portais).
-2. **Nível** — estágio, júnior, pleno e/ou sênior. Vagas de outro nível ficam fora do perfil; um nível marcado nunca é tratado como exclusão (quem escolhe sênior também aceita cargos de liderança).
-3. **Modelo de trabalho e localidades** — remoto/híbrido/presencial; use "Cidade UF", um estado, `brasil` ou `remoto-brasil`.
-4. **Salvar como perfil** — guarde vários perfis (ex.: "Python pleno remoto", "Java júnior SP") e alterne entre eles no seletor; o perfil ativo é o que a próxima coleta usa.
+1. **Stacks de interesse** — 26 stacks prontas (Java, Python, Node/TypeScript, Front-end, Full stack, .NET, PHP, Go, Kotlin, Ruby, Rust, C/C++/Embarcados, Mobile, Dados, IA/ML, DevOps, QA, Segurança, Suporte/Infra, Salesforce, SAP/ABAP, Low-code/RPA, Games, Produto, UX/UI…). Marque e clique em *Preencher sugestões*: o painel monta as tecnologias (que pontuam a vaga) e os termos de busca (enviados aos portais). *Somar ao que já está preenchido* acrescenta em vez de substituir.
+2. **+ Criar stack** — não achou a sua? Dê um nome, liste as tecnologias e (opcional) os termos de busca. A stack fica salva em `custom-stacks.json` (ao lado das preferências), aparece com borda tracejada e pode ser excluída no ×.
+3. **Nível** — estágio, júnior, pleno e/ou sênior. Vagas de outro nível ficam fora do perfil; um nível marcado nunca é tratado como exclusão (quem escolhe sênior também aceita cargos de liderança).
+4. **Modelo de trabalho e localidades** — remoto/híbrido/presencial; use "Cidade UF", um estado, `brasil` ou `remoto-brasil`.
+5. **Tecnologias** — campo de etiquetas (Enter ou vírgula adiciona, × remove, colar uma lista adiciona várias). Abaixo aparecem as tecnologias que mais se repetem nas suas vagas de TI e ainda não estão no perfil: um clique adiciona.
+6. **Salvar como perfil** — guarde vários perfis (ex.: "Python pleno remoto", "Java júnior SP") e alterne entre eles no seletor; o perfil ativo é o que a próxima coleta usa.
 
-Tecnologias fora das listas prontas podem ser digitadas livremente; qualquer palavra da lista que não seja uma ferramenta de apoio (docker, sql, git…) conta como stack principal do perfil.
+### Palavras-chave e filtros finos
 
+Tudo opcional; cada item vira um rótulo na vaga e aparece no detalhe e no motivo da exportação:
+
+| Campo | O que faz |
+|---|---|
+| **Obrigatórias** | A vaga precisa citar pelo menos uma (`KEYWORD_MATCH`); sem nenhuma, fica fora do perfil (`KEYWORD_MISSING`). |
+| **Diferenciais** | Nunca excluem: +5 no score por diferencial (até +10) e desempate no ranking (`BONUS_MATCH`). |
+| **Proibidas na vaga** | Em qualquer parte, cargo ou descrição, tiram a vaga do perfil (`KEYWORD_BLOCKED`). |
+| **Proibidas no cargo** | Só no título (`TITLE_EXCLUDED`); termos de nível continuam como `SENIORITY_MISMATCH`. |
+| **Empresas a evitar / favoritas** | Evitar exclui (`COMPANY_EXCLUDED`); favorita soma +10 no score (`COMPANY_FAVORITE`). Sugestões de favoritas vêm das empresas com mais vagas compatíveis. |
+| **Tipo de contrato** | CLT, PJ, Freelance/temporário. Só exclui quando a vaga diz explicitamente um contrato não aceito; "CLT ou PJ" passa se um deles for aceito; vaga que não fala de contrato nunca é excluída. |
+| **Idioma** | "Esconder vagas que exigem inglês avançado ou fluente". Quando o inglês aparece como diferencial/desejável, a vaga continua (`LANGUAGE:english_plus`). |
+
+**Ver impacto** mostra, sem salvar, quantas vagas da lista ficariam "Mais compatíveis", "A revisar" e "Fora do perfil" com as configurações da tela. Com **Reaplicar às vagas já salvas** marcado (padrão), salvar recalcula a aderência da lista atual na hora, sem consultar os portais e sem apagar nada (a limpeza continua sendo uma ação separada).
+
+### Pausar ou parar a busca
+
+Durante uma busca aparecem **⏸ Pausar busca** e **■ Parar e salvar**. Pausar congela a coleta depois da página atual (nenhuma requisição nova sai) e **▶ Retomar** continua de onde parou. Parar termina a consulta em andamento, não começa outra e grava o que já foi encontrado: portais que nem começaram e os interrompidos no meio mantêm as vagas da coleta anterior. Por baixo, o painel escreve `pause`/`stop` em `output/.radar-control`, e `job-radar collect --control-file <arquivo>` lê esse arquivo (código de saída 4 = parada pela pessoa).
 ### Exclusões e limpeza
 
 Em **Configurar busca**, a seção **Exclusões** guarda só os *termos que você nunca quer ver* (vagas com esses termos no cargo ficam fora do perfil; os níveis que você marcou nunca são excluídos).

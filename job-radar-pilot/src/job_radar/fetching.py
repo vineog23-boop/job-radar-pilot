@@ -523,6 +523,10 @@ class FetchPolicy:
         return FetchPolicy._default_robots_policy(url)(url)
 
     def _throttle(self, source: SourceConfig) -> None:
+        # Pausa pedida pelo painel: segura a próxima requisição até retomar.
+        from job_radar import run_control
+
+        run_control.current().wait_if_paused()
         previous = self._last_request_at.get(source.code)
         now = self._monotonic()
         if previous is not None:

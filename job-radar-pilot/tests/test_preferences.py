@@ -67,6 +67,13 @@ def test_save_is_atomic_and_round_trips_only_allowed_fields(tmp_path: Path) -> N
         "location_scopes": ["remoto-brasil", "minas-gerais"],
         "technologies": [],
         "excluded_terms": [],
+        "required_keywords": [],
+        "bonus_keywords": [],
+        "blocked_keywords": [],
+        "excluded_companies": [],
+        "favorite_companies": [],
+        "contract_types": [],
+        "avoid_advanced_english": False,
     }
     assert list(path.parent.glob("*.tmp")) == []
     assert load_preferences(

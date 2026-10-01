@@ -401,8 +401,11 @@ def test_preferences_api_saves_validated_search_configuration(tmp_path) -> None:
         thread.join(timeout=2)
 
     assert saved_status == 200
-    assert saved == payload
-    assert loaded == payload
+    assert {key: saved[key] for key in payload} == payload
+    assert {key: loaded[key] for key in payload} == payload
+    # refinos opcionais voltam com os valores neutros
+    assert loaded["required_keywords"] == [] and loaded["contract_types"] == []
+    assert loaded["avoid_advanced_english"] is False
     assert preferences_path.exists()
 
 
@@ -694,10 +697,20 @@ def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:
             page.locator("#location-scopes").fill(
                 "sao-carlos-sp\nflorianopolis-sc"
             )
-            page.locator("#technologies").fill("Java\nSpring Boot")
-            page.locator("#excluded-terms").fill("Pleno\nSênior")
+            # campos de etiquetas: limpa o padrão (Backspace) e digita com Enter
+            for field, values in (
+                ("technologies", ["Java", "Spring Boot"]),
+                ("excluded-terms", ["Pleno", "Sênior"]),
+            ):
+                entry = page.locator(f"#{field}-entry")
+                entry.click()
+                while page.locator(f"#{field}").input_value():
+                    entry.press("Backspace")
+                for value in values:
+                    entry.fill(value)
+                    entry.press("Enter")
             with page.expect_response(
-                lambda response: response.url.endswith("/api/preferences")
+                lambda response: response.url.split("?")[0].endswith("/api/preferences")
                 and response.request.method == "PUT"
             ) as response_info:
                 page.get_by_role("button", name="Salvar configurações").click()
@@ -729,7 +742,7 @@ def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:
         thread.join(timeout=2)
 
     saved = json.loads(preferences_path.read_text(encoding="utf-8"))
-    assert saved == {
+    expected = {
         "search_terms": ["java junior", "estagio backend"],
         "seniority_levels": ["estagio", "junior"],
         "workplace_models": ["REMOTE", "HYBRID"],
@@ -737,6 +750,8 @@ def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:
         "technologies": ["java", "spring boot"],
         "excluded_terms": ["pleno", "sênior"],
     }
+    assert {key: saved[key] for key in expected} == expected
+    assert saved["required_keywords"] == [] and saved["avoid_advanced_english"] is False
 
 
 def test_dashboard_browser_renders_local_jobs(tmp_path) -> None:

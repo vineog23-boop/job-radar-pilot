@@ -34,6 +34,10 @@
             <span class="button-icon" aria-hidden="true">↻</span>
             <span class="button-copy"><strong>Buscar vagas agora</strong><small>Consultar todos os portais</small></span>
           </button>
+          <div id="run-controls" class="run-controls" hidden>
+            <button id="pause-button" class="ghost-button" type="button" title="Congela a busca depois da página atual; retome quando quiser">⏸ Pausar busca</button>
+            <button id="stop-button" class="ghost-button danger-button" type="button" title="Encerra a busca e salva o que já foi encontrado">■ Parar e salvar</button>
+          </div>
           <div class="secondary-actions">
             <button id="quick-search-button" class="ghost-button action-button" type="button" title="Consulta só os portais focados em tecnologia">Busca rápida (TI)</button>
             <button id="sources-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="sources-picker">Escolher portais</button>
@@ -223,15 +227,36 @@
         <form id="preferences-form" class="preferences-form">
           <fieldset class="wide-field">
             <legend>Stacks de interesse</legend>
-            <small>Marque as áreas que você procura e clique em "Preencher sugestões" para montar as tecnologias e os termos de busca. Depois é só ajustar.</small>
+            <small>Marque as áreas que você procura e clique em "Preencher sugestões" para montar as tecnologias e os termos de busca. Não achou a sua? Crie uma stack com as tecnologias que quiser.</small>
             <div id="stack-chips" class="chip-row" role="group" aria-label="Stacks"></div>
-            <button id="apply-suggestions" class="ghost-button" type="button">Preencher sugestões</button>
+            <div class="stack-actions">
+              <button id="apply-suggestions" class="ghost-button" type="button">Preencher sugestões</button>
+              <label class="check-option"><input id="suggest-merge" type="checkbox"> Somar ao que já está preenchido</label>
+              <button id="new-stack-toggle" class="ghost-button" type="button" aria-expanded="false" aria-controls="new-stack-form">+ Criar stack</button>
+            </div>
+            <div id="new-stack-form" class="new-stack" hidden>
+              <label for="new-stack-label">Nome da stack
+                <input id="new-stack-label" type="text" maxlength="40" placeholder="ex.: Java + Angular">
+              </label>
+              <label for="new-stack-techs">Tecnologias (separe por vírgula)
+                <input id="new-stack-techs" type="text" maxlength="900" placeholder="java, spring boot, angular, typescript">
+              </label>
+              <label for="new-stack-queries">Termos de busca (opcional, até 6)
+                <input id="new-stack-queries" type="text" maxlength="400" placeholder="java angular, desenvolvedor full stack java">
+              </label>
+              <div class="chip-row">
+                <button id="new-stack-save" class="ghost-button" type="button">Salvar stack</button>
+                <button id="new-stack-cancel" class="ghost-button" type="button">Cancelar</button>
+              </div>
+              <small id="new-stack-status" class="hint" aria-live="polite"></small>
+            </div>
           </fieldset>
           <label class="wide-field" for="search-terms">
-            <strong>Termos de busca</strong>
-            <small>Um por linha. Eles são enviados somente aos portais que oferecem pesquisa por texto.</small>
+            <strong>Termos de busca <span id="search-terms-count" class="counter">0/12</span></strong>
+            <small>Um por linha, até 12. Vão para os portais que pesquisam por texto — prefira termos curtos que um recrutador usaria no título (ex.: "java junior", "estágio backend").</small>
             <textarea id="search-terms" rows="4" maxlength="1452" required></textarea>
           </label>
+
           <fieldset>
             <legend>Nível</legend>
             <small>Marque um ou mais níveis. Vagas de outro nível ficam fora do perfil.</small>
@@ -256,28 +281,71 @@
               <button class="chip" type="button" data-location="brasil">+ Todo o Brasil</button>
             </span>
           </label>
-          <label class="wide-field" for="technologies">
-            <strong>Stacks e tecnologias</strong>
-            <small>Uma por linha (ex.: java, spring boot, sql). Pesam na aderência; em branco usa o perfil padrão.</small>
-            <textarea id="technologies" rows="4" maxlength="2440"></textarea>
-          </label>
-          <section class="wide-field exclusions" aria-labelledby="exclusions-title">
-            <h3 id="exclusions-title">Exclusões</h3>
-
-            <div class="exclusion-block">
-              <h4>Termos que você nunca quer ver</h4>
-              <label for="excluded-terms">
-                <small>Um por linha (ex.: tech lead, estágio em RH). Vagas com esses termos no cargo ficam fora do perfil. Os níveis que você marcou acima nunca são excluídos.</small>
-                <textarea id="excluded-terms" rows="3" maxlength="2440"></textarea>
-              </label>
-              <small class="hint">Vale ao salvar as configurações. Para descartar e limpar vagas já salvas, use o menu <strong>Limpeza</strong>.</small>
+          <div class="wide-field tag-field">
+            <label for="technologies-entry"><strong>Tecnologias que pesam na aderência</strong></label>
+            <small>Digite e tecle Enter (ou vírgula); cole uma lista para adicionar várias. A vaga precisa citar ao menos uma tecnologia principal para ser "Mais compatível". Em branco usa o perfil padrão.</small>
+            <textarea id="technologies" class="tag-source" rows="3" maxlength="2440" aria-label="Tecnologias" data-placeholder="ex.: java, spring boot, sql"></textarea>
+            <div id="tech-insights" class="insights" hidden>
+              <small>Aparecem muito nas vagas de TI que você já tem — clique para adicionar:</small>
+              <div id="tech-insights-chips" class="chip-row"></div>
             </div>
-
+          </div>
+          <section class="wide-field refine" aria-labelledby="refine-title">
+            <h3 id="refine-title">Palavras-chave e filtros finos</h3>
+            <p class="hint">Tudo opcional. Ajusta a aderência sem nova busca: ao salvar, o Radar reaplica às vagas que já estão na lista (nada é apagado).</p>
+            <div class="refine-grid">
+              <div class="exclusion-block tag-field">
+                <label for="required-keywords-entry"><h4>Obrigatórias</h4></label>
+                <small>A vaga precisa citar <strong>pelo menos uma</strong>. Sem nenhuma, fica fora do perfil.</small>
+                <textarea id="required-keywords" class="tag-source" rows="2" aria-label="Palavras obrigatórias" data-placeholder="ex.: java, spring"></textarea>
+              </div>
+              <div class="exclusion-block tag-field">
+                <label for="bonus-keywords-entry"><h4>Diferenciais</h4></label>
+                <small>Não excluem nada: sobem a vaga no ranking e no score.</small>
+                <textarea id="bonus-keywords" class="tag-source" rows="2" aria-label="Diferenciais" data-placeholder="ex.: microsserviços, aws, kafka"></textarea>
+              </div>
+              <div class="exclusion-block tag-field">
+                <label for="blocked-keywords-entry"><h4>Proibidas na vaga</h4></label>
+                <small>Em qualquer parte (cargo ou descrição) tiram a vaga do perfil.</small>
+                <textarea id="blocked-keywords" class="tag-source" rows="2" aria-label="Palavras proibidas na vaga" data-placeholder="ex.: cnh, viagens, comissão"></textarea>
+              </div>
+              <div class="exclusion-block tag-field">
+                <label for="excluded-terms-entry"><h4>Proibidas no cargo</h4></label>
+                <small>Só no título (ex.: tech lead, vendas). Os níveis marcados acima nunca são excluídos.</small>
+                <textarea id="excluded-terms" class="tag-source" rows="2" maxlength="2440" aria-label="Termos proibidos no cargo" data-placeholder="ex.: tech lead, suporte n1"></textarea>
+              </div>
+              <div class="exclusion-block tag-field">
+                <label for="excluded-companies-entry"><h4>Empresas a evitar</h4></label>
+                <small>Vagas dessas empresas ficam fora do perfil.</small>
+                <textarea id="excluded-companies" class="tag-source" rows="2" aria-label="Empresas a evitar" data-placeholder="nome da empresa"></textarea>
+              </div>
+              <div class="exclusion-block tag-field">
+                <label for="favorite-companies-entry"><h4>Empresas favoritas</h4></label>
+                <small>Sobem no ranking quando aparecem.</small>
+                <textarea id="favorite-companies" class="tag-source" rows="2" aria-label="Empresas favoritas" data-placeholder="nome da empresa"></textarea>
+                <div id="company-insights" class="chip-row insights-row"></div>
+              </div>
+              <fieldset class="exclusion-block">
+                <legend>Tipo de contrato</legend>
+                <small>Nenhum marcado aceita qualquer. Vagas que não dizem o contrato nunca são excluídas.</small>
+                <label class="check-option"><input id="contract-clt" type="checkbox" value="CLT"> CLT</label>
+                <label class="check-option"><input id="contract-pj" type="checkbox" value="PJ"> PJ</label>
+                <label class="check-option"><input id="contract-freelance" type="checkbox" value="FREELANCE"> Freelance / temporário</label>
+              </fieldset>
+              <fieldset class="exclusion-block">
+                <legend>Idioma</legend>
+                <label class="check-option"><input id="avoid-english" type="checkbox"> Esconder vagas que exigem inglês avançado ou fluente</label>
+                <small>Quando o inglês aparece só como diferencial, a vaga continua.</small>
+              </fieldset>
+            </div>
           </section>
           <div class="preferences-footer">
+            <label class="check-option"><input id="reapply-saved" type="checkbox" checked> Reaplicar às vagas já salvas</label>
+            <button id="preview-preferences" class="ghost-button" type="button" title="Mostra quantas vagas da lista ficariam compatíveis, sem salvar">Ver impacto</button>
             <p id="preferences-status" class="preferences-status" aria-live="polite"></p>
             <button id="save-preferences" class="primary-button compact-button" type="submit">Salvar configurações</button>
           </div>
+          <p id="preferences-impact" class="preferences-impact" aria-live="polite" hidden></p>
         </form>
       </section>
 

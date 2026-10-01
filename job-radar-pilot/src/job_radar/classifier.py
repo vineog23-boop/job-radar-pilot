@@ -134,8 +134,101 @@ _IT_TITLE_SIGNALS = re.compile(
     r"c#|\.net|dotnet|golang|flutter|react native|power ?bi|etl|terraform|aws|azure|"
     r"kubernetes|docker|linux|spring|django|laravel|vue|next\.?js|nestjs|spark|"
     r"machine learning|engenheir\w* de dados|analista de bi|arquiteto de software|"
-    r"analista programador|tech lead)(?!\w)"
+    r"analista programador|tech lead|rust|ruby|rails|c\+\+|embarcad\w*|firmware|unity|unreal|"
+    r"abap|outsystems|uipath|power apps|power automate|ux|figma|pentest|cybersecurity|"
+    r"seguranca cibernetica|swift|llm|mlops|desenvolvedor de jogos|game developer)(?!\w)"
 )
+
+# Tipo de contrato citado na vaga (texto já normalizado, sem acento).
+_CONTRACT_MARKERS: dict[str, tuple[str, ...]] = {
+    "CLT": ("clt", "regime clt", "carteira assinada"),
+    "PJ": ("pj", "pessoa juridica", "cnpj", "contrato pj"),
+    "FREELANCE": ("freelancer", "freelance", "freela", "temporario", "temporaria", "por projeto"),
+}
+# Inglês avançado/fluente pedido na vaga; perto de "diferencial" vira só um plus.
+_ADVANCED_ENGLISH = re.compile(
+    r"(?<!\w)(?:ingles|english)\s*[(:\-]?\s*(?:nivel\s+)?"
+    r"(?:fluente|avancado|fluent|advanced|c1|c2|proficiente)(?!\w)"
+    r"|(?<!\w)(?:fluencia|fluente|avancado|proficiencia)\s+(?:(?:em|no|de)\s+)?(?:ingles|english)(?!\w)"
+    r"|(?<!\w)(?:fluent|advanced|proficient)\s+(?:in\s+)?english(?!\w)"
+    r"|(?<!\w)english fluency(?!\w)"
+)
+_NICE_TO_HAVE = re.compile(r"diferencia|desejavel|nice to have|\bplus\b|bonus|nao obrigatorio")
+# Prefixos dos rótulos que o perfil do painel pode gerar e que tiram a vaga do perfil.
+PREFERENCE_BLOCK_PREFIXES = (
+    "COMPANY_EXCLUDED:",
+    "KEYWORD_BLOCKED:",
+    "KEYWORD_MISSING:",
+    "CONTRACT_MISMATCH:",
+    "LANGUAGE_MISMATCH:",
+    "TITLE_EXCLUDED:",
+)
+
+
+def _english_requirement(text: str) -> str | None:
+    """'required', 'plus' (diferencial) ou None quando a vaga não fala disso."""
+
+    found = None
+    for match in _ADVANCED_ENGLISH.finditer(text):
+        window = text[max(0, match.start() - 40) : match.end() + 60]
+        if _NICE_TO_HAVE.search(window):
+            found = found or "plus"
+        else:
+            return "required"
+    return found
+
+
+def _preference_labels(
+    record: VacancyRecord, profile: SearchProfile, searchable_text: str
+) -> set[str]:
+    """Rótulos dos refinos do painel: palavras-chave, empresas, contrato, inglês."""
+
+    labels: set[str] = set()
+    company = _normalize(record.company)
+    if company:
+        for name in profile.excluded_companies:
+            if _contains_term(company, _normalize(name)):
+                labels.add(f"COMPANY_EXCLUDED:{_normalize(name)}")
+        for name in profile.favorite_companies:
+            if _contains_term(company, _normalize(name)):
+                labels.add(f"COMPANY_FAVORITE:{_normalize(name)}")
+    for term in profile.blocked_keywords:
+        if _contains_term(searchable_text, term):
+            labels.add(f"KEYWORD_BLOCKED:{_canonical_term(term)}")
+    if profile.required_keywords:
+        matched = [
+            _canonical_term(term)
+            for term in profile.required_keywords
+            if _contains_term(searchable_text, term)
+        ]
+        labels.update(f"KEYWORD_MATCH:{term}" for term in matched)
+        if not matched:
+            labels.add("KEYWORD_MISSING:required")
+    for term in profile.bonus_keywords:
+        if _contains_term(searchable_text, term):
+            labels.add(f"BONUS_MATCH:{_canonical_term(term)}")
+
+    contract_text = " ".join(
+        part for part in (_normalize(record.employment_type), searchable_text) if part
+    )
+    detected = {
+        kind
+        for kind, markers in _CONTRACT_MARKERS.items()
+        if any(_contains_term(contract_text, marker) for marker in markers)
+    }
+    labels.update(f"CONTRACT:{kind}" for kind in detected)
+    if profile.contract_types and detected and detected.isdisjoint(profile.contract_types):
+        labels.update(f"CONTRACT_MISMATCH:{kind}" for kind in detected)
+
+    english = _english_requirement(searchable_text)
+    if english == "required":
+        labels.add("LANGUAGE:english_advanced")
+        if profile.avoid_advanced_english:
+            labels.add("LANGUAGE_MISMATCH:english")
+    elif english == "plus":
+        labels.add("LANGUAGE:english_plus")
+    return labels
+
 
 _BRAZIL_STATE_UFS = {
     "acre": "ac",
@@ -181,6 +274,9 @@ def _normalize(value: str | None) -> str:
 def _canonical_term(value: str) -> str:
     normalized = _normalize(value)
     return _CANONICAL_TERMS.get(normalized, normalized)
+
+
+_LEADERSHIP_CANONICAL = frozenset(_canonical_term(term) for term in LEADERSHIP_TERMS)
 
 
 def _contains_term(searchable_text: str, term: str) -> bool:
@@ -404,7 +500,8 @@ def classify(
         if entry_mid_range and canonical == "pleno":
             continue
         if canonical and _contains_term(explicit_seniority_text, canonical):
-            labels.add(f"SENIORITY_MISMATCH:{canonical}")
+            is_level = canonical in SENIORITY_LEVELS or canonical in _LEADERSHIP_CANONICAL
+            labels.add(f"{'SENIORITY_MISMATCH' if is_level else 'TITLE_EXCLUDED'}:{canonical}")
     if not matching_levels:
         # Nível explícito de meio/topo que o perfil não escolheu.
         for canonical in ("pleno", "senior"):
@@ -486,6 +583,10 @@ def classify(
     has_eligibility_unclear = any(
         label.startswith("ELIGIBILITY_UNCLEAR:") for label in labels
     )
+    labels |= _preference_labels(record, profile, searchable_text)
+    has_preference_block = any(
+        label.startswith(PREFERENCE_BLOCK_PREFIXES) for label in labels
+    )
 
     has_workplace_match = False
     has_workplace_mismatch = False
@@ -513,7 +614,12 @@ def classify(
         labels.add("SOURCE_TYPE:CURATED_ARTICLE")
         fit = "AMBIGUOUS"
         score = 0
-    elif has_seniority_mismatch or has_location_mismatch or has_workplace_mismatch:
+    elif (
+        has_seniority_mismatch
+        or has_location_mismatch
+        or has_workplace_mismatch
+        or has_preference_block
+    ):
         fit = "EXCLUDE"
         score = -1
     else:

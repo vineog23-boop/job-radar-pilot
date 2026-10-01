@@ -235,6 +235,7 @@ def write_outputs(
     keep_urls: Any = (),
     max_age_days: int | None = None,
     rules: Any = None,
+    partial_sources: Any = (),
 ) -> OutputManifest:
     """Grava JSONL, CSV e relatório.
 
@@ -255,9 +256,20 @@ def write_outputs(
     payloads_list = [_record_payload(record) for record in result.records]
     carried_sources: list[dict[str, Any]] = []
     carried_count = 0
+    partial = set(partial_sources)
     if merge_unrefreshed:
         refreshed = {source.source_code for source in result.source_results}
-        carried = _previous_payloads(final_jsonl, refreshed)
+        carried = _previous_payloads(final_jsonl, refreshed - partial)
+        if partial:
+            # Portal interrompido no meio: as vagas antigas que a coleta parcial
+            # não reencontrou continuam na lista.
+            new_urls = {payload.get("canonical_url") for payload in payloads_list}
+            carried = [
+                payload
+                for payload in carried
+                if payload.get("source") not in partial
+                or payload.get("canonical_url") not in new_urls
+            ]
         carried_count = len(carried)
         payloads_list.extend(carried)
         carried_sources = _previous_report_sources(final_report, refreshed)

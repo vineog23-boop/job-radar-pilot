@@ -32,8 +32,13 @@ from job_radar.preferences import (
     preferences_path,
 )
 from job_radar.cleanup import load_rules
+from job_radar import run_control
+from job_radar.run_control import RunControl
 from job_radar.selector_suggestion import suggest_from_page
 from job_radar.tracking import TrackingError, TrackingStore
+
+# Código de saída quando a pessoa interrompe a busca pelo painel.
+EXIT_STOPPED = 4
 
 
 def _project_root() -> Path:
@@ -104,6 +109,15 @@ def _parser() -> argparse.ArgumentParser:
         "--no-history",
         action="store_true",
         help="Nao ler nem gravar o historico local de vagas ja vistas.",
+    )
+    collect.add_argument(
+        "--control-file",
+        type=Path,
+        default=None,
+        help=(
+            "Arquivo de controle do painel: 'pause' pausa a coleta e 'stop' "
+            "encerra guardando o que ja foi encontrado."
+        ),
     )
     validate = commands.add_parser(
         "validate-output", help="Validar um JSONL contra o schema local."
@@ -200,6 +214,50 @@ def _collect(args: argparse.Namespace) -> int:
             )
 
     history = None if getattr(args, "no_history", False) else SeenHistory()
+    control_file = getattr(args, "control_file", None)
+    run_control.activate(RunControl(control_file) if control_file else None)
+    try:
+        result = _run_pipeline(args, sources, profile, history, print_source_progress)
+    finally:
+        run_control.activate(None)
+    if result.stopped:
+        print("STOPPED: busca interrompida; o que ja foi encontrado sera salvo.", flush=True)
+    for item in result.source_results:
+        for warning in item.warnings:
+            if warning.startswith("SOURCE_COUNT_"):
+                print(f"WARNING {item.source_code}: {warning}", flush=True)
+    keep_urls: frozenset[str] = frozenset()
+    try:
+        keep_urls = frozenset(TrackingStore().load())
+    except TrackingError:
+        pass
+    manifest = write_outputs(
+        result,
+        args.output.resolve(),
+        merge_unrefreshed=bool(args.sources) or result.stopped,
+        prune=not getattr(args, "keep_all", False),
+        keep_urls=keep_urls,
+        max_age_days=getattr(args, "max_age_days", None),
+        rules=load_rules(preferences_path()),
+        partial_sources={
+            item.source_code
+            for item in result.source_results
+            if item.stop_reason == run_control.STOP_REASON
+        },
+    )
+    if manifest.discarded:
+        print(f"DISCARDED: {manifest.discarded} vagas inuteis nao foram salvas.")
+    print(f"JSONL: {manifest.jsonl_path}")
+    print(f"CSV: {manifest.csv_path}")
+    print(f"REPORT: {manifest.report_path}")
+
+    if result.stopped:
+        return EXIT_STOPPED
+    complete_statuses = {CollectionStatus.SUCCESS, CollectionStatus.EMPTY}
+    return 0 if all(item.status in complete_statuses for item in result.source_results) else 3
+
+
+def _run_pipeline(args, sources, profile, history, print_source_progress):
     if args.workers == 1:
         with FetchPolicy() as fetcher:
             pipeline = JobRadarPipeline(
@@ -223,32 +281,7 @@ def _collect(args: argparse.Namespace) -> int:
             enrich_limit=args.enrich_limit,
         )
         result = pipeline.run(args.sources)
-    for item in result.source_results:
-        for warning in item.warnings:
-            if warning.startswith("SOURCE_COUNT_"):
-                print(f"WARNING {item.source_code}: {warning}", flush=True)
-    keep_urls: frozenset[str] = frozenset()
-    try:
-        keep_urls = frozenset(TrackingStore().load())
-    except TrackingError:
-        pass
-    manifest = write_outputs(
-        result,
-        args.output.resolve(),
-        merge_unrefreshed=bool(args.sources),
-        prune=not getattr(args, "keep_all", False),
-        keep_urls=keep_urls,
-        max_age_days=getattr(args, "max_age_days", None),
-        rules=load_rules(preferences_path()),
-    )
-    if manifest.discarded:
-        print(f"DISCARDED: {manifest.discarded} vagas inuteis nao foram salvas.")
-    print(f"JSONL: {manifest.jsonl_path}")
-    print(f"CSV: {manifest.csv_path}")
-    print(f"REPORT: {manifest.report_path}")
-
-    complete_statuses = {CollectionStatus.SUCCESS, CollectionStatus.EMPTY}
-    return 0 if all(item.status in complete_statuses for item in result.source_results) else 3
+    return result
 
 
 def _validate(path: Path) -> int:

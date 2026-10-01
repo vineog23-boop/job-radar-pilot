@@ -62,11 +62,40 @@ aceita `--workers 3` ao iniciar o módulo `job_radar.webapp`. Os resultados são
 sempre restaurados à ordem das fontes configuradas antes da classificação e da
 deduplicação.
 
+## Seu dia a dia com o Radar
+
+O topo do painel mostra o fluxo em três passos:
+
+1. **Buscar** — **Buscar vagas agora** consulta todos os portais com o seu perfil;
+   **Busca rápida (TI)** consulta só os focados em tecnologia. Durante a busca o
+   painel mostra "N portais concluídos, M vagas lidas até agora". A busca diária
+   pode ser agendada (`scripts\agendar-coleta.ps1 -Horario 08:00`).
+2. **Revisar** — a faixa azul avisa "N vagas compatíveis novas que você ainda não
+   viu"; **Ver só as novidades** filtra direto nelas e **Marcar como vistas** limpa o
+   aviso. Uma vaga conta como vista quando você a abre, expande ou marca. Os
+   **filtros rápidos** (Não vistas, Remoto, Estágio, Júnior, Últimos 7 dias) somam
+   aos seletores e ficam lembrados. Em cada vaga, escolha Salva, Aplicada,
+   Entrevista, Oferta, Recusada ou Descartada; toda mudança mostra um aviso com
+   **Desfazer** (descartar não é mais caminho sem volta).
+3. **Exportar** — ao fim de cada busca (inclusive a agendada) o Radar grava em
+   **Documentos\Radar de Vagas**: `melhores-vagas-AAAA-MM-DD-HHMM.xlsx` (mais
+   compatíveis + a revisar, sem descartadas, ordenadas pelo Score),
+   `todas-de-ti-AAAA-MM-DD-HHMM.csv` e `ultima-busca.xlsx` (sempre a mais recente,
+   bom para fixar um atalho). Em **Exportar vagas → Exportação automática** dá para
+   desligar, trocar a pasta, **Abrir pasta** ou **Exportar agora**. Na linha de
+   comando, `collect --no-export` pula a exportação de uma coleta.
+
+No celular a tabela vira cartões (sem rolagem para os lados).
+
 ## Acompanhamento e exportação
 
-O estado de cada vaga (salva, aplicada, descartada e uma nota curta) fica em
-`%LOCALAPPDATA%\JobRadar\tracking.json`, fora do repositório e do funil
-canônico; a chave é a URL da vaga. **Exportar CSV** e **Baixar relatório**
+O estado de cada vaga fica em `%LOCALAPPDATA%\JobRadar\tracking.json`, fora do
+repositório e do funil canônico; a chave é a URL da vaga. Estados: **Salva**,
+**Aplicada**, **Entrevista**, **Oferta**, **Recusada** e **Descartada**, cada um com a
+data em que foi alcançado (`applied_at`, `interview_at`...) e uma nota curta que
+não se perde ao mudar o estado. A faixa **Seu funil** acima da tabela conta as
+vagas em cada etapa (clique para filtrar) e **Em processo** junta aplicadas,
+entrevistas e ofertas. **Exportar CSV** e **Baixar relatório**
 respeitam exatamente os filtros ativos, inclusive o de acompanhamento. O CSV
 traz aderência, acompanhamento, cargo, empresa, local, modalidade,
 senioridade, tecnologias, data de publicação, fonte, URL e nota.
@@ -283,10 +312,22 @@ Avaliadas em 29/09/2026 e **não** incluídas:
   sem evidência, `published_at` fica `null`.
 - **Títulos:** o selo "Nova"/"Novo" e sufixos depois de `|` são removidos,
   exceto quando o sufixo informa senioridade ("Java | Júnior").
-- **Duplicatas entre portais:** a mesma vaga (cargo, empresa e local iguais,
-  após normalização) vista em portais diferentes vira um registro só; fica a
-  versão do Gupy/ATS quando existir e as demais fontes aparecem em
-  `ALSO_SEEN_IN:<fonte>` ("também em …" no painel).
+- **Duplicatas:** a mesma vaga vista mais de uma vez vira um registro só. O
+  cargo é comparado sem "Remoto"/"home office"/"(Remoto)", com
+  "Desenvolvedora"="Desenvolvedor(a)" e "Jr"="Júnior"; a empresa, sem "Ltda",
+  "S.A." e "Brasil". O local precisa ser compatível (igual, ou um lado remoto ou
+  sem local): duas cidades presenciais diferentes continuam separadas, e
+  empresas diferentes nunca se juntam. Entre portais fica a versão do Gupy/ATS
+  quando existir (`ALSO_SEEN_IN:<fonte>`, "também em …" no painel); no mesmo
+  portal (republicação) fica o anúncio mais recente (`REPOSTED:<n>`,
+  "Republicada N×"). Se você acompanha uma das URLs, é ela que fica.
+- **Descrições limpas:** texto de `<script>`/`<style>` dentro do cartão, botões
+  ("Quero essa vaga", "Salvar vaga"), caixas de compartilhar e o "Voltar" do
+  Primeira Vaga Tech são removidos; títulos perdem códigos internos
+  ("[Job-32006]", " - 386089", "(Cód. 123)").
+- **Rendimento por portal:** o relatório guarda por portal `useful` (vagas que
+  ficaram), `discarded` e `compatible`; em **Situação dos portais** o painel mostra
+  esses números e avisa quando um portal rende pouco para o seu perfil.
 - **Portal quebrado:** o histórico guarda as últimas 10 contagens por fonte.
   Com ao menos duas coletas anteriores, uma queda de mais de 50% gera
   `SOURCE_COUNT_DROP:atual<média` e uma coleta zerada gera
@@ -522,8 +563,12 @@ critério atendido (tecnologia, nível, local, modelo), +10 se `FIT:READY` e at�
 
 ## Organização do painel
 
-- **Topo compacto:** busca, escolha de portais, configuração, limpeza, exportação e LinkedIn
-  ficam agrupados; a tabela aparece sem rolar muito.
+- **Barra de trabalho:** o fluxo 1 Buscar · 2 Revisar · 3 Exportar, o status da
+  busca e as ações agrupadas em **Buscar** (busca rápida, portais, configurar,
+  LinkedIn) e **Lista** (limpeza, exportar); a tabela aparece na primeira tela.
+- **Configurar busca:** linha "Você procura: …" com o resumo do perfil, seções
+  numeradas na ordem de preenchimento e **Filtros avançados (opcional)** recolhidos
+  com contador (abrem sozinhos quando algum está em uso).
 - **Cards clicáveis:** "Vagas coletadas" mostra tudo de TI e "Compatíveis" filtra só
   as mais compatíveis.
 - **Detalhes por vaga:** clique no cargo para abrir descrição, score, critérios

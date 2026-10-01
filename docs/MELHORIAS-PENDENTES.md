@@ -107,7 +107,7 @@ Texto original:
   empresa. Conferir `robots.txt`/termos de cada provedor antes.
 - Pronto quando: teste com resposta JSON de exemplo de cada provedor; documentação no README.
 
-### 2.3 Saúde e rendimento por portal
+### ✅ 2.3 Saúde e rendimento por portal — FEITO em 01/10/2026 (sem tempo por portal ainda)
 - Registrar por coleta e por portal: consultas feitas, tempo, vagas lidas, vagas úteis e
   bloqueios. Mostrar no painel "rendimento" (úteis por consulta) para o usuário desligar portais
   que só gastam tempo (ex.: o que trouxer quase só `OFF_TOPIC`).
@@ -125,13 +125,16 @@ Texto original:
 
 ## P3 — Painel e experiência
 
-- 3.1 **Resumo ao abrir**: "X vagas novas compatíveis desde a sua última visita" com atalho para
+- ✅ 3.1 (FEITO 01/10: faixa "N vagas compatíveis novas que você ainda não viu", Ver só as
+  novidades, Marcar como vistas; "vista" = aberta/expandida/marcada) **Resumo ao abrir**: "X vagas novas compatíveis desde a sua última visita" com atalho para
   filtrá-las (usa `STATUS:NEW` + data da última visita em `localStorage`).
-- 3.2 **Funil de candidatura**: ampliar o acompanhamento (salva → aplicada → entrevista → oferta /
+- ✅ 3.2 (FEITO 01/10: Entrevista/Oferta/Recusada com data por etapa, faixa "Seu funil" e filtro
+  Em processo; visão em colunas ainda não) **Funil de candidatura**: ampliar o acompanhamento (salva → aplicada → entrevista → oferta /
   recusada) com data de cada mudança e uma visão em colunas; exportar CSV. **Não** acessar o
   SQLite/Notion de outros projetos do usuário.
 - 3.3 **Notificação** de vaga `READY` nova após a coleta agendada (Windows, desligável).
-- 3.4 **Acessibilidade e mobile**: auditoria WCAG AA (contraste, foco visível, navegação por
+- ◐ 3.4 (PARCIAL 01/10: celular em cartões sem rolagem horizontal, foco visível; falta auditoria
+  WCAG completa) **Acessibilidade e mobile**: auditoria WCAG AA (contraste, foco visível, navegação por
   teclado nos chips/etiquetas, `aria-pressed`/`aria-live`), e layout em tela estreita.
 - 3.5 Explicar o score na tabela (tooltip com os pontos de cada critério e diferenciais).
 
@@ -208,3 +211,20 @@ Achados da auditoria e o que foi corrigido (um commit por item, branch
 - `/api/state` relia e o painel redesenhava tudo a cada 5 s → `output_version` + `?since=`.
 - P3: erro inesperado vira 500 com mensagem; limpar/desfazer/reaplicar recusam linha ilegível;
   `history.json` corrompido é guardado em cópia.
+
+## Noite de 01/10/2026 (feito, autônomo)
+
+- Extração: descrições sem JavaScript/CSS/anúncios (XPath só de texto visível) e sem restos de
+  navegação; títulos sem códigos internos.
+- Deduplicação: cargo/empresa normalizados, local compatível, republicações no mesmo portal
+  (`REPOSTED:<n>`), URL acompanhada sempre fica. Amostra: 300 → 286 únicas.
+- Exportação automática ao fim de cada coleta em Documentos\Radar de Vagas (configurável no painel).
+- Painel: barra de trabalho (1 Buscar · 2 Revisar · 3 Exportar), novidades, filtros rápidos,
+  Desfazer no acompanhamento, celular em cartões, progresso da busca, estado vazio que orienta,
+  Configurar busca com resumo e filtros avançados recolhidos.
+- Funil de candidatura e rendimento por portal.
+- Testes isolados dos dados reais do usuário (`tests/conftest.py`).
+
+Próximos passos sugeridos: preencher o gabarito (1.4) → 1.3 (aprender com salvas/descartadas) →
+2.1 (fixtures por portal, gerar no PC) → 2.2 (APIs Greenhouse/Lever por empresa, verificar ao vivo
+no PC) → 4.2/4.1 (quebrar webapp.py e app.js).

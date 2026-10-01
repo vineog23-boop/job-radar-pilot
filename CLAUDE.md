@@ -24,7 +24,7 @@ aberto por um atalho ("Radar de Vagas").
     ├── config/profile.yaml   perfil padrão (preferências pessoais — não alterar sem pedir)
     ├── schemas/vagas.schema.json   contrato do JSONL (toda saída é validada contra ele)
     ├── src/job_radar/        código (ver abaixo)
-    ├── tests/                ~45 arquivos, ~775 testes (pytest + Playwright)
+    ├── tests/                ~55 arquivos, ~825 testes (pytest + Playwright)
     └── README.md             manual do usuário (manter atualizado a cada feature)
 ```
 
@@ -44,7 +44,8 @@ Módulos de apoio: `presets.py` (25 stacks, stacks personalizadas, catálogo/ger
 `profiles.py` (perfis nomeados), `tracking.py` (salva/aplicada/descartada), `fit.py` (leitura
 única da faixa `FIT:`, nomes, motivos e `job_technologies`), `evaluation.py` (`job-radar avaliar`:
 mede o classificador na amostra real), `output_lock.py` (trava da pasta de saída entre coleta e
-painel), `xlsx_export.py`
+painel), `auto_export.py` (planilhas em Documentos\Radar de Vagas ao fim de cada coleta),
+`xlsx_export.py`
 (planilha feita à mão com zipfile/XML — não há openpyxl), `linkedin_import.py` (só importa
 links/textos colados), `manual_search.py` (links oficiais de busca do LinkedIn), `adaptive.py`
 (fallback adaptativo de cards), `geo.py`, `dates.py`, `text_cleaning.py`.
@@ -57,7 +58,8 @@ Rótulos importantes (`match_labels`): `FIT:READY|CONDITIONAL|AMBIGUOUS|OTHER_ST
 `FIT_SCORE:0-4|-1`, `RELEVANCE:OFF_TOPIC`, `TECH_MATCH:`, `SENIORITY_*`, `LOCATION_*`,
 `WORKPLACE_*`, `KEYWORD_MATCH/MISSING/BLOCKED`, `BONUS_MATCH`, `COMPANY_EXCLUDED/FAVORITE`,
 `CONTRACT:`/`CONTRACT_MISMATCH:`, `LANGUAGE:`/`LANGUAGE_MISMATCH:`, `TITLE_EXCLUDED:`,
-`STATUS:NEW`, `ALSO_SEEN_IN:`, `IMPORT:MANUAL`, `ENRICHED:DETAIL`. Ao criar rótulo novo:
+`STATUS:NEW`, `ALSO_SEEN_IN:`, `REPOSTED:<n>`, `IMPORT:MANUAL`, `ENRICHED:DETAIL`. Ao criar
+rótulo novo:
 atualizar `reclassify._CLASSIFIER_PREFIXES` (se for do classificador), os motivos em
 `fit.REASON_LABELS` e `web/app.js` (`REASON_LABELS`/`CRITERIA_LABELS`). Faixa `FIT:` nova:
 `fit.FIT_STATES`/`FIT_NAMES`, `app.js` (`fitState`, `fitLabel`, filtro e ordem), `index.html`
@@ -142,6 +144,16 @@ PYTHONPATH=job-radar-pilot/src job-radar-pilot/.venv/bin/python -m pytest job-ra
 - Coleta e painel compartilham `output/.radar-output.lock` (`output_lock.OutputLock`). Coleta
   com a trava ocupada sai com **5** (`EXIT_BUSY`); ação do painel que regrava o `vagas.jsonl`
   (limpar, desfazer, reaplicar, importar) precisa segurar a trava e responder 409 se ocupada.
+- `tests/conftest.py` isola `LOCALAPPDATA` e `JOB_RADAR_EXPORT_DIR` em todo teste (nenhum teste
+  toca os dados reais) e, no Windows, fixa `PLAYWRIGHT_BROWSERS_PATH` no local original — sem
+  isso o Playwright não acha o Chromium (que fica em `%LOCALAPPDATA%\ms-playwright`).
+- Acompanhamento: estados `SAVED|APPLIED|INTERVIEW|OFFER|REJECTED|DISCARDED`
+  (`tracking.TRACKING_STATUSES`/`TRACKING_NAMES`), datas por etapa (`*_at`) e nota preservada
+  quando o pedido não traz nota. Estado novo: `tracking.py`, `webapp._TRACKED_FILTERS`, `app.js`
+  (`TRACKING_OPTIONS`, `TRACKED_FILTER_STATUS`, `FUNNEL_STAGES`), `index.html` e `xlsx_export._status`.
+- Painel guarda no `localStorage`: filtros (`radar.filters`, inclui os rápidos) e vagas vistas
+  (`radar.seen.v1`). Rótulo de botão nos testes: use `exact=True` (as células de título também são
+  botões e contêm palavras como "Júnior"/"Remoto").
 - `technologies` é **dado do portal**: o classificador não escreve nele. Para exibir, use
   `fit.job_technologies(job)` (Python) / `jobTechnologies(job)` (app.js), que juntam `TECH_MATCH:`.
 - Servidor do painel: todo POST/PUT exige `application/json` e o `Host` precisa ser o próprio

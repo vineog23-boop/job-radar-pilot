@@ -24,6 +24,7 @@ from job_radar.models import (
     WorkplaceModel,
 )
 from job_radar.sources.json_api import clean_text
+from job_radar.text_cleaning import clean_description
 
 _MAX_DESCRIPTION = 3000
 _TITLE_PREFIX = re.compile(r"^\s*vaga\s+(home\s*office|remota|remoto)\s*:\s*", re.IGNORECASE)
@@ -79,7 +80,7 @@ def record_from_item(
         title = title_match.group("title")
         company = company or clean_text(title_match.group("company"))
     employment = _TIPO.search(content)
-    description = clean_text(text("description"))
+    description = clean_description(clean_text(text("description")))
     category = text("category")
     return VacancyRecord(
         source=config.code,

@@ -15,12 +15,19 @@ from pathlib import Path
 from typing import Any, Collection, Iterable, Mapping
 from uuid import uuid4
 
+from job_radar.dates import parse_iso_datetime
+from job_radar.fit import fit_state
+
 REASON_OFF_TOPIC = "off_topic"
 REASON_EXCLUDED = "excluded"
 REASON_EXPIRED = "expired"
 REASON_STALE = "stale"
 REASON_USER_DISCARDED = "user_discarded"
 BACKUP_NAME = "vagas.antes-da-limpeza.jsonl"
+# Vagas que a coleta descartou (fora do perfil/da área, vencidas): ficam aqui
+# para voltar à lista se o perfil ficar mais amplo (ver reclassify_output).
+DISCARDED_NAME = "vagas-descartadas-na-coleta.jsonl"
+MAX_DISCARDED = 20_000
 MAX_SAMPLES = 25
 
 
@@ -99,19 +106,6 @@ REASON_NAMES = {
 }
 
 
-def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    text = value.strip().replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
-
-
 def discard_reason(
     job: dict[str, Any],
     *,
@@ -130,13 +124,13 @@ def discard_reason(
     labels = job.get("match_labels") or []
     if active.off_topic and "RELEVANCE:OFF_TOPIC" in labels:
         return REASON_OFF_TOPIC
-    if active.excluded and "FIT:EXCLUDE" in labels:
+    if active.excluded and fit_state(labels) == "EXCLUDE":
         return REASON_EXCLUDED
-    deadline = _parse_datetime(job.get("application_deadline"))
+    deadline = parse_iso_datetime(job.get("application_deadline"))
     if active.expired and deadline is not None and deadline < now:
         return REASON_EXPIRED
     if max_age_days is not None:
-        published = _parse_datetime(job.get("published_at"))
+        published = parse_iso_datetime(job.get("published_at"))
         if published is not None and published < now - timedelta(days=max_age_days):
             return REASON_STALE
     return None
@@ -151,11 +145,13 @@ def prune_payloads(
     rules: CleanupRules | None = None,
     remove_urls: Collection[str] = (),
     samples: list[dict[str, Any]] | None = None,
+    removed_jobs: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Separa as vagas úteis das descartáveis. Retorna (mantidas, contagem).
 
     ``remove_urls`` força a remoção (vagas que a pessoa marcou como descartadas);
-    ``samples`` recebe até ``MAX_SAMPLES`` vagas removidas com o motivo.
+    ``samples`` recebe até ``MAX_SAMPLES`` vagas removidas com o motivo;
+    ``removed_jobs`` recebe as vagas removidas inteiras.
     """
 
     moment = now or datetime.now(timezone.utc)
@@ -176,6 +172,8 @@ def prune_payloads(
             kept.append(job)
             continue
         removed[reason] = removed.get(reason, 0) + 1
+        if removed_jobs is not None:
+            removed_jobs.append(job)
         if samples is not None and len(samples) < MAX_SAMPLES:
             samples.append(
                 {
@@ -215,7 +213,7 @@ def clean_output(
     jobs_path = output_dir / "vagas.jsonl"
     if not jobs_path.exists():
         return {"before": 0, "after": 0, "removed": {}, "dry_run": dry_run, "samples": []}
-    payloads = _read_payloads(jobs_path)
+    payloads = read_jobs_for_rewrite(jobs_path)
     samples: list[dict[str, Any]] = []
     kept, removed = prune_payloads(
         payloads,
@@ -245,6 +243,37 @@ def clean_output(
     }
 
 
+def read_jobs_for_rewrite(path: Path) -> list[dict[str, Any]]:
+    """Lê o JSONL que será regravado; com linha ilegível, recusa.
+
+    Quem regrava o arquivo só escreve o que conseguiu ler: pular a linha
+    estragada seria apagá-la sem aviso nem backup.
+    """
+
+    payloads: list[dict[str, Any]] = []
+    unreadable = 0
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            unreadable += 1
+            continue
+        if isinstance(item, dict):
+            payloads.append(item)
+        else:
+            unreadable += 1
+    if unreadable:
+        plural = unreadable > 1
+        raise CleanupError(
+            f"{path.name} tem {unreadable} linha{'s' if plural else ''} "
+            f"ilegíve{'is' if plural else 'l'}; nada foi alterado. Rode uma nova "
+            "coleta ou corrija o arquivo antes."
+        )
+    return payloads
+
+
 def _read_payloads(path: Path) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8-sig").splitlines():
@@ -257,6 +286,41 @@ def _read_payloads(path: Path) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             payloads.append(item)
     return payloads
+
+
+def job_identity(job: Mapping[str, Any]) -> str:
+    """Chave de uma vaga salva que nunca é vazia (a URL pode ser null no JSONL)."""
+
+    url = job.get("canonical_url")
+    if url:
+        return f"url:{url}"
+    if job.get("source_job_id"):
+        return f"id:{job.get('source')}:{job.get('source_job_id')}"
+    return "fallback:" + "|".join(
+        str(job.get(key) or "").casefold() for key in ("source", "company", "title", "location")
+    )
+
+
+def read_discarded(output_dir: Path) -> list[dict[str, Any]]:
+    path = output_dir / DISCARDED_NAME
+    try:
+        return _read_payloads(path)
+    except OSError:
+        return []
+
+
+def write_discarded(output_dir: Path, payloads: list[dict[str, Any]]) -> None:
+    """Grava o cesto de descartadas (sem duplicar URL, no máximo MAX_DISCARDED)."""
+
+    unique: dict[str, dict[str, Any]] = {}
+    for job in payloads:
+        unique.setdefault(job_identity(job), job)
+    kept = list(unique.values())[-MAX_DISCARDED:]
+    content = "".join(
+        json.dumps(job, ensure_ascii=False, sort_keys=True) + "\n" for job in kept
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    replace_atomically(output_dir / DISCARDED_NAME, content)
 
 
 def _write_backup(output_dir: Path, removed_jobs: list[dict[str, Any]]) -> None:
@@ -287,7 +351,7 @@ def undo_cleanup(output_dir: Path) -> dict[str, Any]:
     if not backup_path.exists():
         raise CleanupError("Não há limpeza para desfazer.")
     current_path = output_dir / "vagas.jsonl"
-    current = _read_payloads(current_path) if current_path.exists() else []
+    current = read_jobs_for_rewrite(current_path) if current_path.exists() else []
     present = {str(job.get("canonical_url")) for job in current}
     restored = [
         job

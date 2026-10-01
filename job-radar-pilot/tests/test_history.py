@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 
 from job_radar.history import NEW_LABEL, SeenHistory
@@ -108,3 +109,23 @@ def test_source_counts_and_seen_entries_coexist(tmp_path: Path) -> None:
     assert history.check_source_counts([_result("gupy", 1)]) == {
         "gupy": "SOURCE_COUNT_DROP:1<10"
     }
+
+
+def test_corrupted_history_is_preserved_before_being_replaced(tmp_path: Path) -> None:
+    path = tmp_path / "h.json"
+    path.write_text("{corrompido", encoding="utf-8")
+
+    SeenHistory(path).annotate([_record("1")], NOW)
+
+    copies = list(tmp_path.glob("h.corrompido-*.json"))
+    assert len(copies) == 1
+    assert copies[0].read_text(encoding="utf-8") == "{corrompido"
+    assert json.loads(path.read_text(encoding="utf-8"))["seen"]  # histórico novo e válido
+
+
+def test_valid_history_is_not_copied(tmp_path: Path) -> None:
+    history = SeenHistory(tmp_path / "h.json")
+    history.annotate([_record("1")], NOW)
+    history.annotate([_record("2")], NOW)
+
+    assert not list(tmp_path.glob("*corrompido*"))

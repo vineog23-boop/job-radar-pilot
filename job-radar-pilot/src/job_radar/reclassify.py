@@ -10,11 +10,18 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import fields
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from job_radar.classifier import PREFERENCE_BLOCK_PREFIXES, _canonical_term, classify
+from job_radar.classifier import (
+    PREFERENCE_BLOCK_PREFIXES,
+    SOURCE_ONLY_TECHNOLOGIES,
+    _canonical_term,
+    classify,
+)
+from job_radar.fit import fit_state
 from job_radar.models import CollectionStatus, SearchProfile, VacancyRecord, WorkplaceModel
 
 # Rótulos que o classificador recalcula; os demais (STATUS:NEW, ALSO_SEEN_IN:,
@@ -39,6 +46,8 @@ _CLASSIFIER_PREFIXES = (
     "LANGUAGE:",
     "LANGUAGE_MISMATCH:",
     "TITLE_EXCLUDED:",
+    "OTHER_STACK:",
+    "TECHNOLOGIES:",
 )
 _TUPLE_FIELDS = {
     "technologies",
@@ -70,10 +79,7 @@ def record_from_payload(payload: Mapping[str, Any]) -> VacancyRecord:
 
 
 def _fit(labels: Iterable[str]) -> str:
-    return next(
-        (label.removeprefix("FIT:") for label in labels if label.startswith("FIT:")),
-        "AMBIGUOUS",
-    )
+    return fit_state(list(labels))
 
 
 def reclassify_payloads(
@@ -87,7 +93,7 @@ def reclassify_payloads(
     updated: list[dict[str, Any]] = []
     for payload in payloads:
         try:
-            record = record_from_payload(payload)
+            record = record_from_payload(_without_legacy_guesses(payload))
         except (TypeError, ValueError):
             updated.append(dict(payload))
             continue
@@ -105,6 +111,24 @@ def reclassify_payloads(
         )
         updated.append(new_payload)
     return updated
+
+
+def _without_legacy_guesses(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Vaga gravada pela versão antiga: tira de `technologies` os palpites anexados.
+
+    O classificador antigo acrescentava ao FIM de `technologies` os termos dos
+    seus TECH_MATCH (em ordem alfabética). Sem a marca SOURCE_ONLY, a sequência
+    final de itens iguais a esses termos é palpite, não dado do portal.
+    """
+
+    labels = [str(label) for label in payload.get("match_labels") or ()]
+    if SOURCE_ONLY_TECHNOLOGIES in labels:
+        return payload
+    guesses = {label.removeprefix("TECH_MATCH:") for label in labels if label.startswith("TECH_MATCH:")}
+    technologies = list(payload.get("technologies") or ())
+    while technologies and technologies[-1] in guesses:
+        technologies.pop()
+    return {**payload, "technologies": technologies}
 
 
 def _as_kwargs(record: VacancyRecord) -> dict[str, Any]:
@@ -139,6 +163,7 @@ def summarize(
         "ready": counts["ready"],
         "conditional": counts["conditional"],
         "ambiguous": counts["ambiguous"],
+        "other_stack": counts["other_stack"],
         "exclude": counts["exclude"],
         "off_topic": counts["off_topic"],
         "by_preferences": counts["by_preferences"],
@@ -172,14 +197,48 @@ def reclassify_output(
     default_countries: Mapping[str, str | None] | None = None,
     *,
     dry_run: bool = False,
+    rules: Any = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
+    """Reaplica o perfil às vagas salvas e às que a coleta descartou.
+
+    Descartadas que passam nas regras de limpeza (``rules``) com o perfil novo
+    voltam para a lista (``recovered``); as demais continuam no cesto.
+    """
+
+    from job_radar.cleanup import (
+        CleanupRules,
+        discard_reason,
+        job_identity,
+        read_discarded,
+        read_jobs_for_rewrite,
+        write_discarded,
+    )
     from job_radar.output import rewrite_payloads
 
-    previous = read_payloads(output_dir)
+    jobs_path = output_dir / "vagas.jsonl"
+    previous = read_jobs_for_rewrite(jobs_path) if jobs_path.exists() else []
     updated = reclassify_payloads(previous, profile, default_countries)
-    if updated and not dry_run:
-        rewrite_payloads(output_dir, updated)
-    return {**summarize(updated, previous), "dry_run": dry_run}
+    present = {job_identity(payload) for payload in updated}
+    active_rules = rules or CleanupRules()
+    moment = now or datetime.now(timezone.utc)
+    discarded = read_discarded(output_dir)
+    recovered: list[dict[str, Any]] = []
+    still_discarded: list[dict[str, Any]] = []
+    for payload in reclassify_payloads(discarded, profile, default_countries):
+        if job_identity(payload) in present:
+            continue
+        if discard_reason(payload, now=moment, rules=active_rules) is None:
+            recovered.append(payload)
+        else:
+            still_discarded.append(payload)
+    final = updated + recovered
+    if not dry_run:
+        if final:
+            rewrite_payloads(output_dir, final)
+        if discarded:
+            write_discarded(output_dir, still_discarded)
+    return {**summarize(final, previous), "recovered": len(recovered), "dry_run": dry_run}
 
 
 def insights(

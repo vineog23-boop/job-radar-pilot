@@ -62,11 +62,40 @@ aceita `--workers 3` ao iniciar o módulo `job_radar.webapp`. Os resultados são
 sempre restaurados à ordem das fontes configuradas antes da classificação e da
 deduplicação.
 
+## Seu dia a dia com o Radar
+
+O topo do painel mostra o fluxo em três passos:
+
+1. **Buscar** — **Buscar vagas agora** consulta todos os portais com o seu perfil;
+   **Busca rápida (TI)** consulta só os focados em tecnologia. Durante a busca o
+   painel mostra "N portais concluídos, M vagas lidas até agora". A busca diária
+   pode ser agendada (`scripts\agendar-coleta.ps1 -Horario 08:00`).
+2. **Revisar** — a faixa azul avisa "N vagas compatíveis novas que você ainda não
+   viu"; **Ver só as novidades** filtra direto nelas e **Marcar como vistas** limpa o
+   aviso. Uma vaga conta como vista quando você a abre, expande ou marca. Os
+   **filtros rápidos** (Não vistas, Remoto, Estágio, Júnior, Últimos 7 dias) somam
+   aos seletores e ficam lembrados. Em cada vaga, escolha Salva, Aplicada,
+   Entrevista, Oferta, Recusada ou Descartada; toda mudança mostra um aviso com
+   **Desfazer** (descartar não é mais caminho sem volta).
+3. **Exportar** — ao fim de cada busca (inclusive a agendada) o Radar grava em
+   **Documentos\Radar de Vagas**: `melhores-vagas-AAAA-MM-DD-HHMM.xlsx` (mais
+   compatíveis + a revisar, sem descartadas, ordenadas pelo Score),
+   `todas-de-ti-AAAA-MM-DD-HHMM.csv` e `ultima-busca.xlsx` (sempre a mais recente,
+   bom para fixar um atalho). Em **Exportar vagas → Exportação automática** dá para
+   desligar, trocar a pasta, **Abrir pasta** ou **Exportar agora**. Na linha de
+   comando, `collect --no-export` pula a exportação de uma coleta.
+
+No celular a tabela vira cartões (sem rolagem para os lados).
+
 ## Acompanhamento e exportação
 
-O estado de cada vaga (salva, aplicada, descartada e uma nota curta) fica em
-`%LOCALAPPDATA%\JobRadar\tracking.json`, fora do repositório e do funil
-canônico; a chave é a URL da vaga. **Exportar CSV** e **Baixar relatório**
+O estado de cada vaga fica em `%LOCALAPPDATA%\JobRadar\tracking.json`, fora do
+repositório e do funil canônico; a chave é a URL da vaga. Estados: **Salva**,
+**Aplicada**, **Entrevista**, **Oferta**, **Recusada** e **Descartada**, cada um com a
+data em que foi alcançado (`applied_at`, `interview_at`...) e uma nota curta que
+não se perde ao mudar o estado. A faixa **Seu funil** acima da tabela conta as
+vagas em cada etapa (clique para filtrar) e **Em processo** junta aplicadas,
+entrevistas e ofertas. **Exportar CSV** e **Baixar relatório**
 respeitam exatamente os filtros ativos, inclusive o de acompanhamento. O CSV
 traz aderência, acompanhamento, cargo, empresa, local, modalidade,
 senioridade, tecnologias, data de publicação, fonte, URL e nota.
@@ -93,6 +122,12 @@ senioridade, tecnologias, data de publicação, fonte, URL e nota.
   saídas.
 - Os rótulos de aderência são sinais determinísticos, não fatos nem decisões de
   candidatura.
+- O painel só responde ao próprio endereço (`127.0.0.1`/`localhost` na porta
+  dele) e recusa pedidos de outros sites: um site malicioso aberto no navegador
+  não consegue pausar/parar a busca, desfazer a limpeza nem ler suas vagas
+  (proteção contra CSRF e DNS rebinding). Todo POST/PUT exige JSON.
+- Os CSVs neutralizam células que o Excel trataria como fórmula (`=`, `+`, `-`,
+  `@`): o texto ganha um `'` na frente. O `.xlsx` e o JSONL guardam o original.
 
 `FIT:READY` significa somente **mais compatível no Radar local**. Ele não é o
 estado `READY` canônico do funil/SQLite, não comprova vaga aberta e não autoriza
@@ -167,10 +202,15 @@ Comece por lotes pequenos: layouts, termos e limites dos portais podem mudar.
 - `output/vagas.csv`: visão humana reduzida.
 - `output/relatorio-execucao.json`: versão, commit upstream, fontes, paginação,
   contagens, bloqueios, warnings e erros sanitizados.
+- `output/vagas-descartadas-na-coleta.jsonl`: vagas que a limpeza automática da
+  coleta descartou (fora do perfil, fora de TI, vencidas). Ficam guardadas para
+  voltar à lista se você ampliar o perfil (ver **Reaplicar**).
+- `output/.radar-output.lock`: trava entre a coleta (inclusive a agendada) e o
+  painel, para um não regravar a lista por cima do outro.
 
 Na interface, **Baixar relatório** transforma em Markdown exatamente as vagas
 visíveis pelos filtros atuais. O documento separa mais compatíveis, condicionais,
-dados insuficientes e fora do perfil; também registra os estados de cobertura de
+dados insuficientes, outra stack e fora do perfil; também registra os estados de cobertura de
 cada portal. Se a saída local estiver corrompida, o download falha de forma
 explícita em vez de gerar um relatório vazio. O arquivo é produzido localmente e
 não é enviado para serviços externos.
@@ -194,6 +234,8 @@ Validar um arquivo:
 - `3`: coleta terminou honestamente com fonte parcial, bloqueada, autenticada ou
   em erro; consulte `relatorio-execucao.json`.
 - `4`: busca interrompida pela pessoa (botão Parar no painel); o que já foi encontrado foi salvo.
+- `5`: outra coleta (por exemplo, a agendada) já estava gravando a mesma pasta de
+  saída; nada foi coletado. Tente de novo quando ela terminar.
 
 `EMPTY` significa que a página declarou ausência de resultados. Se os seletores
 esperados desaparecerem, o status é `ERROR/LAYOUT_CHANGED`, não vazio.
@@ -270,10 +312,22 @@ Avaliadas em 29/09/2026 e **não** incluídas:
   sem evidência, `published_at` fica `null`.
 - **Títulos:** o selo "Nova"/"Novo" e sufixos depois de `|` são removidos,
   exceto quando o sufixo informa senioridade ("Java | Júnior").
-- **Duplicatas entre portais:** a mesma vaga (cargo, empresa e local iguais,
-  após normalização) vista em portais diferentes vira um registro só; fica a
-  versão do Gupy/ATS quando existir e as demais fontes aparecem em
-  `ALSO_SEEN_IN:<fonte>` ("também em …" no painel).
+- **Duplicatas:** a mesma vaga vista mais de uma vez vira um registro só. O
+  cargo é comparado sem "Remoto"/"home office"/"(Remoto)", com
+  "Desenvolvedora"="Desenvolvedor(a)" e "Jr"="Júnior"; a empresa, sem "Ltda",
+  "S.A." e "Brasil". O local precisa ser compatível (igual, ou um lado remoto ou
+  sem local): duas cidades presenciais diferentes continuam separadas, e
+  empresas diferentes nunca se juntam. Entre portais fica a versão do Gupy/ATS
+  quando existir (`ALSO_SEEN_IN:<fonte>`, "também em …" no painel); no mesmo
+  portal (republicação) fica o anúncio mais recente (`REPOSTED:<n>`,
+  "Republicada N×"). Se você acompanha uma das URLs, é ela que fica.
+- **Descrições limpas:** texto de `<script>`/`<style>` dentro do cartão, botões
+  ("Quero essa vaga", "Salvar vaga"), caixas de compartilhar e o "Voltar" do
+  Primeira Vaga Tech são removidos; títulos perdem códigos internos
+  ("[Job-32006]", " - 386089", "(Cód. 123)").
+- **Rendimento por portal:** o relatório guarda por portal `useful` (vagas que
+  ficaram), `discarded` e `compatible`; em **Situação dos portais** o painel mostra
+  esses números e avisa quando um portal rende pouco para o seu perfil.
 - **Portal quebrado:** o histórico guarda as últimas 10 contagens por fonte.
   Com ao menos duas coletas anteriores, uma queda de mais de 50% gera
   `SOURCE_COUNT_DROP:atual<média` e uma coleta zerada gera
@@ -412,7 +466,21 @@ Tudo opcional; cada item vira um rótulo na vaga e aparece no detalhe e no motiv
 | **Tipo de contrato** | CLT, PJ, Freelance/temporário. Só exclui quando a vaga diz explicitamente um contrato não aceito; "CLT ou PJ" passa se um deles for aceito; vaga que não fala de contrato nunca é excluída. |
 | **Idioma** | "Esconder vagas que exigem inglês avançado ou fluente". Quando o inglês aparece como diferencial/desejável, a vaga continua (`LANGUAGE:english_plus`). |
 
-**Ver impacto** mostra, sem salvar, quantas vagas da lista ficariam "Mais compatíveis", "A revisar" e "Fora do perfil" com as configurações da tela. Com **Reaplicar às vagas já salvas** marcado (padrão), salvar recalcula a aderência da lista atual na hora, sem consultar os portais e sem apagar nada (a limpeza continua sendo uma ação separada).
+**Ver impacto** mostra, sem salvar, quantas vagas da lista ficariam "Mais compatíveis", "A revisar", "de outra stack" e "Fora do perfil" com as configurações da tela. Com **Reaplicar às vagas já salvas** marcado (padrão), salvar recalcula a aderência da lista atual na hora, sem consultar os portais e sem apagar nada (a limpeza continua sendo uma ação separada). As vagas que a coleta tinha descartado também são reavaliadas: se o perfil novo for mais amplo (ex.: passou a aceitar pleno), as que agora passam **voltam para a lista** ("N voltam das descartadas na coleta"). Se uma coleta (inclusive a agendada) estiver gravando a lista, a reaplicação espera e o painel avisa.
+
+### Faixas de aderência
+
+| Faixa no painel | Rótulo | Quando |
+|---|---|---|
+| **Mais compatível** | `FIT:READY` | Cita a sua stack e confirma nível, local e modelo de trabalho. |
+| **A revisar** | `FIT:CONDITIONAL` | Cita a sua stack, mas falta confirmar nível, local ou modelo. |
+| **Dados insuficientes** | `FIT:AMBIGUOUS` | Vaga de TI sem stack nenhuma no texto (ex.: "Desenvolvedor Back-end Júnior" sem descrição). Boa candidata a abrir e ler. |
+| **Outra stack** | `FIT:OTHER_STACK` | Vaga de TI que cita outra stack (Python, Node, .NET, PHP, React…) e nenhuma tecnologia sua; o motivo mostra qual (`OTHER_STACK:python`). Filtro próprio "Outra stack". |
+| **Fora do perfil** | `FIT:EXCLUDE` | Nível, local, modelo, contrato, empresa ou palavra proibida não batem. |
+
+"Backend", "front-end", "full stack", "API REST" e "mobile" descrevem a função, não a stack: só contam como sua tecnologia principal quando o perfil não tem nenhuma tecnologia específica. Assim, "Backend Python Júnior" não vira "Mais compatível" para um perfil Java.
+
+As tecnologias aceitam apelidos nos dois sentidos: `springboot`/`spring-boot`, `node`/`nodejs`/`node.js`, `js`/`javascript`, `k8s`/`kubernetes`, `postgres`/`postgresql`, `csharp`/`c sharp`/`c#`, `dotnet`/`.net`, `go`/`golang`. Termos curtos têm regras próprias para não confundir: `go` não casa com "go-live" nem com a sigla de Goiás, `js` não casa com "JSP" nem "Node.js", `r` não casa com "R$".
 
 ### Pausar ou parar a busca
 
@@ -427,15 +495,28 @@ Todo o resto da limpeza fica no menu próprio **Limpeza** (botão no topo do pai
 2. **Limpar o que já está salvo** — ao abrir o menu, a prévia já mostra quantas vagas seriam removidas, por motivo, com exemplos (título, empresa, portal). Há uma opção para remover também as vagas que você marcou como *descartadas*.
 3. **Desfazer** — antes de limpar, as vagas removidas vão para `vagas.antes-da-limpeza.jsonl`; o botão *Desfazer última limpeza* devolve todas (a cópia vale para a última limpeza).
 
-Vagas que você marcou como salva ou aplicada nunca são apagadas.
+Vagas que você marcou como salva ou aplicada nunca são apagadas. Se o arquivo de acompanhamento (`tracking.json`) estiver ilegível, a limpeza do painel recusa e a coleta grava tudo sem descartar, para não apagar justamente as vagas que você salvou. Se o `vagas.jsonl` tiver uma linha estragada, limpar, desfazer e reaplicar recusam e avisam em vez de regravar o arquivo sem ela.
 ## Rotina diária e portais de tecnologia
 
 - `collect --tech-only` consulta apenas portais marcados com `tech_focus: true` em `config/sources.yaml`.
 - Portais com `fixed_queries: true` (GeekHunter, Quickin) mantêm suas próprias consultas e não são sobrescritos pelos termos salvos no perfil.
 - Buscas parciais (`--source`/`--tech-only`) preservam as vagas dos demais portais no `vagas.jsonl`.
-- Vagas sem relação com TI recebem `RELEVANCE:OFF_TOPIC` e ficam ocultas no painel (filtro "Fora do escopo").
+- Vagas sem relação com TI recebem `RELEVANCE:OFF_TOPIC` e ficam ocultas no painel (filtro "Fora de TI").
 - Agendar coleta diária com aviso de vagas novas: `scripts\agendar-coleta.ps1 -Horario 08:00` (remover com `-Remover`).
 - Detalhes da revisão: `docs/REVISAO-2026-09-29.md`.
+## Medir o classificador (`avaliar`)
+
+Para saber se uma mudança no classificador melhorou ou piorou, sem acessar portal nenhum:
+
+```powershell
+.\scripts\run-job-radar.ps1 avaliar                                   # amostra real em tests/fixtures
+.\scripts\run-job-radar.ps1 avaliar --salvar antes.json               # guarda o resultado
+.\scripts\run-job-radar.ps1 avaliar --base antes.json                 # antes x depois
+.\scripts\run-job-radar.ps1 avaliar --preferencias "$env:LOCALAPPDATA\JobRadar\search-preferences.json"
+```
+
+Mostra quantas vagas caem em cada faixa, por portal, os motivos mais comuns e quais vagas mudaram de faixa. Sem gabarito, isso mede **mudança**, não **acerto**. Para medir acerto, abra `tests/fixtures/gabarito-amostra.csv` (60 vagas da amostra) e preencha a coluna `esperado` com a faixa que **você** daria: `READY`, `CONDITIONAL`, `AMBIGUOUS`, `OTHER_STACK`, `EXCLUDE` ou `OFF_TOPIC`. O arquivo não mostra a faixa do classificador de propósito, para não influenciar a sua resposta. Com linhas preenchidas, o `avaliar` mostra a taxa de acerto e as confusões. A base de antes das mudanças de 01/10/2026 está em `tests/fixtures/avaliacao-base-antes-p1.json`.
+
 ## Desenvolvimento e testes
 
 ```powershell
@@ -482,8 +563,12 @@ critério atendido (tecnologia, nível, local, modelo), +10 se `FIT:READY` e at�
 
 ## Organização do painel
 
-- **Topo compacto:** busca, escolha de portais, configuração, limpeza, exportação e LinkedIn
-  ficam agrupados; a tabela aparece sem rolar muito.
+- **Barra de trabalho:** o fluxo 1 Buscar · 2 Revisar · 3 Exportar, o status da
+  busca e as ações agrupadas em **Buscar** (busca rápida, portais, configurar,
+  LinkedIn) e **Lista** (limpeza, exportar); a tabela aparece na primeira tela.
+- **Configurar busca:** linha "Você procura: …" com o resumo do perfil, seções
+  numeradas na ordem de preenchimento e **Filtros avançados (opcional)** recolhidos
+  com contador (abrem sozinhos quando algum está em uso).
 - **Cards clicáveis:** "Vagas coletadas" mostra tudo de TI e "Compatíveis" filtra só
   as mais compatíveis.
 - **Detalhes por vaga:** clique no cargo para abrir descrição, score, critérios

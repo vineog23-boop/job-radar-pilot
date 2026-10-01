@@ -96,3 +96,15 @@ def parse_published_at(value: str | None, *, now: datetime | None = None) -> str
     if re.search(r"(?<!\w)ontem(?!\w)", text):
         return _iso(current - timedelta(days=1))
     return None
+
+
+def parse_iso_datetime(value: object) -> datetime | None:
+    """Data ISO 8601 gravada no JSONL; sem fuso vira UTC. Inválida -> None."""
+
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)

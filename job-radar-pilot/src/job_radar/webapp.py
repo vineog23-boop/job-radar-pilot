@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import csv
 import io
 import json
 from datetime import datetime, timezone
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import re
@@ -16,8 +18,17 @@ import unicodedata
 from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
+from job_radar.dates import parse_iso_datetime
 from job_radar.export_document import build_markdown_report
-from job_radar.tracking import TrackingError, TrackingStore
+from job_radar.fit import fit_name, fit_reasons, fit_state, is_off_topic, job_technologies
+from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock
+from job_radar.text_cleaning import spreadsheet_safe
+from job_radar.tracking import (
+    IN_PROGRESS_STATUSES,
+    TRACKING_NAMES,
+    TrackingError,
+    TrackingStore,
+)
 
 
 _PROGRESS_LINE = re.compile(
@@ -42,6 +53,20 @@ def parse_progress_line(line: str) -> dict[str, Any] | None:
     }
 
 
+def output_version(output_dir: Path) -> str:
+    """Muda sempre que vagas.jsonl ou o relatório são regravados."""
+
+    parts = []
+    for name in ("vagas.jsonl", "relatorio-execucao.json"):
+        try:
+            info = (output_dir / name).stat()
+        except OSError:
+            parts.append("0")
+            continue
+        parts.append(f"{info.st_mtime_ns}.{info.st_size}.{info.st_ino}")
+    return "-".join(parts)
+
+
 def load_output(output_dir: Path) -> dict[str, Any]:
     jobs_path = output_dir / "vagas.jsonl"
     report_path = output_dir / "relatorio-execucao.json"
@@ -64,6 +89,8 @@ def load_output(output_dir: Path) -> dict[str, Any]:
 
 
 ProgressCallback = Callable[[str], None]
+# Mesmo código de cli.EXIT_BUSY (sem importar a CLI inteira no painel).
+_EXIT_BUSY = 5
 CollectionRunner = Callable[[Path, list[str] | None, int, ProgressCallback], int]
 
 
@@ -82,67 +109,21 @@ def _normalized_search_text(value: Any) -> str:
     )
 
 
-def _fit_state(job: dict[str, Any]) -> str:
-    labels = job.get("match_labels") or []
-    for state in ("READY", "CONDITIONAL", "EXCLUDE", "AMBIGUOUS"):
-        if f"FIT:{state}" in labels:
-            return state
-    return "AMBIGUOUS"
-
-
 # Filtro de acompanhamento: "" = todas, "active" = oculta descartadas.
 _TRACKED_FILTERS = {
     "active": None,
     "new": None,
+    "inprogress": None,
     "saved": "SAVED",
     "applied": "APPLIED",
+    "interview": "INTERVIEW",
+    "offer": "OFFER",
+    "rejected": "REJECTED",
     "discarded": "DISCARDED",
 }
-_FIT_NAMES = {
-    "READY": "Mais compatível",
-    "CONDITIONAL": "Condicional",
-    "AMBIGUOUS": "Dados insuficientes",
-    "EXCLUDE": "Fora do perfil",
-}
-_TRACKING_NAMES = {"SAVED": "Salva", "APPLIED": "Aplicada", "DISCARDED": "Descartada"}
+_TRACKING_NAMES = TRACKING_NAMES
 # Filtro de aderência: "" = relevantes (esconde o que não é de TI), "all" = tudo.
-_MATCH_FILTERS = {"", "all", "ready", "fit", "review", "exclude", "offtopic"}
-_REASON_LABELS = (
-    ("RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"),
-    ("SENIORITY_MISMATCH:", "nível acima do desejado"),
-    ("LOCATION_MISMATCH:", "fora das localidades escolhidas"),
-    ("WORKPLACE_MISMATCH:", "modelo de trabalho diferente"),
-    ("LOCATION_UNCLEAR:", "local não confirmado"),
-    ("WORKPLACE_UNCLEAR:", "modelo de trabalho não confirmado"),
-    ("SENIORITY_UNCLEAR:", "faixa de nível ampla (júnior/pleno)"),
-    ("ELIGIBILITY_UNCLEAR:", "vaga com público restrito"),
-    ("TITLE_EXCLUDED:", "cargo com um termo que você não quer"),
-    ("KEYWORD_BLOCKED:", "cita uma palavra proibida"),
-    ("KEYWORD_MISSING:", "não cita nenhuma palavra obrigatória"),
-    ("COMPANY_EXCLUDED:", "empresa que você quer evitar"),
-    ("CONTRACT_MISMATCH:", "tipo de contrato diferente"),
-    ("LANGUAGE_MISMATCH:", "exige inglês avançado"),
-)
-
-
-def is_off_topic(job: dict[str, Any]) -> bool:
-    return "RELEVANCE:OFF_TOPIC" in (job.get("match_labels") or [])
-
-
-def fit_reasons(job: dict[str, Any]) -> list[str]:
-    """Explica em português por que a vaga não é 'Mais compatível'."""
-
-    labels = [str(label) for label in job.get("match_labels") or []]
-    reasons = [
-        text
-        for prefix, text in _REASON_LABELS
-        if any(label.startswith(prefix) for label in labels)
-    ]
-    if not reasons and _fit_state(job) == "AMBIGUOUS":
-        reasons.append("poucos dados para avaliar")
-    return reasons
-
-
+_MATCH_FILTERS = {"", "all", "ready", "fit", "review", "otherstack", "exclude", "offtopic"}
 _CSV_COLUMNS = (
     "aderencia",
     "acompanhamento",
@@ -172,23 +153,22 @@ def build_jobs_csv(
     writer.writeheader()
     for job in jobs:
         entry = tracking.get(str(job.get("canonical_url")), {})
-        writer.writerow(
-            {
-                "aderencia": _FIT_NAMES.get(_fit_state(job), "Dados insuficientes"),
-                "acompanhamento": _TRACKING_NAMES.get(entry.get("status", ""), ""),
-                "titulo": job.get("title") or "",
-                "empresa": job.get("company") or "",
-                "local": job.get("location") or job.get("remote_scope") or "",
-                "modalidade": job.get("workplace_model") or "",
-                "senioridade": job.get("seniority") or "",
-                "tecnologias": ", ".join(job.get("technologies") or []),
-                "publicada_em": job.get("published_at") or "",
-                "fonte": job.get("source") or "",
-                "url": job.get("canonical_url") or "",
-                "nota": entry.get("note", ""),
-                "motivo": "; ".join(fit_reasons(job)),
-            }
-        )
+        row = {
+            "aderencia": fit_name(job),
+            "acompanhamento": _TRACKING_NAMES.get(entry.get("status", ""), ""),
+            "titulo": job.get("title") or "",
+            "empresa": job.get("company") or "",
+            "local": job.get("location") or job.get("remote_scope") or "",
+            "modalidade": job.get("workplace_model") or "",
+            "senioridade": job.get("seniority") or "",
+            "tecnologias": ", ".join(job_technologies(job)),
+            "publicada_em": job.get("published_at") or "",
+            "fonte": job.get("source") or "",
+            "url": job.get("canonical_url") or "",
+            "nota": entry.get("note", ""),
+            "motivo": "; ".join(fit_reasons(job)),
+        }
+        writer.writerow({key: spreadsheet_safe(value) for key, value in row.items()})
     return buffer.getvalue().encode("utf-8-sig")
 
 
@@ -200,7 +180,7 @@ def build_jobs_ai_text(
 ) -> bytes:
     """Markdown enxuto, ordenado por score, para colar em outra IA revisar."""
 
-    from job_radar.xlsx_export import _WORKPLACE_NAMES, _level, job_score
+    from job_radar.xlsx_export import WORKPLACE_NAMES, job_score, level_name
 
     now = now or datetime.now(timezone.utc)
     ranked = sorted(jobs, key=lambda job: -job_score(job, now))
@@ -232,10 +212,10 @@ def build_jobs_ai_text(
                     str(job_score(job, now)),
                     title,
                     cell(job.get("company")),
-                    cell(_level(job)),
-                    _WORKPLACE_NAMES.get(str(job.get("workplace_model")), "—"),
+                    cell(level_name(job)),
+                    WORKPLACE_NAMES.get(str(job.get("workplace_model")), "—"),
                     cell(job.get("location") or job.get("remote_scope")),
-                    cell(", ".join(job.get("technologies") or [])),
+                    cell(", ".join(job_technologies(job))),
                     published,
                     cell(job.get("canonical_url")),
                 ]
@@ -256,7 +236,7 @@ def _passes_extra_filters(
     max_age_days: int | None,
     now: datetime,
 ) -> bool:
-    from job_radar.xlsx_export import _parse_datetime, job_score
+    from job_radar.xlsx_export import job_score
 
     if min_score and job_score(job, now) < min_score:
         return False
@@ -272,7 +252,7 @@ def _passes_extra_filters(
         if not found & set(levels):
             return False
     if max_age_days is not None:
-        published = _parse_datetime(job.get("published_at"))
+        published = parse_iso_datetime(job.get("published_at"))
         # Sem data publicada não dá para provar que é recente: fica de fora.
         if published is None or (now - published).days > max_age_days:
             return False
@@ -309,10 +289,12 @@ def filter_jobs_for_export(
             tracked_status or "STATUS:NEW" not in (job.get("match_labels") or [])
         ):
             continue
-        if tracked in _TRACKED_FILTERS and tracked not in {"active", "new"}:
+        if tracked == "inprogress" and tracked_status not in IN_PROGRESS_STATUSES:
+            continue
+        if tracked in _TRACKED_FILTERS and tracked not in {"active", "new", "inprogress"}:
             if tracked_status != _TRACKED_FILTERS[tracked]:
                 continue
-        state = _fit_state(job)
+        state = fit_state(job)
         off_topic = is_off_topic(job)
         if match == "offtopic":
             if not off_topic:
@@ -324,6 +306,8 @@ def filter_jobs_for_export(
         if match == "fit" and state not in {"READY", "CONDITIONAL"}:
             continue
         if match == "review" and state not in {"CONDITIONAL", "AMBIGUOUS"}:
+            continue
+        if match == "otherstack" and state != "OTHER_STACK":
             continue
         if match == "exclude" and state != "EXCLUDE":
             continue
@@ -360,6 +344,7 @@ _MATCH_NAMES = {
     "ready": "Só mais compatíveis",
     "fit": "Mais compatíveis e a revisar",
     "review": "A revisar",
+    "otherstack": "Outra stack",
     "exclude": "Fora do perfil",
     "offtopic": "Fora da área de tecnologia",
 }
@@ -367,8 +352,12 @@ _TRACKED_NAMES = {
     "": "Todas",
     "active": "Sem as descartadas",
     "new": "Só novas",
+    "inprogress": "Em processo (aplicada, entrevista, oferta)",
     "saved": "Só salvas",
     "applied": "Só aplicadas",
+    "interview": "Só em entrevista",
+    "offer": "Só com oferta",
+    "rejected": "Só recusadas",
     "discarded": "Só descartadas",
 }
 
@@ -481,6 +470,7 @@ class SearchController:
         self._error: str | None = None
         self._sources: dict[str, dict[str, Any]] = {}
         self._logs: list[str] = []
+        self._exports: list[str] = []
         self._control = "run"
 
     @property
@@ -502,7 +492,10 @@ class SearchController:
                 return "Nenhuma busca em andamento."
             if self._control == "stop":
                 return "A busca já está sendo encerrada."
-            write_state(self._control_path, states[action])
+            try:
+                write_state(self._control_path, states[action])
+            except OSError as exc:
+                return f"Não foi possível avisar a coleta: {exc}"
             self._control = states[action]
         return None
 
@@ -517,6 +510,7 @@ class SearchController:
             self._error = None
             self._sources = {}
             self._logs = []
+            self._exports = []
             self._control = "run"
             try:
                 from job_radar.run_control import write_state
@@ -543,6 +537,8 @@ class SearchController:
             )
             status = "DONE" if exit_code == 0 else "PARTIAL" if exit_code == 3 else "ERROR"
             error = None if exit_code in {0, 3} else f"Coleta encerrou com codigo {exit_code}."
+            if exit_code == _EXIT_BUSY:
+                error = BUSY_MESSAGE
         except Exception as exc:  # noqa: BLE001 - boundary de thread
             exit_code = 1
             status = "ERROR"
@@ -567,11 +563,20 @@ class SearchController:
         progress = parse_progress_line(line)
         with self._lock:
             self._logs = [*self._logs[-79:], line]
+            if line.startswith("EXPORT: "):
+                self._exports.append(line.removeprefix("EXPORT: ").strip())
             if progress is not None:
                 self._sources[progress["source"]] = progress
 
-    def snapshot(self) -> dict[str, Any]:
-        output = load_output(self._output_dir)
+    def snapshot(self, since: str | None = None) -> dict[str, Any]:
+        """Estado da busca + vagas; com ``since`` igual à versão atual, sem vagas."""
+
+        version = output_version(self._output_dir)
+        if since is not None and since == version:
+            output: dict[str, Any] = {"unchanged": True}
+        else:
+            output = load_output(self._output_dir)
+        output["output_version"] = version
         with self._lock:
             state = {
                 "status": self._status,
@@ -583,6 +588,7 @@ class SearchController:
                 "error": self._error,
                 "sources": dict(self._sources),
                 "logs": list(self._logs),
+                "exports": list(self._exports),
             }
         return {**state, **output}
 
@@ -736,6 +742,10 @@ class SearchController:
         )
 
 
+# Nomes pelos quais o próprio navegador do usuário chega ao painel local.
+_LOCAL_HOST_NAMES = ("127.0.0.1", "localhost")
+
+
 def _dashboard_handler(
     controller: SearchController,
     static_dir: Path,
@@ -750,6 +760,52 @@ def _dashboard_handler(
     }
 
     class DashboardHandler(BaseHTTPRequestHandler):
+        def _allowed_hosts(self) -> set[str]:
+            port = self.server.server_address[1]
+            return {f"{name}:{port}" for name in _LOCAL_HOST_NAMES}
+
+        def _request_refusal(self, *, needs_json: bool) -> tuple[int, str] | None:
+            """Barra DNS rebinding (Host), outro site (Origin) e formulários (CSRF)."""
+
+            host = (self.headers.get("Host") or "").strip().casefold()
+            allowed = self._allowed_hosts()
+            if host not in allowed:
+                return 403, "Endereco nao permitido: abra o painel por http://127.0.0.1."
+            if not needs_json:
+                return None
+            origin = self.headers.get("Origin")
+            if origin is not None and origin.strip().casefold() not in {
+                f"http://{item}" for item in allowed
+            }:
+                return 403, "Pedido de outro site recusado."
+            content_type = self.headers.get("Content-Type", "").split(";", maxsplit=1)[0]
+            if content_type.strip().casefold() != "application/json":
+                return 415, "Use application/json."
+            return None
+
+        def _guarded(self, route: Callable[[], None], *, needs_json: bool) -> None:
+            self._responded = False
+            refusal = self._request_refusal(needs_json=needs_json)
+            if refusal is not None:
+                status, message = refusal
+                self._json(status, {"error": message})
+                return
+            try:
+                route()
+            except Exception as exc:  # noqa: BLE001 - fronteira HTTP
+                # Sem isto, o navegador só via a conexão cair ("sem conexão").
+                if not self._responded:
+                    self._json(500, {"error": f"Erro interno: {exc}"})
+
+        def do_GET(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+            self._guarded(self._route_get, needs_json=False)
+
+        def do_POST(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+            self._guarded(self._route_post, needs_json=True)
+
+        def do_PUT(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+            self._guarded(self._route_put, needs_json=True)
+
         def _write(
             self,
             status: int,
@@ -758,6 +814,7 @@ def _dashboard_handler(
             *,
             headers: dict[str, str] | None = None,
         ) -> None:
+            self._responded = True
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
@@ -895,7 +952,11 @@ def _dashboard_handler(
                     load_profile(_project_root() / "config" / "profile.yaml"),
                     preferences_from_dict(self._load_preferences_payload()),
                 )
-                result = import_into_output(controller.output_dir, text, profile)
+                with OutputLock(controller.output_dir):
+                    result = import_into_output(controller.output_dir, text, profile)
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
                 return
@@ -904,11 +965,12 @@ def _dashboard_handler(
                 return
             self._json(200, result)
 
-        def do_GET(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+        def _route_get(self) -> None:
             request_url = urlsplit(self.path)
             path = request_url.path
             if path == "/api/state":
-                self._json(200, controller.snapshot())
+                since = parse_qs(request_url.query).get("since", [None])[-1]
+                self._json(200, controller.snapshot(since=since))
                 return
             if path == "/api/preferences":
                 try:
@@ -991,6 +1053,11 @@ def _dashboard_handler(
                 return
             if path == "/api/profiles":
                 self._json(200, self._profiles_payload())
+                return
+            if path == "/api/auto-export":
+                from job_radar.auto_export import load_settings
+
+                self._json(200, load_settings(self._resolved_preferences_path()).to_dict())
                 return
             if path == "/api/cleanup/status":
                 from job_radar.cleanup import backup_info
@@ -1116,7 +1183,11 @@ def _dashboard_handler(
                 preferences = validate_preferences_payload(self._read_json_body(limit=65_536))
                 profile, countries = self._profile_for(preferences)
                 result = reclassify_output(
-                    controller.output_dir, profile, countries, dry_run=True
+                    controller.output_dir,
+                    profile,
+                    countries,
+                    dry_run=True,
+                    rules=self._cleanup_rules(),
                 )
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
@@ -1169,11 +1240,7 @@ def _dashboard_handler(
             return {"profiles": list_profiles(path), "active": active_profile(path)}
 
         def _post_profiles(self, action: str) -> None:
-            from job_radar.preferences import (
-                PreferencesError,
-                preferences_to_dict,
-                validate_preferences_payload,
-            )
+            from job_radar.preferences import PreferencesError, validate_preferences_payload
             from job_radar.profiles import (
                 activate_profile,
                 delete_profile,
@@ -1203,6 +1270,51 @@ def _dashboard_handler(
             if action != "delete":
                 body["preferences"] = self._load_preferences_payload()
             self._json(200, body)
+
+        def _cleanup_rules(self) -> Any:
+            from job_radar.cleanup import load_rules
+
+            return load_rules(self._resolved_preferences_path())
+
+        def _post_auto_export_run(self) -> None:
+            from job_radar.auto_export import (
+                AutoExportSettings,
+                export_after_collection,
+                load_settings,
+            )
+
+            settings = load_settings(self._resolved_preferences_path())
+            try:
+                tracking = tracking_store.load()
+            except TrackingError:
+                tracking = {}
+            try:
+                # Botão "Exportar agora": vale mesmo com a automática desligada.
+                files = export_after_collection(
+                    controller.output_dir,
+                    AutoExportSettings(enabled=True, folder=settings.resolved_folder),
+                    tracking,
+                )
+            except (OSError, ValueError) as exc:
+                self._json(500, {"error": f"Não foi possível exportar: {exc}"})
+                return
+            self._json(200, {"files": [str(path) for path in files], "folder": str(settings.resolved_folder)})
+
+        def _post_auto_export_open(self) -> None:
+            from job_radar.auto_export import load_settings
+
+            folder = load_settings(self._resolved_preferences_path()).resolved_folder
+            opener = getattr(os, "startfile", None)
+            if opener is None:
+                self._json(501, {"error": f"Abra a pasta manualmente: {folder}", "folder": str(folder)})
+                return
+            try:
+                folder.mkdir(parents=True, exist_ok=True)
+                opener(str(folder))  # Windows: abre no Explorador de Arquivos
+            except OSError as exc:
+                self._json(500, {"error": f"Não foi possível abrir {folder}: {exc}"})
+                return
+            self._json(200, {"folder": str(folder)})
 
         def _rules_payload(self) -> dict[str, Any]:
             from job_radar.cleanup import REASON_NAMES, load_rules
@@ -1247,21 +1359,31 @@ def _dashboard_handler(
                     return
                 try:
                     tracked = tracking_store.load()
-                except TrackingError:
-                    tracked = {}
+                except TrackingError as exc:
+                    # Sem o acompanhamento não dá para proteger as vagas salvas.
+                    self._json(
+                        409,
+                        {"error": f"{exc} Corrija o arquivo de acompanhamento antes de limpar."},
+                    )
+                    return
                 remove_urls: set[str] = set()
                 if payload.get("remove_discarded") is True:
                     remove_urls = {
                         url for url, entry in tracked.items()
                         if entry.get("status") == "DISCARDED"
                     }
-                result = clean_output(
-                    controller.output_dir,
-                    keep_urls=set(tracked) - remove_urls,
-                    rules=rules,
-                    dry_run=dry_run,
-                    remove_urls=remove_urls,
-                )
+                # A prévia só lê; a limpeza de verdade regrava o arquivo.
+                with nullcontext() if dry_run else OutputLock(controller.output_dir):
+                    result = clean_output(
+                        controller.output_dir,
+                        keep_urls=set(tracked) - remove_urls,
+                        rules=rules,
+                        dry_run=dry_run,
+                        remove_urls=remove_urls,
+                    )
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
                 return
@@ -1277,13 +1399,17 @@ def _dashboard_handler(
                 self._json(409, {"error": "Espere a busca terminar para desfazer."})
                 return
             try:
-                result = undo_cleanup(controller.output_dir)
+                with OutputLock(controller.output_dir):
+                    result = undo_cleanup(controller.output_dir)
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
             except (CleanupError, OSError, ValueError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
             self._json(200, result)
 
-        def do_POST(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+        def _route_post(self) -> None:
             path = self.path.split("?", maxsplit=1)[0]
             if path == "/api/cleanup/undo":
                 self._post_cleanup_undo()
@@ -1309,6 +1435,12 @@ def _dashboard_handler(
                 return
             if path == "/api/linkedin/import":
                 self._post_linkedin_import()
+                return
+            if path == "/api/auto-export/run":
+                self._post_auto_export_run()
+                return
+            if path == "/api/auto-export/open":
+                self._post_auto_export_open()
                 return
             if path != "/api/search":
                 self._json(404, {"error": "Recurso nao encontrado."})
@@ -1337,7 +1469,7 @@ def _dashboard_handler(
                 return
             self._json(202, {"accepted": True})
 
-        def do_PUT(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
+        def _route_put(self) -> None:
             path = self.path.split("?", maxsplit=1)[0]
             if path == "/api/tracking":
                 try:
@@ -1361,6 +1493,17 @@ def _dashboard_handler(
                 return
             if path == "/api/cleanup/rules":
                 self._put_cleanup_rules()
+                return
+            if path == "/api/auto-export":
+                from job_radar.auto_export import save_settings, settings_from_dict
+
+                try:
+                    settings = settings_from_dict(self._read_json_body())
+                    save_settings(self._resolved_preferences_path(), settings)
+                except (OSError, ValueError, json.JSONDecodeError) as exc:
+                    self._json(400, {"error": str(exc)})
+                    return
+                self._json(200, settings.to_dict())
                 return
             if path != "/api/preferences":
                 self._json(404, {"error": "Recurso nao encontrado."})
@@ -1392,9 +1535,15 @@ def _dashboard_handler(
 
                     try:
                         profile, countries = self._profile_for(preferences)
-                        body["reapplied"] = reclassify_output(
-                            controller.output_dir, profile, countries
-                        )
+                        with OutputLock(controller.output_dir):
+                            body["reapplied"] = reclassify_output(
+                                controller.output_dir,
+                                profile,
+                                countries,
+                                rules=self._cleanup_rules(),
+                            )
+                    except OutputBusyError as exc:
+                        body["reapply_skipped"] = str(exc)
                     except (OSError, ValueError, RuntimeError) as exc:
                         body["reapply_skipped"] = f"Não foi possível reaplicar: {exc}"
             self._json(200, body)

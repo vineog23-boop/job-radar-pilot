@@ -16,6 +16,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from job_radar.identity import canonicalize_url
 from job_radar.models import VacancyRecord
 from job_radar.pipeline import PipelineResult
+from job_radar.text_cleaning import spreadsheet_safe
 
 
 class OutputError(RuntimeError):
@@ -179,8 +180,54 @@ def _csv_text(payloads: Any) -> str:
     for payload in payloads:
         row = {field: payload.get(field) for field in _CSV_FIELDS}
         row["match_labels"] = ";".join(payload.get("match_labels") or [])
-        writer.writerow(row)
+        writer.writerow({key: spreadsheet_safe(value) for key, value in row.items()})
     return buffer.getvalue()
+
+
+def _yield_by_source(
+    kept: tuple[dict[str, Any], ...], pruned: list[dict[str, Any]]
+) -> dict[str, dict[str, int]]:
+    """Rendimento por portal: vagas que ficaram, descartadas e compatíveis."""
+
+    from job_radar.fit import fit_state, is_off_topic
+
+    counts: dict[str, dict[str, int]] = {}
+    for job in kept:
+        entry = counts.setdefault(str(job.get("source")), {"useful": 0, "discarded": 0, "compatible": 0})
+        entry["useful"] += 1
+        if not is_off_topic(job) and fit_state(job) in {"READY", "CONDITIONAL"}:
+            entry["compatible"] += 1
+    for job in pruned:
+        entry = counts.setdefault(str(job.get("source")), {"useful": 0, "discarded": 0, "compatible": 0})
+        entry["discarded"] += 1
+    return counts
+
+
+def _discarded_to_keep(
+    output_dir: Path,
+    pruned_jobs: list[dict[str, Any]],
+    kept: tuple[dict[str, Any], ...],
+    *,
+    result: PipelineResult,
+    merge_unrefreshed: bool,
+    partial: set[str],
+) -> list[dict[str, Any]]:
+    """Cesto novo: podadas agora + as antigas dos portais que não foram refeitos."""
+
+    from job_radar.cleanup import job_identity, read_discarded
+
+    carried: list[dict[str, Any]] = []
+    if merge_unrefreshed:
+        refreshed = {source.source_code for source in result.source_results}
+        seen_now = {job_identity(job) for job in (*kept, *pruned_jobs)}
+        carried = [
+            job
+            for job in read_discarded(output_dir)
+            if job.get("source") not in refreshed - partial
+            and job_identity(job) not in seen_now
+        ]
+    kept_ids = {job_identity(job) for job in kept}
+    return [job for job in (*pruned_jobs, *carried) if job_identity(job) not in kept_ids]
 
 
 def rewrite_payloads(output_dir: Path, payloads: list[dict[str, Any]]) -> None:
@@ -274,6 +321,7 @@ def write_outputs(
         payloads_list.extend(carried)
         carried_sources = _previous_report_sources(final_report, refreshed)
     discarded: dict[str, int] = {}
+    pruned_jobs: list[dict[str, Any]] = []
     if prune:
         from job_radar.cleanup import prune_payloads
 
@@ -282,8 +330,18 @@ def write_outputs(
             keep_urls=keep_urls,
             max_age_days=max_age_days,
             rules=rules,
+            removed_jobs=pruned_jobs,
         )
     payloads = tuple(payloads_list)
+    yield_by_source = _yield_by_source(payloads, pruned_jobs)
+    discarded_jobs = _discarded_to_keep(
+        output_dir,
+        pruned_jobs,
+        payloads,
+        result=result,
+        merge_unrefreshed=merge_unrefreshed,
+        partial=partial,
+    )
 
     try:
         with temp_jsonl.open("w", encoding="utf-8", newline="\n") as handle:
@@ -297,7 +355,7 @@ def write_outputs(
             for payload in payloads:
                 row = {field: payload[field] for field in _CSV_FIELDS}
                 row["match_labels"] = ";".join(payload["match_labels"])
-                writer.writerow(row)
+                writer.writerow({key: spreadsheet_safe(value) for key, value in row.items()})
 
         report = {
             "scrapling_version": importlib.metadata.version("scrapling"),
@@ -327,6 +385,9 @@ def write_outputs(
                     "visited_urls": [
                         canonicalize_url(url) for url in source.visited_urls
                     ],
+                    **yield_by_source.get(
+                        source.source_code, {"useful": 0, "discarded": 0, "compatible": 0}
+                    ),
                 }
                 for source in result.source_results
             ],
@@ -348,6 +409,10 @@ def write_outputs(
     finally:
         for temporary in temporary_files:
             temporary.unlink(missing_ok=True)
+
+    from job_radar.cleanup import write_discarded
+
+    write_discarded(output_dir, discarded_jobs)
 
     return OutputManifest(
         final_jsonl,

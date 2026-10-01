@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from dataclasses import replace
 import ipaddress
+import json
 from pathlib import Path
 import socket
 import sys
@@ -24,6 +26,7 @@ from job_radar.enrich import DEFAULT_ENRICH_LIMIT
 from job_radar.history import SeenHistory
 from job_radar.models import CollectionStatus, SourceKind
 from job_radar.output import validate_jsonl, write_outputs
+from job_radar.output_lock import OutputBusyError, OutputLock
 from job_radar.pipeline import JobRadarPipeline
 from job_radar.preferences import (
     PreferencesError,
@@ -39,6 +42,8 @@ from job_radar.tracking import TrackingError, TrackingStore
 
 # Código de saída quando a pessoa interrompe a busca pelo painel.
 EXIT_STOPPED = 4
+# Outra coleta (ex.: a agendada) já está gravando a mesma pasta de saída.
+EXIT_BUSY = 5
 
 
 def _project_root() -> Path:
@@ -111,6 +116,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Nao ler nem gravar o historico local de vagas ja vistas.",
     )
     collect.add_argument(
+        "--no-export",
+        action="store_true",
+        help="Nao gerar as planilhas automaticas (Documentos\\Radar de Vagas) nesta coleta.",
+    )
+    collect.add_argument(
         "--control-file",
         type=Path,
         default=None,
@@ -118,6 +128,43 @@ def _parser() -> argparse.ArgumentParser:
             "Arquivo de controle do painel: 'pause' pausa a coleta e 'stop' "
             "encerra guardando o que ja foi encontrado."
         ),
+    )
+    evaluate = commands.add_parser(
+        "avaliar",
+        help="Medir o classificador numa amostra salva (sem acessar portais).",
+    )
+    evaluate.add_argument(
+        "--amostra",
+        type=Path,
+        default=_default_sample(),
+        help="JSONL de vagas ja coletadas (padrao: amostra real em tests/fixtures).",
+    )
+    evaluate.add_argument(
+        "--preferencias",
+        type=Path,
+        default=None,
+        help="search-preferences.json a aplicar sobre o profile.yaml (padrao: so o profile.yaml).",
+    )
+    evaluate.add_argument(
+        "--gabarito",
+        type=Path,
+        default=None,
+        help=(
+            "CSV com url e esperado (faixa que voce esperava) para medir acerto "
+            "(padrao: tests/fixtures/gabarito-amostra.csv com a amostra padrao)."
+        ),
+    )
+    evaluate.add_argument(
+        "--base",
+        type=Path,
+        default=None,
+        help="Resultado salvo antes (--salvar) para comparar antes x depois.",
+    )
+    evaluate.add_argument(
+        "--salvar",
+        type=Path,
+        default=None,
+        help="Gravar o resultado em JSON para comparar depois com --base.",
     )
     validate = commands.add_parser(
         "validate-output", help="Validar um JSONL contra o schema local."
@@ -199,6 +246,16 @@ def _collect(args: argparse.Namespace) -> int:
             )
         return 0
 
+    with ExitStack() as held:
+        try:
+            held.enter_context(OutputLock(args.output.resolve()))
+        except OutputBusyError as exc:
+            print(f"COLLECTION_BUSY: {exc}", file=sys.stderr)
+            return EXIT_BUSY
+        return _collect_locked(args, sources, profile)
+
+
+def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
     def print_source_progress(source: object) -> None:
         print(
             f"{source.source_code}: {source.status.value}; "
@@ -213,11 +270,28 @@ def _collect(args: argparse.Namespace) -> int:
                 flush=True,
             )
 
+    keep_urls: frozenset[str] = frozenset()
+    prune = not getattr(args, "keep_all", False)
+    try:
+        keep_urls = frozenset(TrackingStore().load())
+    except TrackingError as exc:
+        # Sem saber quais vagas foram salvas/aplicadas, descartar seria arriscar
+        # apagar justamente as que importam: grava tudo e avisa.
+        if prune:
+            print(
+                f"WARNING: {exc} Limpeza automatica desligada nesta coleta para nao "
+                "apagar vagas do acompanhamento.",
+                file=sys.stderr,
+                flush=True,
+            )
+        prune = False
     history = None if getattr(args, "no_history", False) else SeenHistory()
     control_file = getattr(args, "control_file", None)
     run_control.activate(RunControl(control_file) if control_file else None)
     try:
-        result = _run_pipeline(args, sources, profile, history, print_source_progress)
+        result = _run_pipeline(
+            args, sources, profile, history, print_source_progress, preferred_urls=keep_urls
+        )
     finally:
         run_control.activate(None)
     if result.stopped:
@@ -226,16 +300,11 @@ def _collect(args: argparse.Namespace) -> int:
         for warning in item.warnings:
             if warning.startswith("SOURCE_COUNT_"):
                 print(f"WARNING {item.source_code}: {warning}", flush=True)
-    keep_urls: frozenset[str] = frozenset()
-    try:
-        keep_urls = frozenset(TrackingStore().load())
-    except TrackingError:
-        pass
     manifest = write_outputs(
         result,
         args.output.resolve(),
         merge_unrefreshed=bool(args.sources) or result.stopped,
-        prune=not getattr(args, "keep_all", False),
+        prune=prune,
         keep_urls=keep_urls,
         max_age_days=getattr(args, "max_age_days", None),
         rules=load_rules(preferences_path()),
@@ -247,6 +316,8 @@ def _collect(args: argparse.Namespace) -> int:
     )
     if manifest.discarded:
         print(f"DISCARDED: {manifest.discarded} vagas inuteis nao foram salvas.")
+    if not getattr(args, "no_export", False):
+        _auto_export(args.output.resolve())
     print(f"JSONL: {manifest.jsonl_path}")
     print(f"CSV: {manifest.csv_path}")
     print(f"REPORT: {manifest.report_path}")
@@ -257,7 +328,25 @@ def _collect(args: argparse.Namespace) -> int:
     return 0 if all(item.status in complete_statuses for item in result.source_results) else 3
 
 
-def _run_pipeline(args, sources, profile, history, print_source_progress):
+def _auto_export(output_dir: Path) -> None:
+    """Planilhas da coleta na pasta do usuário; falha só avisa (a coleta já foi salva)."""
+
+    from job_radar.auto_export import export_after_collection, load_settings
+
+    try:
+        tracking = TrackingStore().load()
+    except TrackingError:
+        tracking = {}
+    try:
+        written = export_after_collection(output_dir, load_settings(preferences_path()), tracking)
+    except (OSError, ValueError) as exc:
+        print(f"WARNING: exportacao automatica falhou: {exc}", file=sys.stderr, flush=True)
+        return
+    for path in written:
+        print(f"EXPORT: {path}", flush=True)
+
+
+def _run_pipeline(args, sources, profile, history, print_source_progress, preferred_urls=()):
     if args.workers == 1:
         with FetchPolicy() as fetcher:
             pipeline = JobRadarPipeline(
@@ -268,6 +357,7 @@ def _run_pipeline(args, sources, profile, history, print_source_progress):
                 on_source_done=print_source_progress,
                 history=history,
                 enrich_limit=args.enrich_limit,
+                preferred_urls=preferred_urls,
             )
             result = pipeline.run(args.sources)
     else:
@@ -279,9 +369,63 @@ def _run_pipeline(args, sources, profile, history, print_source_progress):
             on_source_done=print_source_progress,
             history=history,
             enrich_limit=args.enrich_limit,
+            preferred_urls=preferred_urls,
         )
         result = pipeline.run(args.sources)
     return result
+
+
+def _default_sample() -> Path:
+    return _project_root() / "tests" / "fixtures" / "amostra-real-2026-10-01.jsonl"
+
+
+def _evaluate(args: argparse.Namespace) -> int:
+    from job_radar.evaluation import evaluate, format_report, load_gold, load_sample
+
+    project = _project_root()
+    try:
+        profile = load_profile(project / "config" / "profile.yaml")
+        sources = load_sources(project / "config" / "sources.yaml")
+        if args.preferencias is not None:
+            if not args.preferencias.exists():
+                raise ConfigError(f"Preferencias nao encontradas: {args.preferencias}")
+            profile = apply_preferences(
+                profile,
+                load_preferences(
+                    default_profile=profile,
+                    default_search_terms=(),
+                    path=args.preferencias,
+                ),
+            )
+        payloads = load_sample(args.amostra)
+        gold_path = args.gabarito
+        if gold_path is None and args.amostra == _default_sample():
+            default_gold = _default_sample().with_name("gabarito-amostra.csv")
+            gold_path = default_gold if default_gold.exists() else None
+        gold = load_gold(gold_path) if gold_path else None
+        base = (
+            json.loads(args.base.read_text(encoding="utf-8")) if args.base else None
+        )
+    except (ConfigError, PreferencesError, OSError, ValueError) as exc:
+        print(f"AVALIAR_ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    result = evaluate(
+        payloads,
+        profile,
+        {source.code: source.default_country for source in sources},
+        gold=gold,
+        base=base,
+    )
+    print(format_report(result), end="")
+    if args.salvar is not None:
+        args.salvar.parent.mkdir(parents=True, exist_ok=True)
+        args.salvar.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(f"Resultado salvo em {args.salvar}")
+    return 0
 
 
 def _validate(path: Path) -> int:
@@ -505,6 +649,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _auth(args)
     if args.command == "suggest-selectors":
         return _suggest_selectors(args)
+    if args.command == "avaliar":
+        return _evaluate(args)
     return _validate(args.path)
 
 

@@ -19,6 +19,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from job_radar.adaptive import AdaptiveCardLocator
 from job_radar.fetching import BlockReason, FetchPolicy
 from job_radar.identity import canonicalize_url
+from job_radar.text_cleaning import clean_description
 from job_radar.models import (
     CollectionStatus,
     SourceConfig,
@@ -157,7 +158,7 @@ def record_from_item(
     if workplace is WorkplaceModel.REMOTE and not location:
         location = "Remoto"
     employment_raw = clean_text(value("employment_type"))
-    description = clean_text(value("description"))
+    description = clean_description(clean_text(value("description")))
     identifier = value("id")
 
     return VacancyRecord(

@@ -23,11 +23,15 @@
         <div class="local-badge"><span></span> Rodando neste PC</div>
       </header>
 
-      <section class="hero">
-        <div>
-          <p class="eyebrow">PAINEL DE OPORTUNIDADES</p>
-          <h1>Encontre as vagas.<br><em>Decida com contexto.</em></h1>
-          <p class="hero-copy">Pesquise os portais configurados e reúna tudo em uma visão organizada para sua análise.</p>
+      <section class="hero command-bar">
+        <div class="day-flow">
+          <h1>Suas vagas</h1>
+          <ol class="flow-steps" aria-label="Como usar o Radar no dia a dia">
+            <li><strong>1 · Buscar</strong><span>Consulta os portais com o seu perfil (ou deixe a busca agendada fazer isso).</span></li>
+            <li><strong>2 · Revisar</strong><span>Comece pelas "Mais compatíveis"; salve, marque como aplicada ou descarte.</span></li>
+            <li><strong>3 · Exportar</strong><span>A planilha das melhores é salva sozinha após cada busca.</span></li>
+          </ol>
+          <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
         </div>
         <div class="search-action">
           <button id="search-button" class="primary-button" type="button">
@@ -38,17 +42,31 @@
             <button id="pause-button" class="ghost-button" type="button" title="Congela a busca depois da página atual; retome quando quiser">⏸ Pausar busca</button>
             <button id="stop-button" class="ghost-button danger-button" type="button" title="Encerra a busca e salva o que já foi encontrado">■ Parar e salvar</button>
           </div>
-          <div class="secondary-actions">
-            <button id="quick-search-button" class="ghost-button action-button" type="button" title="Consulta só os portais focados em tecnologia">Busca rápida (TI)</button>
-            <button id="sources-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="sources-picker">Escolher portais</button>
-            <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
-            <button id="cleanup-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="cleanup-panel">Limpeza</button>
-            <button id="export-button" class="ghost-button action-button export-button" type="button" aria-expanded="false" aria-controls="export-panel">Exportar vagas</button>
-            <button id="linkedin-button" class="linkedin-button" type="button" aria-expanded="false" aria-controls="linkedin-panel">Pesquisar no LinkedIn</button>
+          <div class="action-group" role="group" aria-labelledby="group-search">
+            <span id="group-search" class="action-group-title">Buscar</span>
+            <div class="secondary-actions">
+              <button id="quick-search-button" class="ghost-button action-button" type="button" title="Consulta só os portais focados em tecnologia (mais rápida)">Busca rápida (TI)</button>
+              <button id="sources-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="sources-picker">Escolher portais</button>
+              <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
+              <button id="linkedin-button" class="linkedin-button" type="button" aria-expanded="false" aria-controls="linkedin-panel">Pesquisar no LinkedIn</button>
+            </div>
           </div>
-          <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
+          <div class="action-group" role="group" aria-labelledby="group-list">
+            <span id="group-list" class="action-group-title">Lista</span>
+            <div class="secondary-actions">
+              <button id="cleanup-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="cleanup-panel">Limpeza</button>
+              <button id="export-button" class="ghost-button action-button export-button" type="button" aria-expanded="false" aria-controls="export-panel">Exportar vagas</button>
+            </div>
+          </div>
         </div>
       </section>
+
+      <div id="news-banner" class="news-banner" role="status" hidden>
+        <span class="news-dot" aria-hidden="true"></span>
+        <p id="news-text"></p>
+        <button id="news-show" class="ghost-button" type="button">Ver só as novidades</button>
+        <button id="news-dismiss" class="ghost-button" type="button">Marcar como vistas</button>
+      </div>
 
       <section id="sources-picker" class="preferences-panel" hidden aria-labelledby="sources-picker-title">
         <div class="section-heading">
@@ -131,6 +149,20 @@
         <p class="export-table-note">Prefere exportar exatamente o que está na tabela agora, com os filtros dela?
           <a id="download-report" href="/api/export/markdown" download>Relatório (.md)</a> ·
           <a id="download-csv" href="/api/export/csv?tracked=active" download>CSV</a></p>
+        <section class="auto-export" aria-labelledby="auto-export-title">
+          <h3 id="auto-export-title">Exportação automática</h3>
+          <p class="panel-copy">Ao fim de cada busca (inclusive a agendada) o Radar salva nesta pasta a planilha das melhores vagas e um CSV com todas as de TI. O arquivo <strong>ultima-busca.xlsx</strong> é sempre o mais recente.</p>
+          <label class="check"><input id="auto-export-enabled" type="checkbox" checked> Exportar automaticamente após cada busca</label>
+          <label class="auto-export-folder">Pasta
+            <input id="auto-export-folder" type="text" spellcheck="false" autocomplete="off">
+          </label>
+          <div class="auto-export-actions">
+            <button id="auto-export-save" type="button" class="ghost-button">Salvar pasta</button>
+            <button id="auto-export-open" type="button" class="ghost-button">Abrir pasta</button>
+            <button id="auto-export-run" type="button" class="ghost-button">Exportar agora para a pasta</button>
+          </div>
+          <p id="auto-export-status" class="preferences-status" aria-live="polite"></p>
+        </section>
       </section>
 
       <section id="cleanup-panel" class="preferences-panel cleanup-panel" hidden aria-labelledby="cleanup-title">
@@ -225,8 +257,9 @@
           <button id="profile-save" class="ghost-button" type="button">Salvar como perfil</button>
         </div>
         <form id="preferences-form" class="preferences-form">
+          <p id="profile-summary" class="wide-field profile-summary" aria-live="polite"></p>
           <fieldset class="wide-field">
-            <legend>Stacks de interesse</legend>
+            <legend>1 · Stacks de interesse</legend>
             <small>Marque as áreas que você procura e clique em "Preencher sugestões" para montar as tecnologias e os termos de busca. Não achou a sua? Crie uma stack com as tecnologias que quiser.</small>
             <div id="stack-chips" class="chip-row" role="group" aria-label="Stacks"></div>
             <div class="stack-actions">
@@ -252,7 +285,7 @@
             </div>
           </fieldset>
           <label class="wide-field" for="search-terms">
-            <strong>Termos de busca <span id="search-terms-count" class="counter">0/20</span></strong>
+            <strong>2 · Termos de busca <span id="search-terms-count" class="counter">0/20</span></strong>
             <small>Um por linha, até 20. Vão para os portais que pesquisam por texto — prefira termos curtos que um recrutador usaria no título (ex.: "java junior", "estágio backend").</small>
             <textarea id="search-terms" rows="5" maxlength="2440" required></textarea>
           </label>
@@ -276,7 +309,7 @@
           </div>
 
           <fieldset>
-            <legend>Nível</legend>
+            <legend>3 · Nível</legend>
             <small>Marque um ou mais níveis. Vagas de outro nível ficam fora do perfil.</small>
             <label class="check-option"><input id="seniority-internship" type="checkbox" value="estagio"> Estágio</label>
             <label class="check-option"><input id="seniority-junior" type="checkbox" value="junior"> Júnior</label>
@@ -284,14 +317,14 @@
             <label class="check-option"><input id="seniority-senior" type="checkbox" value="senior"> Sênior</label>
           </fieldset>
           <fieldset>
-            <legend>Modelo de trabalho</legend>
+            <legend>4 · Modelo de trabalho</legend>
             <small>Deixe todos desmarcados para aceitar qualquer modelo.</small>
             <label class="check-option"><input id="workplace-remote" type="checkbox" value="REMOTE"> Remoto</label>
             <label class="check-option"><input id="workplace-hybrid" type="checkbox" value="HYBRID"> Híbrido</label>
             <label class="check-option"><input id="workplace-onsite" type="checkbox" value="ONSITE"> Presencial</label>
           </fieldset>
           <label class="wide-field" for="location-scopes">
-            <strong>Localidades</strong>
+            <strong>5 · Onde (localidades)</strong>
             <small>Uma por linha. Use "Cidade UF" (ex.: Curitiba PR), um estado (ex.: SP), "brasil" ou "remoto-brasil".</small>
             <textarea id="location-scopes" rows="4" maxlength="1212"></textarea>
             <span class="chip-row" role="group" aria-label="Atalhos de localidade">
@@ -300,7 +333,7 @@
             </span>
           </label>
           <div class="wide-field tag-field">
-            <label for="technologies-entry"><strong>Tecnologias que pesam na aderência</strong></label>
+            <label for="technologies-entry"><strong>6 · Tecnologias que pesam na aderência</strong></label>
             <small>Digite e tecle Enter (ou vírgula); cole uma lista para adicionar várias. A vaga precisa citar ao menos uma tecnologia principal para ser "Mais compatível". Em branco usa o perfil padrão.</small>
             <textarea id="technologies" class="tag-source" rows="3" maxlength="2440" aria-label="Tecnologias" data-placeholder="ex.: java, spring boot, sql"></textarea>
             <div id="tech-insights" class="insights" hidden>
@@ -308,8 +341,12 @@
               <div id="tech-insights-chips" class="chip-row"></div>
             </div>
           </div>
-          <section class="wide-field refine" aria-labelledby="refine-title">
-            <h3 id="refine-title">Palavras-chave e filtros finos</h3>
+          <details id="refine-details" class="wide-field refine">
+            <summary>
+              <span id="refine-title">Filtros avançados (opcional)</span>
+              <span id="refine-count" class="counter">nenhum ativo</span>
+              <small>palavras obrigatórias e proibidas, cargos a evitar, empresas, contrato e inglês</small>
+            </summary>
             <p class="hint">Tudo opcional. Ajusta a aderência sem nova busca: ao salvar, o Radar reaplica às vagas que já estão na lista (nada é apagado).</p>
             <div class="refine-grid">
               <div class="exclusion-block tag-field">
@@ -356,7 +393,7 @@
                 <small>Quando o inglês aparece só como diferencial, a vaga continua.</small>
               </fieldset>
             </div>
-          </section>
+          </details>
           <div class="preferences-footer">
             <label class="check-option"><input id="reapply-saved" type="checkbox" checked> Reaplicar às vagas já salvas</label>
             <button id="preview-preferences" class="ghost-button" type="button" title="Mostra quantas vagas da lista ficariam compatíveis, sem salvar">Ver impacto</button>
@@ -397,7 +434,9 @@
             <select id="match-filter">
               <option value="">Vagas de TI</option>
               <option value="ready">Mais compatíveis</option>
+              <option value="fit">Compatíveis + a revisar</option>
               <option value="review">A revisar</option>
+              <option value="otherstack">Outra stack</option>
               <option value="exclude">Fora do perfil</option>
               <option value="offtopic">Fora de TI</option>
               <option value="all">Todas, sem filtro</option>
@@ -416,11 +455,26 @@
               <option value="active">Sem descartadas</option>
               <option value="new">Só novas</option>
               <option value="">Todas</option>
+              <option value="inprogress">Em processo</option>
               <option value="saved">Salvas</option>
               <option value="applied">Aplicadas</option>
+              <option value="interview">Em entrevista</option>
+              <option value="offer">Com oferta</option>
+              <option value="rejected">Recusadas</option>
               <option value="discarded">Descartadas</option>
             </select>
           </label>
+        </div>
+
+        <div id="funnel" class="funnel" role="group" aria-label="Funil de candidatura" hidden></div>
+
+        <div class="quick-filters" role="group" aria-label="Filtros rápidos">
+          <span class="quick-label">Filtros rápidos:</span>
+          <button type="button" class="chip" data-quick="unseen" aria-pressed="false" title="Vagas que você ainda não abriu nem marcou como vistas">Não vistas</button>
+          <button type="button" class="chip" data-quick="remote" aria-pressed="false">Remoto</button>
+          <button type="button" class="chip" data-quick="estagio" aria-pressed="false">Estágio</button>
+          <button type="button" class="chip" data-quick="junior" aria-pressed="false">Júnior</button>
+          <button type="button" class="chip" data-quick="recent" aria-pressed="false" title="Publicadas nos últimos 7 dias">Últimos 7 dias</button>
         </div>
 
         <div class="table-wrap">
@@ -432,7 +486,8 @@
             <button id="show-more" class="ghost-button" type="button">Mostrar mais vagas</button>
           </div>
           <div id="empty-state" class="empty-state" hidden>
-            <span>⌕</span><strong>Nenhuma vaga neste filtro</strong><p>Tente remover um filtro ou faça uma nova busca.</p>
+            <span>⌕</span><strong id="empty-title">Nenhuma vaga neste filtro</strong><p id="empty-text">Tente remover um filtro ou faça uma nova busca.</p>
+            <button id="empty-clear" class="ghost-button" type="button">Limpar filtros</button>
           </div>
         </div>
       </section>
@@ -447,6 +502,10 @@
 
       <footer><span>Resultados e preferências ficam locais · consultas vão somente aos portais configurados</span><span id="footer-version">Scrapling</span></footer>
     </main>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+      <span id="toast-text"></span>
+      <button id="toast-undo" class="ghost-button" type="button">Desfazer</button>
+    </div>
     <script src="/app.js" defer></script>
   </body>
 </html>

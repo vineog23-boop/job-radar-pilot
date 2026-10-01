@@ -336,7 +336,9 @@ def test_classify_does_not_match_java_inside_javascript() -> None:
     )
 
     assert "TECH_MATCH:java" not in classified.match_labels
-    assert "FIT:AMBIGUOUS" in classified.match_labels
+    # 1.1: JavaScript é de TI, só que de outra stack (não "dados insuficientes").
+    assert "FIT:OTHER_STACK" in classified.match_labels
+    assert "OTHER_STACK:javascript" in classified.match_labels
 
 
 def test_classify_does_not_match_sql_inside_nosql() -> None:
@@ -390,7 +392,7 @@ def test_classify_marks_technology_without_all_gates_conditional() -> None:
     assert "FIT:CONDITIONAL" in classified.match_labels
 
 
-def test_classify_marks_android_title_without_positive_technology_ambiguous() -> None:
+def test_classify_marks_android_title_without_positive_technology_other_stack() -> None:
     classified = classify(
         _record(
             title="Desenvolvedor Android Junior",
@@ -402,7 +404,9 @@ def test_classify_marks_android_title_without_positive_technology_ambiguous() ->
 
     assert "SENIORITY_MATCH:junior" in classified.match_labels
     assert not any(label.startswith("TECH_MATCH:") for label in classified.match_labels)
-    assert "FIT:AMBIGUOUS" in classified.match_labels
+    # 1.1: Android é outra stack para um perfil Java.
+    assert "FIT:OTHER_STACK" in classified.match_labels
+    assert "OTHER_STACK:android" in classified.match_labels
 
 
 def test_classify_does_not_promote_supporting_skill_without_backend_anchor() -> None:
@@ -1007,7 +1011,9 @@ def test_inferred_workplace_counts_toward_workplace_confirmed() -> None:
     assert "FIT:READY" in labels
 
 
-def test_classify_fills_seniority_and_technologies_from_evidence() -> None:
+def test_classify_fills_seniority_and_shows_matched_technologies_from_labels() -> None:
+    from job_radar.fit import job_technologies
+
     record = _record(
         title="Desenvolvedor Java Júnior",
         description_summary="Spring Boot e API REST",
@@ -1018,7 +1024,11 @@ def test_classify_fills_seniority_and_technologies_from_evidence() -> None:
     classified = classify(record, PROFILE)
 
     assert classified.seniority == "junior"
-    assert classified.technologies == ("api rest", "java", "spring boot")
+    # O dado do portal fica intacto; o que o classificador achou vem dos rótulos.
+    assert classified.technologies == ()
+    assert job_technologies(
+        {"technologies": classified.technologies, "match_labels": classified.match_labels}
+    ) == ["api rest", "java", "spring boot"]
 
 
 def test_classify_does_not_invent_seniority_or_technologies() -> None:
@@ -1036,7 +1046,9 @@ def test_classify_does_not_invent_seniority_or_technologies() -> None:
     assert classified.technologies == ()
 
 
-def test_classify_keeps_source_seniority_and_merges_technologies() -> None:
+def test_classify_keeps_source_seniority_and_technologies_and_merges_on_display() -> None:
+    from job_radar.fit import job_technologies
+
     record = _record(
         title="Dev Java",
         description_summary=None,
@@ -1048,7 +1060,10 @@ def test_classify_keeps_source_seniority_and_merges_technologies() -> None:
     classified = classify(record, PROFILE)
 
     assert classified.seniority == "Trainee"
-    assert classified.technologies == ("Kotlin", "java")
+    assert classified.technologies == ("Kotlin",)
+    assert job_technologies(
+        {"technologies": classified.technologies, "match_labels": classified.match_labels}
+    ) == ["Kotlin", "java"]
 
 
 def test_portuguese_verb_usa_is_not_read_as_united_states() -> None:

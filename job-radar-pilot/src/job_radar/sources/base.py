@@ -10,7 +10,7 @@ from job_radar.adaptive import AdaptiveCardLocator, CardSelection, select_cards
 from job_radar.fetching import BlockReason, FetchPolicy, _visible_response_text
 from job_radar.identity import canonicalize_url
 from job_radar.dates import parse_published_at
-from job_radar.text_cleaning import clean_title
+from job_radar.text_cleaning import clean_description, clean_title
 from job_radar.models import (
     CollectionStatus,
     SourceConfig,
@@ -40,6 +40,14 @@ class ParsedPage:
     card_method: str = "CONFIGURED"
 
 
+# Texto visível do nó: ignora <script>, <style>, <noscript> e <template> internos
+# (alguns portais põem anúncio e JavaScript dentro do cartão da vaga).
+VISIBLE_TEXT_XPATH = (
+    ".//text()[not(ancestor::script) and not(ancestor::style)"
+    " and not(ancestor::noscript) and not(ancestor::template)]"
+)
+
+
 def extract_value(node: object, selector: str | None) -> str | None:
     if not selector:
         return None
@@ -52,7 +60,11 @@ def extract_value(node: object, selector: str | None) -> str | None:
             selected = matches[0]
         else:
             selected = node
-        value = " ".join(selected.css("::text").getall())  # type: ignore[attr-defined]
+        if hasattr(selected, "xpath"):
+            parts = selected.xpath(VISIBLE_TEXT_XPATH).getall()  # type: ignore[attr-defined]
+        else:  # nós simplificados (testes) só têm css
+            parts = selected.css("::text").getall()  # type: ignore[attr-defined]
+        value = " ".join(parts)
     elif selector.startswith("::attr(") and selector.endswith(")"):
         attribute = selector[7:-1]
         value = getattr(node, "attrib", {}).get(attribute)
@@ -434,7 +446,7 @@ def make_record(
         canonical_url=canonical_url,
         title=title,
         company=extract_value(card, company_selector),
-        description_summary=extract_value(card, description_selector),
+        description_summary=clean_description(extract_value(card, description_selector)),
         location=_clean_source_location(
             config,
             extract_value(card, location_selector),

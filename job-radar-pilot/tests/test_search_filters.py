@@ -394,7 +394,8 @@ def test_dashboard_custom_stack_tags_and_impact(tmp_path: Path) -> None:
             page.wait_for_function("() => document.querySelector('#technologies').value.includes('rxjs')")
             assert page.locator(".tag", has_text="rxjs").count() == 1
 
-            # etiquetas: Enter adiciona, × remove
+            # etiquetas: Enter adiciona, × remove (filtros avançados ficam recolhidos)
+            page.evaluate("document.querySelector('#refine-details').open = true")
             entry = page.locator("#bonus-keywords-entry")
             entry.fill("aws")
             entry.press("Enter")

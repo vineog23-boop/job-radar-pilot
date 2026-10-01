@@ -11,6 +11,9 @@ const elements = {
   downloadCsv: document.querySelector("#download-csv"),
   tableBody: document.querySelector("#jobs-table-body"),
   emptyState: document.querySelector("#empty-state"),
+  emptyTitle: document.querySelector("#empty-title"),
+  emptyText: document.querySelector("#empty-text"),
+  emptyClear: document.querySelector("#empty-clear"),
   visibleCount: document.querySelector("#visible-count"),
   sourceStatuses: document.querySelector("#source-statuses"),
   toggleSources: document.querySelector("#toggle-sources"),
@@ -96,6 +99,12 @@ const elements = {
   exportXlsx: document.querySelector("#export-xlsx"),
   exportCsv: document.querySelector("#export-csv"),
   exportMd: document.querySelector("#export-md"),
+  autoExportEnabled: document.querySelector("#auto-export-enabled"),
+  autoExportFolder: document.querySelector("#auto-export-folder"),
+  autoExportSave: document.querySelector("#auto-export-save"),
+  autoExportOpen: document.querySelector("#auto-export-open"),
+  autoExportRun: document.querySelector("#auto-export-run"),
+  autoExportStatus: document.querySelector("#auto-export-status"),
   linkedinButton: document.querySelector("#linkedin-button"),
   linkedinPanel: document.querySelector("#linkedin-panel"),
   closeLinkedin: document.querySelector("#close-linkedin"),
@@ -134,11 +143,63 @@ const elements = {
   cleanupPreview: document.querySelector("#cleanup-preview"),
   cleanupRun: document.querySelector("#cleanup-run"),
   cleanupStatus: document.querySelector("#cleanup-status"),
+  newsBanner: document.querySelector("#news-banner"),
+  newsText: document.querySelector("#news-text"),
+  newsShow: document.querySelector("#news-show"),
+  newsDismiss: document.querySelector("#news-dismiss"),
+  quickChips: [...document.querySelectorAll("[data-quick]")],
+  toast: document.querySelector("#toast"),
+  toastText: document.querySelector("#toast-text"),
+  toastUndo: document.querySelector("#toast-undo"),
+  funnel: document.querySelector("#funnel"),
+  profileSummary: document.querySelector("#profile-summary"),
+  refineDetails: document.querySelector("#refine-details"),
+  refineCount: document.querySelector("#refine-count"),
 };
 
 const FILTER_KEY = "radar.filters";
 const FILTER_DEFAULTS = { match: "", sort: "fit", tracked: "active" };
 const expandedJobs = new Set();
+// Filtros rápidos (chips): somam aos selects.
+const QUICK_FILTERS = ["unseen", "remote", "estagio", "junior", "recent"];
+const quickFilters = new Set();
+
+// Vagas que a pessoa já viu (abriu, expandiu ou marcou como vistas), só neste navegador.
+const SEEN_KEY = "radar.seen.v1";
+const MAX_SEEN = 20000;
+const seen = loadSeen();
+
+function loadSeen() {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY);
+    if (raw === null) return { known: false, urls: new Set() };
+    const urls = JSON.parse(raw);
+    return { known: true, urls: new Set(Array.isArray(urls) ? urls : []) };
+  } catch (error) {
+    return { known: false, urls: new Set() };
+  }
+}
+
+function saveSeen() {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...seen.urls].slice(-MAX_SEEN)));
+  } catch (error) { /* armazenamento indisponível */ }
+}
+
+function markSeen(urls) {
+  let changed = !seen.known;
+  urls.filter(Boolean).forEach((url) => {
+    if (!seen.urls.has(url)) { seen.urls.add(url); changed = true; }
+  });
+  seen.known = true;
+  if (changed) saveSeen();
+}
+
+// Antes da primeira marcação, "não vista" = nova na última coleta (STATUS:NEW).
+function isUnseen(job) {
+  if (!seen.known) return (job.match_labels ?? []).includes("STATUS:NEW");
+  return !seen.urls.has(job.canonical_url);
+}
 
 function saveFilters() {
   try {
@@ -146,8 +207,39 @@ function saveFilters() {
       match: elements.matchFilter.value,
       sort: elements.sortOrder.value,
       tracked: elements.trackingFilter.value,
+      quick: [...quickFilters],
     }));
   } catch (error) { /* armazenamento indisponível: segue sem lembrar */ }
+}
+
+function syncQuickChips() {
+  elements.quickChips.forEach((chip) =>
+    chip.setAttribute("aria-pressed", String(quickFilters.has(chip.dataset.quick)))
+  );
+}
+
+function hasLevel(job, level) {
+  const labels = (job.match_labels ?? []).map(String);
+  return labels.includes(`SENIORITY_MATCH:${level}`) || normalized(job.seniority ?? "") === level;
+}
+
+function isRemoteJob(job) {
+  const labels = (job.match_labels ?? []).map(String);
+  return job.workplace_model === "REMOTE"
+    || labels.includes("WORKPLACE_MATCH:REMOTE")
+    || labels.includes("LOCATION_MATCH:remote_brazil");
+}
+
+function passesQuickFilters(job) {
+  if (quickFilters.has("unseen") && !isUnseen(job)) return false;
+  if (quickFilters.has("remote") && !isRemoteJob(job)) return false;
+  const levels = ["estagio", "junior"].filter((level) => quickFilters.has(level));
+  if (levels.length && !levels.some((level) => hasLevel(job, level))) return false;
+  if (quickFilters.has("recent")) {
+    const published = publishedTime(job);
+    if (published === -Infinity || Date.now() - published > 7 * 86400000) return false;
+  }
+  return true;
 }
 
 function restoreFilters() {
@@ -161,7 +253,11 @@ function restoreFilters() {
     apply(elements.matchFilter, saved.match);
     apply(elements.sortOrder, saved.sort);
     apply(elements.trackingFilter, saved.tracked);
+    (Array.isArray(saved.quick) ? saved.quick : [])
+      .filter((name) => QUICK_FILTERS.includes(name))
+      .forEach((name) => quickFilters.add(name));
   } catch (error) { /* valor salvo inválido: ignora */ }
+  syncQuickChips();
 }
 
 function filtersAreDefault() {
@@ -169,7 +265,8 @@ function filtersAreDefault() {
     && !elements.sourceFilter.value
     && elements.matchFilter.value === FILTER_DEFAULTS.match
     && elements.sortOrder.value === FILTER_DEFAULTS.sort
-    && elements.trackingFilter.value === FILTER_DEFAULTS.tracked;
+    && elements.trackingFilter.value === FILTER_DEFAULTS.tracked
+    && quickFilters.size === 0;
 }
 
 function resetFilters() {
@@ -178,6 +275,8 @@ function resetFilters() {
   elements.matchFilter.value = FILTER_DEFAULTS.match;
   elements.sortOrder.value = FILTER_DEFAULTS.sort;
   elements.trackingFilter.value = FILTER_DEFAULTS.tracked;
+  quickFilters.clear();
+  syncQuickChips();
   saveFilters();
   visibleRows = ROW_PAGE_SIZE;
   renderTable();
@@ -248,15 +347,33 @@ function detailRow(job) {
   if (reasons.length) facts.push(`Atenção — ${reasons.join(" · ")}`);
   const also = alsoSeenIn(job);
   if (also.length) facts.push(`Também em ${also.join(", ")}`);
+  const reposted = (job.match_labels ?? []).map(String).find((label) => label.startsWith("REPOSTED:"));
+  if (reposted) facts.push(`Republicada ${reposted.slice(9)}× neste portal (mostramos o anúncio mais recente)`);
   if (job.employment_type) facts.push(`Contrato: ${job.employment_type}`);
   if (publishedLabel(job)) facts.push(`Publicada em ${publishedLabel(job)}`);
   const list = document.createElement("ul");
   list.className = "detail-facts";
   facts.forEach((fact) => list.appendChild(textElement("li", "", fact)));
   box.appendChild(list);
+  const actions = document.createElement("div");
+  actions.className = "detail-actions";
+  actions.setAttribute("role", "group");
+  actions.setAttribute("aria-label", "Ações rápidas da vaga");
+  [["SAVED", "★ Salvar"], ["APPLIED", "✓ Me candidatei"], ["DISCARDED", "✕ Descartar"]].forEach(([status, label]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `ghost-button quick-action quick-${status.toLowerCase()}`;
+    button.textContent = label;
+    const current = trackingStatus(job) === status;
+    button.setAttribute("aria-pressed", String(current));
+    button.disabled = !/^https?:\/\//.test(job.canonical_url ?? "");
+    button.addEventListener("click", () => updateTracking(job, current ? "" : status, button));
+    actions.appendChild(button);
+  });
+  box.appendChild(actions);
   const techs = document.createElement("div");
   techs.className = "detail-techs";
-  (job.technologies ?? []).forEach((tech) => techs.appendChild(textElement("span", "tech-chip", tech)));
+  jobTechnologies(job).forEach((tech) => techs.appendChild(textElement("span", "tech-chip", tech)));
   if (techs.childElementCount) box.appendChild(techs);
   cell.appendChild(box);
   row.appendChild(cell);
@@ -283,6 +400,22 @@ const REASON_LABELS = [
   ["LANGUAGE_MISMATCH:", "exige inglês avançado"],
 ];
 
+// Tecnologias do portal + as que o classificador achou (rótulos TECH_MATCH:).
+function jobTechnologies(job) {
+  const matched = (job.match_labels ?? [])
+    .map(String)
+    .filter((label) => label.startsWith("TECH_MATCH:"))
+    .map((label) => label.slice("TECH_MATCH:".length))
+    .sort();
+  const seen = new Set();
+  return [...(job.technologies ?? []).map(String), ...matched].filter((tech) => {
+    const key = tech.toLowerCase();
+    if (!tech || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function isOffTopic(job) {
   return (job.match_labels ?? []).includes("RELEVANCE:OFF_TOPIC");
 }
@@ -292,6 +425,8 @@ function fitReasons(job) {
   const reasons = REASON_LABELS
     .filter(([prefix]) => labels.some((label) => label.startsWith(prefix)))
     .map(([, text]) => text);
+  const stacks = labels.filter((label) => label.startsWith("OTHER_STACK:")).map((label) => label.slice(12));
+  if (stacks.length) reasons.push(`stack diferente da sua (${stacks.join(", ")})`);
   if (!reasons.length && fitState(job) === "AMBIGUOUS") reasons.push("poucos dados para avaliar");
   return reasons;
 }
@@ -304,9 +439,20 @@ const TRACKING_OPTIONS = [
   ["", "—"],
   ["SAVED", "Salva"],
   ["APPLIED", "Aplicada"],
+  ["INTERVIEW", "Entrevista"],
+  ["OFFER", "Oferta"],
+  ["REJECTED", "Recusada"],
   ["DISCARDED", "Descartada"],
 ];
-const TRACKED_FILTER_STATUS = { saved: "SAVED", applied: "APPLIED", discarded: "DISCARDED" };
+const TRACKED_FILTER_STATUS = {
+  saved: "SAVED",
+  applied: "APPLIED",
+  interview: "INTERVIEW",
+  offer: "OFFER",
+  rejected: "REJECTED",
+  discarded: "DISCARDED",
+};
+const IN_PROGRESS = ["APPLIED", "INTERVIEW", "OFFER"];
 let linkedinLoaded = false;
 
 function normalized(value) {
@@ -318,7 +464,7 @@ function normalized(value) {
 
 function fitState(job) {
   const label = (job.match_labels ?? []).find((item) =>
-    /^FIT:(READY|CONDITIONAL|EXCLUDE|AMBIGUOUS)$/.test(String(item))
+    /^FIT:(READY|CONDITIONAL|EXCLUDE|OTHER_STACK|AMBIGUOUS)$/.test(String(item))
   );
   return label ? String(label).slice(4) : "AMBIGUOUS";
 }
@@ -336,6 +482,7 @@ function fitLabel(state) {
     CONDITIONAL: "A revisar",
     EXCLUDE: "Fora do perfil",
     AMBIGUOUS: "Dados insuficientes",
+    OTHER_STACK: "Outra stack",
   }[state] || "Dados insuficientes";
 }
 
@@ -356,6 +503,7 @@ function filteredJobs() {
     if (tracked === "active" && trackedStatus === "DISCARDED") return false;
     if (tracked === "new" && (trackedStatus || !(job.match_labels ?? []).includes("STATUS:NEW"))) return false;
     if (TRACKED_FILTER_STATUS[tracked] && trackedStatus !== TRACKED_FILTER_STATUS[tracked]) return false;
+    if (tracked === "inprogress" && !IN_PROGRESS.includes(trackedStatus)) return false;
     const haystack = normalized([
       job.title,
       job.company,
@@ -378,11 +526,13 @@ function filteredJobs() {
       return false;
     }
     if (match === "ready" && state !== "READY") return false;
+    if (match === "fit" && !["READY", "CONDITIONAL"].includes(state)) return false;
     if (match === "review" && !["CONDITIONAL", "AMBIGUOUS"].includes(state)) return false;
+    if (match === "otherstack" && state !== "OTHER_STACK") return false;
     if (match === "exclude" && state !== "EXCLUDE") return false;
-    return true;
+    return passesQuickFilters(job);
   }).sort((left, right) => {
-    const order = { READY: 0, CONDITIONAL: 1, AMBIGUOUS: 2, EXCLUDE: 3 };
+    const order = { READY: 0, CONDITIONAL: 1, AMBIGUOUS: 2, OTHER_STACK: 3, EXCLUDE: 4 };
     const byState = order[fitState(left)] - order[fitState(right)];
     const byFit =
       byState ||
@@ -407,10 +557,27 @@ async function loadTracking() {
     elements.liveStatus.textContent = `Acompanhamento indisponível: ${error.message}`;
   }
   renderTable();
+  renderFunnel();
 }
 
-async function updateTracking(job, status, select) {
+let toastTimer;
+let toastUndo = null;
+
+function showToast(text, undo) {
+  window.clearTimeout(toastTimer);
+  elements.toastText.textContent = text;
+  toastUndo = undo;
+  elements.toastUndo.hidden = !undo;
+  elements.toast.hidden = false;
+  toastTimer = window.setTimeout(() => { elements.toast.hidden = true; toastUndo = null; }, 8000);
+}
+
+const TRACKING_NAMES = Object.fromEntries(TRACKING_OPTIONS.filter(([value]) => value));
+
+async function updateTracking(job, status, select, { undoable = true } = {}) {
+  const previous = trackingStatus(job);
   select.disabled = true;
+  let saved = false;
   try {
     const response = await fetch("/api/tracking", {
       method: "PUT",
@@ -420,11 +587,23 @@ async function updateTracking(job, status, select) {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     trackingState = payload.jobs ?? {};
+    saved = true;
   } catch (error) {
     elements.liveStatus.textContent = `Não foi possível salvar o acompanhamento: ${error.message}`;
   } finally {
     select.disabled = false;
+    markSeen([job.canonical_url]);
     renderTable();
+    renderNews();
+    renderFunnel();
+  }
+  if (saved && undoable && previous !== status) {
+    const name = TRACKING_NAMES[status] || "sem acompanhamento";
+    const hidden = status === "DISCARDED" && elements.trackingFilter.value === "active";
+    showToast(
+      `"${job.title || "Vaga"}" marcada como ${name}${hidden ? " (some da lista)" : ""}.`,
+      () => updateTracking(job, previous, select, { undoable: false })
+    );
   }
 }
 
@@ -482,7 +661,7 @@ function renderTable() {
         "span",
         "job-meta",
         [
-          (job.technologies ?? []).slice(0, 4).join(" · ") || "Tecnologias não informadas",
+          jobTechnologies(job).slice(0, 4).join(" · ") || "Tecnologias não informadas",
           publishedLabel(job) && `publicada em ${publishedLabel(job)}`,
           alsoSeenIn(job).length && `também em ${alsoSeenIn(job).join(", ")}`,
         ].filter(Boolean).join(" — ")
@@ -496,7 +675,11 @@ function renderTable() {
     titleCell.title = expanded ? "Ocultar detalhes" : "Ver detalhes da vaga";
     const toggle = () => {
       if (expandedJobs.has(job.canonical_url)) expandedJobs.delete(job.canonical_url);
-      else expandedJobs.add(job.canonical_url);
+      else {
+        expandedJobs.add(job.canonical_url);
+        markSeen([job.canonical_url]);
+        renderNews();
+      }
       renderTable();
     };
     titleCell.addEventListener("click", toggle);
@@ -523,8 +706,9 @@ function renderTable() {
         fitLabel(fitState(job))
       )
     );
-    if ((job.match_labels ?? []).includes("STATUS:NEW")) {
+    if (isUnseen(job)) {
       matchCell.appendChild(textElement("span", "match-pill new", "Nova"));
+      row.classList.add("unseen");
     }
     const reasons = fitReasons(job);
     if (fitState(job) !== "READY" && reasons.length) {
@@ -542,6 +726,7 @@ function renderTable() {
     link.rel = "noopener noreferrer";
     link.setAttribute("aria-label", `Abrir vaga ${job.title || ""}`);
     link.textContent = "↗";
+    link.addEventListener("click", () => { markSeen([job.canonical_url]); renderNews(); });
     actionCell.appendChild(link);
     row.appendChild(actionCell);
     elements.tableBody.appendChild(row);
@@ -556,6 +741,12 @@ function renderTable() {
       : `${jobs.length} ${jobs.length === 1 ? "vaga" : "vagas"}`;
   elements.moreRow.hidden = jobs.length <= shown;
   elements.emptyState.hidden = jobs.length !== 0;
+  const noJobsYet = (dashboardState.jobs ?? []).length === 0;
+  elements.emptyTitle.textContent = noJobsYet ? "Ainda não há vagas aqui" : "Nenhuma vaga neste filtro";
+  elements.emptyText.textContent = noJobsYet
+    ? "Confira o seu perfil em \"Configurar busca\" e clique em \"Buscar vagas agora\". A busca completa leva alguns minutos; a \"Busca rápida (TI)\" é mais curta."
+    : "Nenhuma vaga combina com todos os filtros ativos. Limpe os filtros ou faça uma nova busca.";
+  elements.emptyClear.hidden = noJobsYet || filtersAreDefault();
   const reportParameters = new URLSearchParams();
   if (elements.textFilter.value.trim()) reportParameters.set("text", elements.textFilter.value.trim());
   if (elements.sourceFilter.value) reportParameters.set("source", elements.sourceFilter.value);
@@ -651,6 +842,21 @@ function renderSources() {
       )
     );
     const reported = reportSources.find((item) => item.source === source.source);
+    if (reported && Number.isFinite(reported.useful)) {
+      const useful = reported.useful;
+      copy.appendChild(textElement(
+        "small",
+        "source-yield",
+        `${useful} ${useful === 1 ? "útil" : "úteis"} · ${reported.compatible ?? 0} compatíveis · ${reported.discarded ?? 0} descartadas`
+      ));
+      if (useful === 0 && (reported.records ?? 0) >= 5) {
+        copy.appendChild(textElement(
+          "small",
+          "source-warning",
+          "Este portal rende pouco para o seu perfil: considere desmarcá-lo em Escolher portais."
+        ));
+      }
+    }
     (source.warnings ?? reported?.warnings ?? [])
       .map(countWarningText)
       .filter(Boolean)
@@ -686,10 +892,21 @@ function renderRunState() {
     ERROR: dashboardState.error || "A busca encontrou um erro.",
   };
   let message = messages[dashboardState.status] || "Painel pronto.";
+  if (running && !dashboardState.paused && !dashboardState.stopping) {
+    const finished = Object.values(dashboardState.sources ?? {});
+    if (finished.length) {
+      const read = finished.reduce((sum, source) => sum + (source.records ?? 0), 0);
+      message = `Buscando… ${finished.length} ${finished.length === 1 ? "portal concluído" : "portais concluídos"}, ${read} vagas lidas até agora.`;
+    }
+  }
   if (running && dashboardState.stopping) {
     message = "Encerrando… terminando a consulta atual e salvando as vagas.";
   } else if (running && dashboardState.paused) {
     message = "Busca pausada. Nenhuma página nova é consultada até você retomar.";
+  }
+  const exports = dashboardState.exports ?? [];
+  if (!running && exports.length) {
+    message += ` Planilha salva em ${exports[exports.length - 1]}.`;
   }
   elements.liveStatus.textContent = dashboardState.read_error
     ? `Não foi possível ler a saída: ${dashboardState.read_error}`
@@ -703,7 +920,11 @@ async function controlSearch(action) {
   elements.pauseButton.disabled = true;
   elements.stopButton.disabled = true;
   try {
-    const response = await fetch(`/api/search/${action}`, { method: "POST" });
+    const response = await fetch(`/api/search/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     Object.assign(dashboardState, payload);
@@ -714,21 +935,120 @@ async function controlSearch(action) {
   await refreshState();
 }
 
+// Funil de candidatura (todas as vagas acompanhadas, não só as da lista atual).
+const FUNNEL_STAGES = [
+  ["SAVED", "salva", "salvas", "saved"],
+  ["APPLIED", "aplicada", "aplicadas", "applied"],
+  ["INTERVIEW", "entrevista", "entrevistas", "interview"],
+  ["OFFER", "oferta", "ofertas", "offer"],
+  ["REJECTED", "recusada", "recusadas", "rejected"],
+];
+
+function setTrackingFilter(value) {
+  elements.trackingFilter.value = value;
+  saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  renderTable();
+}
+
+function renderFunnel() {
+  const counts = {};
+  Object.values(trackingState).forEach((entry) => {
+    counts[entry.status] = (counts[entry.status] ?? 0) + 1;
+  });
+  const total = FUNNEL_STAGES.reduce((sum, [status]) => sum + (counts[status] ?? 0), 0);
+  elements.funnel.hidden = total === 0;
+  if (!total) return;
+  const inProgress = IN_PROGRESS.reduce((sum, status) => sum + (counts[status] ?? 0), 0);
+  const parts = FUNNEL_STAGES.map(([status, one, many, filter]) => {
+    const count = counts[status] ?? 0;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "funnel-step";
+    button.textContent = `${count} ${count === 1 ? one : many}`;
+    button.title = `Mostrar só as vagas: ${many}`;
+    button.addEventListener("click", () => setTrackingFilter(filter));
+    return button;
+  });
+  const progress = document.createElement("button");
+  progress.type = "button";
+  progress.className = "chip funnel-progress";
+  progress.textContent = `Em processo: ${inProgress}`;
+  progress.addEventListener("click", () => setTrackingFilter("inprogress"));
+  elements.funnel.replaceChildren(textElement("span", "funnel-label", "Seu funil:"), ...parts, progress);
+}
+
+// Faixa "N vagas compatíveis novas para você".
+function newsJobs() {
+  return (dashboardState.jobs ?? []).filter((job) =>
+    !isOffTopic(job)
+    && ["READY", "CONDITIONAL"].includes(fitState(job))
+    && !trackingStatus(job)
+    && isUnseen(job)
+  );
+}
+
+function renderNews() {
+  const fresh = newsJobs();
+  elements.newsBanner.hidden = fresh.length === 0;
+  if (!fresh.length) return;
+  const ready = fresh.filter((job) => fitState(job) === "READY").length;
+  const since = seen.known ? "que você ainda não viu" : "nesta última busca";
+  elements.newsText.textContent =
+    `${fresh.length} ${fresh.length === 1 ? "vaga compatível nova" : "vagas compatíveis novas"} ${since}` +
+    (ready ? ` (${ready} mais compatíveis).` : ".");
+}
+
+function showNews() {
+  elements.textFilter.value = "";
+  elements.sourceFilter.value = "";
+  elements.matchFilter.value = "fit";
+  elements.trackingFilter.value = "active";
+  quickFilters.clear();
+  quickFilters.add("unseen");
+  syncQuickChips();
+  saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  renderTable();
+  elements.tableBody.closest(".workspace")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function render() {
   updateSourceFilter();
   renderSummary();
+  renderNews();
   renderTable();
   renderSources();
   renderRunState();
 }
 
+// Versão do vagas.jsonl já desenhada: o servidor só manda as vagas se ela mudou.
+let outputVersion = "";
+
 async function refreshState() {
   window.clearTimeout(refreshTimer);
   try {
-    const response = await fetch("/api/state", { cache: "no-store" });
+    const query = outputVersion ? `?since=${encodeURIComponent(outputVersion)}` : "";
+    const response = await fetch(`/api/state${query}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    dashboardState = await response.json();
-    render();
+    const fresh = await response.json();
+    if (fresh.unchanged) {
+      // Mesmas vagas: atualiza progresso e resumo sem recriar a tabela (mantém
+      // o foco do teclado e as linhas expandidas).
+      dashboardState = {
+        ...fresh,
+        jobs: dashboardState.jobs,
+        report: dashboardState.report,
+        read_error: dashboardState.read_error,
+      };
+      renderSummary();
+      renderSources();
+      renderRunState();
+    } else {
+      dashboardState = fresh;
+      render();
+    }
+    outputVersion = fresh.output_version || "";
   } catch (error) {
     elements.liveStatus.textContent = `Interface sem conexão com o coletor: ${error.message}`;
   }
@@ -979,6 +1299,66 @@ function showExport(show) {
   );
   elements.exportSource.value = sources.has(selected) ? selected : "";
   refreshExportLinks();
+  loadAutoExport();
+}
+
+// --- Exportação automática (pasta do usuário, ao fim de cada busca) ---
+async function autoExportRequest(path, method, body) {
+  const response = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: "no-store",
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+  return payload;
+}
+
+async function loadAutoExport() {
+  try {
+    const settings = await autoExportRequest("/api/auto-export", "GET");
+    elements.autoExportEnabled.checked = settings.enabled;
+    elements.autoExportFolder.value = settings.folder;
+  } catch (error) {
+    elements.autoExportStatus.textContent = `Não foi possível ler a configuração: ${error.message}`;
+  }
+}
+
+async function saveAutoExport() {
+  try {
+    const settings = await autoExportRequest("/api/auto-export", "PUT", {
+      enabled: elements.autoExportEnabled.checked,
+      folder: elements.autoExportFolder.value.trim(),
+    });
+    elements.autoExportFolder.value = settings.folder;
+    elements.autoExportStatus.textContent = settings.enabled
+      ? `Ligada: cada busca salva as planilhas em ${settings.folder}.`
+      : "Desligada: as buscas não geram planilhas sozinhas.";
+  } catch (error) {
+    elements.autoExportStatus.textContent = `Não foi possível salvar: ${error.message}`;
+  }
+}
+
+async function runAutoExport() {
+  elements.autoExportStatus.textContent = "Exportando…";
+  try {
+    const result = await autoExportRequest("/api/auto-export/run", "POST", {});
+    elements.autoExportStatus.textContent = result.files.length
+      ? `Pronto: ${result.files.length} arquivos em ${result.folder}.`
+      : "Ainda não há vagas de TI para exportar.";
+  } catch (error) {
+    elements.autoExportStatus.textContent = error.message;
+  }
+}
+
+async function openAutoExportFolder() {
+  try {
+    const result = await autoExportRequest("/api/auto-export/open", "POST", {});
+    elements.autoExportStatus.textContent = `Pasta aberta: ${result.folder}`;
+  } catch (error) {
+    elements.autoExportStatus.textContent = error.message;
+  }
 }
 
 async function importLinkedinText() {
@@ -1255,6 +1635,51 @@ function fillPreferencesForm(payload) {
   refreshTagInputs();
   updateSearchTermsCount();
   elements.preferencesImpact.hidden = true;
+  updateProfileSummary();
+  // Filtros avançados abrem sozinhos quando algum já está em uso.
+  if (updateRefineCount() > 0) elements.refineDetails.open = true;
+}
+
+const LEVEL_NAMES = { estagio: "Estágio", junior: "Júnior", pleno: "Pleno", senior: "Sênior" };
+const MODEL_NAMES = { REMOTE: "Remoto", HYBRID: "Híbrido", ONSITE: "Presencial" };
+
+function listPreview(values, limit = 3) {
+  if (!values.length) return "";
+  const shown = values.slice(0, limit).join(", ");
+  return values.length > limit ? `${shown} +${values.length - limit}` : shown;
+}
+
+// "Você procura: ..." — o perfil em uma linha, atualizado enquanto edita.
+function updateProfileSummary() {
+  const payload = currentPreferencesPayload();
+  const stacks = [...document.querySelectorAll('#stack-chips [aria-pressed="true"]')]
+    .map((chip) => chip.textContent.trim());
+  const parts = [
+    stacks.length ? listPreview(stacks, 2) : null,
+    payload.seniority_levels.map((level) => LEVEL_NAMES[level] || level).join(", ") || "qualquer nível",
+    payload.workplace_models.map((model) => MODEL_NAMES[model] || model).join(", ") || "qualquer modelo",
+    listPreview(payload.location_scopes) || "sem localidade",
+    `${payload.search_terms.length} ${payload.search_terms.length === 1 ? "termo" : "termos"} de busca`,
+    `${payload.technologies.length} tecnologias`,
+  ].filter(Boolean);
+  elements.profileSummary.textContent = `Você procura: ${parts.join(" · ")}`;
+}
+
+function updateRefineCount() {
+  const payload = currentPreferencesPayload();
+  const active = [
+    payload.required_keywords,
+    payload.bonus_keywords,
+    payload.blocked_keywords,
+    payload.excluded_terms,
+    payload.excluded_companies,
+    payload.favorite_companies,
+    payload.contract_types,
+  ].filter((values) => values.length).length + (payload.avoid_advanced_english ? 1 : 0);
+  elements.refineCount.textContent = active
+    ? `${active} ${active === 1 ? "ativo" : "ativos"}`
+    : "nenhum ativo";
+  return active;
 }
 
 const SENIORITY_BOXES = () => [
@@ -1467,6 +1892,8 @@ function impactText(summary, prefix) {
     `${summary.conditional + summary.ambiguous} a revisar`,
     `${summary.exclude} fora do perfil`,
   ];
+  if (summary.other_stack) parts.splice(2, 0, `${summary.other_stack} de outra stack`);
+  if (summary.recovered) parts.push(`${summary.recovered} voltam das descartadas na coleta`);
   if (summary.by_preferences) parts.push(`${summary.by_preferences} cortadas pelos filtros finos`);
   if (summary.boosted) parts.push(`${summary.boosted} com diferencial ou empresa favorita`);
   const changed = summary.changed ? ` ${summary.changed} mudaram de faixa.` : "";
@@ -1702,6 +2129,8 @@ async function undoCleanup() {
   elements.cleanupStatus.textContent = "Desfazendo…";
   try {
     const result = await profileRequest("/api/cleanup/undo", {});
+    // O backup foi consumido: a caixa some junto com a mensagem, sem esperar recarregar.
+    elements.undoBox.hidden = true;
     elements.cleanupStatus.textContent = `${result.restored} vagas devolvidas. A lista tem ${result.total} vagas.`;
     await refreshState();
     await refreshCleanupOverview();
@@ -1805,6 +2234,10 @@ elements.preferencesButton.addEventListener("click", async () => {
 });
 elements.closePreferences.addEventListener("click", () => showPreferences(false));
 elements.preferencesForm.addEventListener("submit", savePreferences);
+["input", "change"].forEach((type) =>
+  elements.preferencesForm.addEventListener(type, () => { updateProfileSummary(); updateRefineCount(); })
+);
+elements.stackChips.addEventListener("click", () => window.setTimeout(updateProfileSummary, 0));
 elements.applySuggestions.addEventListener("click", applySuggestions);
 document.querySelectorAll("textarea.tag-source").forEach(setupTagInput);
 elements.searchTerms.addEventListener("input", updateSearchTermsCount);
@@ -1871,6 +2304,10 @@ elements.linkedinButton.addEventListener("click", async () => {
 });
 elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
 elements.exportButton.addEventListener("click", () => showExport(elements.exportPanel.hidden));
+elements.autoExportEnabled.addEventListener("change", saveAutoExport);
+elements.autoExportSave.addEventListener("click", saveAutoExport);
+elements.autoExportRun.addEventListener("click", runAutoExport);
+elements.autoExportOpen.addEventListener("click", openAutoExportFolder);
 elements.closeExport.addEventListener("click", () => showExport(false));
 document.querySelectorAll("[data-preset]").forEach((chip) =>
   chip.addEventListener("click", () => applyExportPreset(chip.dataset.preset))
@@ -1905,6 +2342,28 @@ elements.linkedinImportButton.addEventListener("click", importLinkedinText);
   filter.addEventListener("change", () => { saveFilters(); rerender(); });
 });
 elements.clearFilters.addEventListener("click", resetFilters);
+elements.emptyClear.addEventListener("click", resetFilters);
+elements.quickChips.forEach((chip) => chip.addEventListener("click", () => {
+  const name = chip.dataset.quick;
+  if (quickFilters.has(name)) quickFilters.delete(name);
+  else quickFilters.add(name);
+  syncQuickChips();
+  saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  renderTable();
+}));
+elements.newsShow.addEventListener("click", showNews);
+elements.newsDismiss.addEventListener("click", () => {
+  markSeen((dashboardState.jobs ?? []).map((job) => job.canonical_url));
+  renderNews();
+  renderTable();
+});
+elements.toastUndo.addEventListener("click", () => {
+  const undo = toastUndo;
+  elements.toast.hidden = true;
+  toastUndo = null;
+  if (undo) undo();
+});
 [[elements.cardAll, ""], [elements.cardReady, "ready"]].forEach(([card, match]) => {
   card.addEventListener("click", () => focusResults(match));
   card.addEventListener("keydown", (event) => {
@@ -1932,5 +2391,6 @@ elements.toggleSources.addEventListener("click", () => {
 });
 
 restoreFilters();
-refreshState();
-loadTracking();
+// Acompanhamento primeiro: a lista é desenhada uma vez só, já com o status
+// de cada vaga (antes as duas cargas corriam e a tabela piscava na abertura).
+loadTracking().finally(refreshState);

@@ -15,6 +15,10 @@ from typing import Any, Mapping, Sequence
 from xml.sax.saxutils import escape, quoteattr
 import zipfile
 
+from job_radar.dates import parse_iso_datetime
+from job_radar.fit import fit_state, job_technologies
+from job_radar.tracking import TRACKING_NAMES
+
 _ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 _LEVEL_NAMES = {
     "estagio": "Estágio",
@@ -22,13 +26,13 @@ _LEVEL_NAMES = {
     "pleno": "Pleno",
     "senior": "Sênior",
 }
-_WORKPLACE_NAMES = {
+WORKPLACE_NAMES = {
     "REMOTE": "Remoto",
     "HYBRID": "Híbrido",
     "ONSITE": "Presencial",
     "UNKNOWN": "A confirmar",
 }
-_TRACKING_NAMES = {"SAVED": "Salva", "APPLIED": "Aplicada", "DISCARDED": "Descartada"}
+_TRACKING_NAMES = TRACKING_NAMES
 
 # Índices de estilo (ver _STYLES).
 _S_HEADER, _S_TEXT, _S_CENTER, _S_LINK, _S_DATE = 1, 2, 3, 4, 5
@@ -109,26 +113,8 @@ def _column_letter(index: int) -> str:
     return letters
 
 
-def _parse_datetime(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-
-
 def _labels(job: Mapping[str, Any]) -> list[str]:
     return [str(label) for label in job.get("match_labels") or []]
-
-
-def fit_state(job: Mapping[str, Any]) -> str:
-    labels = _labels(job)
-    for state in ("READY", "CONDITIONAL", "EXCLUDE", "AMBIGUOUS"):
-        if f"FIT:{state}" in labels:
-            return state
-    return "AMBIGUOUS"
 
 
 def fit_points(job: Mapping[str, Any]) -> int:
@@ -161,7 +147,7 @@ def job_score(job: Mapping[str, Any], now: datetime | None = None) -> int:
     if state == "EXCLUDE" or points < 0:
         return 0
     score = points * 20 + (10 if state == "READY" else 0) + boost_points(job)
-    published = _parse_datetime(job.get("published_at"))
+    published = parse_iso_datetime(job.get("published_at"))
     if published is not None:
         age = ((now or datetime.now(timezone.utc)) - published).days
         for limit, bonus in ((3, 10), (7, 7), (14, 4), (30, 2)):
@@ -187,14 +173,21 @@ def _observations(job: Mapping[str, Any], note: str, reasons: Sequence[str]) -> 
 
 def _status(job: Mapping[str, Any], tracking_status: str) -> tuple[str, int]:
     if tracking_status in _TRACKING_NAMES:
-        style = {"SAVED": _S_BLUE, "APPLIED": _S_GREEN, "DISCARDED": _S_GRAY}[tracking_status]
+        style = {
+            "SAVED": _S_BLUE,
+            "APPLIED": _S_GREEN,
+            "INTERVIEW": _S_GREEN,
+            "OFFER": _S_GREEN,
+            "REJECTED": _S_GRAY,
+            "DISCARDED": _S_GRAY,
+        }[tracking_status]
         return _TRACKING_NAMES[tracking_status], style
     if "STATUS:NEW" in _labels(job):
         return "Nova", _S_BLUE
     return "Descoberta", _S_CENTER
 
 
-def _level(job: Mapping[str, Any]) -> str:
+def level_name(job: Mapping[str, Any]) -> str:
     raw = str(job.get("seniority") or "").casefold()
     return _LEVEL_NAMES.get(raw, raw.title())
 
@@ -290,7 +283,7 @@ def build_jobs_xlsx(
         ((job_score(job, now), job) for job in jobs),
         key=lambda item: (
             -item[0],
-            -(_parse_datetime(item[1].get("published_at")) or datetime.min.replace(tzinfo=timezone.utc)).timestamp(),
+            -(parse_iso_datetime(item[1].get("published_at")) or datetime.min.replace(tzinfo=timezone.utc)).timestamp(),
         ),
     )
     header = [(name, _S_HEADER) for name, _ in COLUMNS]
@@ -306,7 +299,7 @@ def build_jobs_xlsx(
             "HYBRID": _S_YELLOW,
             "ONSITE": _S_ORANGE,
         }.get(workplace, _S_CENTER)
-        published = _parse_datetime(job.get("published_at"))
+        published = parse_iso_datetime(job.get("published_at"))
         score_style = _S_SCORE_HIGH if score >= 80 else _S_SCORE_MID if score >= 60 else _S_SCORE_LOW
         url = _safe_link(job.get("canonical_url"))
         row_number = len(rows) + 1
@@ -317,14 +310,14 @@ def build_jobs_xlsx(
             [
                 (job.get("company") or "Não informada", _S_TEXT),
                 (job.get("title") or "Cargo não informado", _S_TEXT),
-                (_level(job), _S_CENTER),
-                (_WORKPLACE_NAMES.get(workplace, workplace), workplace_style),
+                (level_name(job), _S_CENTER),
+                (WORKPLACE_NAMES.get(workplace, workplace), workplace_style),
                 (job.get("location") or job.get("remote_scope") or "", _S_TEXT),
                 (score, score_style),
                 (status, status_style),
                 ((published.date() - epoch).days if published else None, _S_DATE),
                 (url or "", _S_LINK if url else _S_TEXT),
-                (", ".join(job.get("technologies") or []), _S_TEXT),
+                (", ".join(job_technologies(job)), _S_TEXT),
                 (job.get("source") or "", _S_CENTER),
                 (_observations(job, entry.get("note", ""), reasons), _S_TEXT),
             ]

@@ -4,6 +4,8 @@ from html import escape as escape_html
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
+from job_radar.fit import fit_state
+
 
 _MARKDOWN_SPECIALS = "\\`*{}[]<>()#+-.!|"
 
@@ -27,16 +29,7 @@ def _safe_url(value: Any) -> str | None:
 
 
 def _fit_group(job: Mapping[str, Any]) -> str:
-    labels = job.get("match_labels")
-    if not isinstance(labels, Sequence) or isinstance(labels, (str, bytes)):
-        return "ambiguous"
-    if "FIT:READY" in labels:
-        return "ready"
-    if "FIT:CONDITIONAL" in labels:
-        return "conditional"
-    if "FIT:EXCLUDE" in labels:
-        return "exclude"
-    return "ambiguous"
+    return fit_state(job).casefold()
 
 
 def build_markdown_report(
@@ -50,6 +43,7 @@ def build_markdown_report(
         "ready": [],
         "conditional": [],
         "ambiguous": [],
+        "other_stack": [],
         "exclude": [],
     }
     for job in jobs:
@@ -99,6 +93,7 @@ def build_markdown_report(
         ("ready", "Mais compativeis"),
         ("conditional", "A revisar"),
         ("ambiguous", "Dados insuficientes"),
+        ("other_stack", "Outra stack"),
         ("exclude", "Fora do perfil"),
     )
     for key, label in headings:

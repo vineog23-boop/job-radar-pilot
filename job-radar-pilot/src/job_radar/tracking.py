@@ -14,7 +14,18 @@ import tempfile
 from urllib.parse import urlsplit
 
 
-TRACKING_STATUSES = ("SAVED", "APPLIED", "DISCARDED")
+# Funil de candidatura, na ordem em que a pessoa avança.
+TRACKING_STATUSES = ("SAVED", "APPLIED", "INTERVIEW", "OFFER", "REJECTED", "DISCARDED")
+TRACKING_NAMES = {
+    "SAVED": "Salva",
+    "APPLIED": "Aplicada",
+    "INTERVIEW": "Entrevista",
+    "OFFER": "Oferta",
+    "REJECTED": "Recusada",
+    "DISCARDED": "Descartada",
+}
+# "Em processo": já se candidatou e ainda não teve resposta final.
+IN_PROGRESS_STATUSES = ("APPLIED", "INTERVIEW", "OFFER")
 _MAX_URL_LENGTH = 2048
 _MAX_NOTE_LENGTH = 500
 
@@ -70,7 +81,7 @@ class TrackingStore:
     ) -> dict[str, dict[str, str]]:
         canonical = _validated_url(url)
         if status is not None and status not in TRACKING_STATUSES:
-            raise TrackingError("Estado aceita SAVED, APPLIED, DISCARDED ou vazio.")
+            raise TrackingError(f"Estado aceita {', '.join(TRACKING_STATUSES)} ou vazio.")
         if note is not None and not isinstance(note, str):
             raise TrackingError("Nota deve ser texto.")
         cleaned_note = " ".join((note or "").split())
@@ -81,9 +92,15 @@ class TrackingStore:
         if status is None:
             entries.pop(canonical, None)
         else:
-            entry = {"status": str(status), "updated_at": now.isoformat()}
-            if cleaned_note:
-                entry["note"] = cleaned_note
+            previous = entries.get(canonical, {})
+            # Datas de cada etapa já alcançada (applied_at, interview_at...) ficam.
+            entry = {key: value for key, value in previous.items() if key.endswith("_at")}
+            entry.update({"status": str(status), "updated_at": now.isoformat()})
+            entry.setdefault(f"{str(status).lower()}_at", now.isoformat())
+            # Sem nota no pedido (ex.: mudar o estado pelo painel), a nota antiga fica.
+            kept_note = cleaned_note if note is not None else previous.get("note", "")
+            if kept_note:
+                entry["note"] = kept_note
             entries[canonical] = entry
         self._write(entries)
         return entries

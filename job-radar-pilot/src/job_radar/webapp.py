@@ -1125,7 +1125,11 @@ def _dashboard_handler(
                 preferences = validate_preferences_payload(self._read_json_body(limit=65_536))
                 profile, countries = self._profile_for(preferences)
                 result = reclassify_output(
-                    controller.output_dir, profile, countries, dry_run=True
+                    controller.output_dir,
+                    profile,
+                    countries,
+                    dry_run=True,
+                    rules=self._cleanup_rules(),
                 )
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
@@ -1208,6 +1212,11 @@ def _dashboard_handler(
             if action != "delete":
                 body["preferences"] = self._load_preferences_payload()
             self._json(200, body)
+
+        def _cleanup_rules(self) -> Any:
+            from job_radar.cleanup import load_rules
+
+            return load_rules(self._resolved_preferences_path())
 
         def _rules_payload(self) -> dict[str, Any]:
             from job_radar.cleanup import REASON_NAMES, load_rules
@@ -1413,7 +1422,10 @@ def _dashboard_handler(
                         profile, countries = self._profile_for(preferences)
                         with OutputLock(controller.output_dir):
                             body["reapplied"] = reclassify_output(
-                                controller.output_dir, profile, countries
+                                controller.output_dir,
+                                profile,
+                                countries,
+                                rules=self._cleanup_rules(),
                             )
                     except OutputBusyError as exc:
                         body["reapply_skipped"] = str(exc)

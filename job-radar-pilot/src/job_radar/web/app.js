@@ -1492,6 +1492,7 @@ function impactText(summary, prefix) {
     `${summary.exclude} fora do perfil`,
   ];
   if (summary.other_stack) parts.splice(2, 0, `${summary.other_stack} de outra stack`);
+  if (summary.recovered) parts.push(`${summary.recovered} voltam das descartadas na coleta`);
   if (summary.by_preferences) parts.push(`${summary.by_preferences} cortadas pelos filtros finos`);
   if (summary.boosted) parts.push(`${summary.boosted} com diferencial ou empresa favorita`);
   const changed = summary.changed ? ` ${summary.changed} mudaram de faixa.` : "";

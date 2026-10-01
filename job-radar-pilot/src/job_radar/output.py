@@ -183,6 +183,33 @@ def _csv_text(payloads: Any) -> str:
     return buffer.getvalue()
 
 
+def _discarded_to_keep(
+    output_dir: Path,
+    pruned_jobs: list[dict[str, Any]],
+    kept: tuple[dict[str, Any], ...],
+    *,
+    result: PipelineResult,
+    merge_unrefreshed: bool,
+    partial: set[str],
+) -> list[dict[str, Any]]:
+    """Cesto novo: podadas agora + as antigas dos portais que não foram refeitos."""
+
+    from job_radar.cleanup import read_discarded
+
+    carried: list[dict[str, Any]] = []
+    if merge_unrefreshed:
+        refreshed = {source.source_code for source in result.source_results}
+        seen_now = {job.get("canonical_url") for job in (*kept, *pruned_jobs)}
+        carried = [
+            job
+            for job in read_discarded(output_dir)
+            if job.get("source") not in refreshed - partial
+            and job.get("canonical_url") not in seen_now
+        ]
+    kept_urls = {job.get("canonical_url") for job in kept}
+    return [job for job in (*pruned_jobs, *carried) if job.get("canonical_url") not in kept_urls]
+
+
 def rewrite_payloads(output_dir: Path, payloads: list[dict[str, Any]]) -> None:
     """Reescreve ``vagas.jsonl`` e ``vagas.csv`` com os registros informados.
 
@@ -274,6 +301,7 @@ def write_outputs(
         payloads_list.extend(carried)
         carried_sources = _previous_report_sources(final_report, refreshed)
     discarded: dict[str, int] = {}
+    pruned_jobs: list[dict[str, Any]] = []
     if prune:
         from job_radar.cleanup import prune_payloads
 
@@ -282,8 +310,17 @@ def write_outputs(
             keep_urls=keep_urls,
             max_age_days=max_age_days,
             rules=rules,
+            removed_jobs=pruned_jobs,
         )
     payloads = tuple(payloads_list)
+    discarded_jobs = _discarded_to_keep(
+        output_dir,
+        pruned_jobs,
+        payloads,
+        result=result,
+        merge_unrefreshed=merge_unrefreshed,
+        partial=partial,
+    )
 
     try:
         with temp_jsonl.open("w", encoding="utf-8", newline="\n") as handle:
@@ -348,6 +385,10 @@ def write_outputs(
     finally:
         for temporary in temporary_files:
             temporary.unlink(missing_ok=True)
+
+    from job_radar.cleanup import write_discarded
+
+    write_discarded(output_dir, discarded_jobs)
 
     return OutputManifest(
         final_jsonl,

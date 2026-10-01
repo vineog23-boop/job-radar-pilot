@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import fields
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -172,14 +173,40 @@ def reclassify_output(
     default_countries: Mapping[str, str | None] | None = None,
     *,
     dry_run: bool = False,
+    rules: Any = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
+    """Reaplica o perfil às vagas salvas e às que a coleta descartou.
+
+    Descartadas que passam nas regras de limpeza (``rules``) com o perfil novo
+    voltam para a lista (``recovered``); as demais continuam no cesto.
+    """
+
+    from job_radar.cleanup import CleanupRules, discard_reason, read_discarded, write_discarded
     from job_radar.output import rewrite_payloads
 
     previous = read_payloads(output_dir)
     updated = reclassify_payloads(previous, profile, default_countries)
-    if updated and not dry_run:
-        rewrite_payloads(output_dir, updated)
-    return {**summarize(updated, previous), "dry_run": dry_run}
+    present = {payload.get("canonical_url") for payload in updated}
+    active_rules = rules or CleanupRules()
+    moment = now or datetime.now(timezone.utc)
+    discarded = read_discarded(output_dir)
+    recovered: list[dict[str, Any]] = []
+    still_discarded: list[dict[str, Any]] = []
+    for payload in reclassify_payloads(discarded, profile, default_countries):
+        if payload.get("canonical_url") in present:
+            continue
+        if discard_reason(payload, now=moment, rules=active_rules) is None:
+            recovered.append(payload)
+        else:
+            still_discarded.append(payload)
+    final = updated + recovered
+    if not dry_run:
+        if final:
+            rewrite_payloads(output_dir, final)
+        if discarded:
+            write_discarded(output_dir, still_discarded)
+    return {**summarize(final, previous), "recovered": len(recovered), "dry_run": dry_run}
 
 
 def insights(

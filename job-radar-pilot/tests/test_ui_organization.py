@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from urllib.request import urlopen
 
-from tests.test_xlsx_export import NOW, _job, _serve
+from test_xlsx_export import NOW, _job, _serve
 from job_radar.webapp import build_jobs_ai_text
 
 

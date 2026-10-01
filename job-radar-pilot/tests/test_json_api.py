@@ -192,7 +192,7 @@ def test_state_names_from_scopes_dedupes_and_limits() -> None:
 
 
 def test_shipped_config_declares_json_sources() -> None:
-    sources = {s.code: s for s in load_sources(Path("config/sources.yaml"))}
+    sources = {s.code: s for s in load_sources(Path(__file__).resolve().parents[1] / "config" / "sources.yaml")}
     assert sources["gupy-api"].kind is SourceKind.JSON
     assert sources["primeiravagatech"].kind is SourceKind.JSON
     assert sources["gupy-api"].api["fields"]["url"] == "jobUrl"

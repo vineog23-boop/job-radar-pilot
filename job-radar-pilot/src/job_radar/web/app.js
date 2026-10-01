@@ -248,6 +248,8 @@ function detailRow(job) {
   if (reasons.length) facts.push(`Atenção — ${reasons.join(" · ")}`);
   const also = alsoSeenIn(job);
   if (also.length) facts.push(`Também em ${also.join(", ")}`);
+  const reposted = (job.match_labels ?? []).map(String).find((label) => label.startsWith("REPOSTED:"));
+  if (reposted) facts.push(`Republicada ${reposted.slice(9)}× neste portal (mostramos o anúncio mais recente)`);
   if (job.employment_type) facts.push(`Contrato: ${job.employment_type}`);
   if (publishedLabel(job)) facts.push(`Publicada em ${publishedLabel(job)}`);
   const list = document.createElement("ul");

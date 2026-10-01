@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Callable, Sequence
+from typing import Callable, Collection, Sequence
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from job_radar.adaptive import AdaptiveCardLocator
@@ -253,8 +253,11 @@ class JobRadarPipeline:
         enrich_limit: int = 0,
         enrich_fetcher_factory: Callable[[], FetchPolicy] | None = None,
         control: RunControl | None = None,
+        preferred_urls: Collection[str] = (),
     ) -> None:
         self._control = control or run_control.current()
+        # URLs que a pessoa acompanha: na deduplicação, são elas que ficam.
+        self._preferred_urls = frozenset(preferred_urls)
         self.stopped = False
         if workers < 1 or workers > 4:
             raise ValueError("workers deve estar entre 1 e 4")
@@ -561,7 +564,7 @@ class JobRadarPipeline:
             )
             raw_records = list(enriched_records)
         classified = tuple(classify_one(record) for record in raw_records)
-        deduplicated = deduplicate(classified)
+        deduplicated = deduplicate(classified, preferred_urls=self._preferred_urls)
         unique = deduplicated.unique
         if self._history is not None:
             unique = self._history.annotate(unique, self._now())

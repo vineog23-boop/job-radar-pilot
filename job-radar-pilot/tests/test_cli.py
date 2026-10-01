@@ -661,3 +661,24 @@ def test_collect_keeps_everything_when_tracking_is_unreadable(
     assert exit_code == 0
     assert len(lines) == 1
     assert "acompanhamento" in capsys.readouterr().err
+
+
+def test_collect_passes_tracked_urls_to_deduplication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    local = tmp_path / "local"
+    (local / "JobRadar").mkdir(parents=True)
+    (local / "JobRadar" / "tracking.json").write_text(
+        json.dumps({"version": 1, "jobs": {"https://x.com/1": {"status": "SAVED"}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    FakePipeline.result = _pipeline_result()
+    monkeypatch.setattr(cli, "JobRadarPipeline", FakePipeline)
+    monkeypatch.setattr(cli, "FetchPolicy", FakeFetchPolicy)
+
+    cli.main(["collect", "--source", "programathor", "--no-history", "--output", str(tmp_path / "o")])
+
+    assert FakePipeline.kwargs["preferred_urls"] == frozenset({"https://x.com/1"})

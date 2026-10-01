@@ -265,19 +265,6 @@ def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
                 flush=True,
             )
 
-    history = None if getattr(args, "no_history", False) else SeenHistory()
-    control_file = getattr(args, "control_file", None)
-    run_control.activate(RunControl(control_file) if control_file else None)
-    try:
-        result = _run_pipeline(args, sources, profile, history, print_source_progress)
-    finally:
-        run_control.activate(None)
-    if result.stopped:
-        print("STOPPED: busca interrompida; o que ja foi encontrado sera salvo.", flush=True)
-    for item in result.source_results:
-        for warning in item.warnings:
-            if warning.startswith("SOURCE_COUNT_"):
-                print(f"WARNING {item.source_code}: {warning}", flush=True)
     keep_urls: frozenset[str] = frozenset()
     prune = not getattr(args, "keep_all", False)
     try:
@@ -293,6 +280,21 @@ def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
                 flush=True,
             )
         prune = False
+    history = None if getattr(args, "no_history", False) else SeenHistory()
+    control_file = getattr(args, "control_file", None)
+    run_control.activate(RunControl(control_file) if control_file else None)
+    try:
+        result = _run_pipeline(
+            args, sources, profile, history, print_source_progress, preferred_urls=keep_urls
+        )
+    finally:
+        run_control.activate(None)
+    if result.stopped:
+        print("STOPPED: busca interrompida; o que ja foi encontrado sera salvo.", flush=True)
+    for item in result.source_results:
+        for warning in item.warnings:
+            if warning.startswith("SOURCE_COUNT_"):
+                print(f"WARNING {item.source_code}: {warning}", flush=True)
     manifest = write_outputs(
         result,
         args.output.resolve(),
@@ -319,7 +321,7 @@ def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
     return 0 if all(item.status in complete_statuses for item in result.source_results) else 3
 
 
-def _run_pipeline(args, sources, profile, history, print_source_progress):
+def _run_pipeline(args, sources, profile, history, print_source_progress, preferred_urls=()):
     if args.workers == 1:
         with FetchPolicy() as fetcher:
             pipeline = JobRadarPipeline(
@@ -330,6 +332,7 @@ def _run_pipeline(args, sources, profile, history, print_source_progress):
                 on_source_done=print_source_progress,
                 history=history,
                 enrich_limit=args.enrich_limit,
+                preferred_urls=preferred_urls,
             )
             result = pipeline.run(args.sources)
     else:
@@ -341,6 +344,7 @@ def _run_pipeline(args, sources, profile, history, print_source_progress):
             on_source_done=print_source_progress,
             history=history,
             enrich_limit=args.enrich_limit,
+            preferred_urls=preferred_urls,
         )
         result = pipeline.run(args.sources)
     return result

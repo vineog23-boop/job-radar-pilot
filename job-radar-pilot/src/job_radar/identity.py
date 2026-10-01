@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from hashlib import sha256
 import re
-from typing import Iterable
+from typing import Collection, Iterable
 import unicodedata
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from job_radar.dates import parse_iso_datetime
 from job_radar.models import VacancyRecord
 
 
@@ -96,13 +98,67 @@ def _semantic_text(value: str | None) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", without_accents))
 
 
-def _semantic_key(record: VacancyRecord) -> tuple[str, str, str] | None:
-    title = _semantic_text(record.title)
-    company = _semantic_text(record.company)
-    location = _semantic_text(record.location)
-    if not title or not company or not location or title in _GENERIC_TITLES:
+# Palavras do cargo que dizem onde/como é a vaga, não qual é a vaga.
+_TITLE_NOISE = {
+    "remoto", "remota", "remote", "home", "office", "hibrido", "hibrida", "hybrid",
+    "presencial", "onsite", "100", "vaga", "brasil", "brazil", "pessoa", "a", "o",
+}
+_TITLE_SYNONYMS = {
+    "desenvolvedora": "desenvolvedor",
+    "developer": "desenvolvedor",
+    "dev": "desenvolvedor",
+    "engenheira": "engenheiro",
+    "programadora": "programador",
+    "jr": "junior",
+    "sr": "senior",
+    "pl": "pleno",
+    "estagiario": "estagio",
+    "estagiaria": "estagio",
+}
+_TITLE_JOINED = (("back end", "backend"), ("front end", "frontend"), ("full stack", "fullstack"))
+# Sufixos de razão social e de país que mudam de portal para portal.
+_COMPANY_SUFFIXES = {"ltda", "sa", "s", "a", "me", "eireli", "inc", "brasil", "br", "do", "group"}
+_REMOTE_MARKERS = ("remoto", "remota", "remote", "home office", "teletrabalho")
+
+
+def _title_key(title: str | None) -> str:
+    text = f" {_semantic_text(title)} "
+    for spaced, joined in _TITLE_JOINED:
+        text = text.replace(f" {spaced} ", f" {joined} ")
+    words = [_TITLE_SYNONYMS.get(word, word) for word in text.split()]
+    return " ".join(word for word in words if word not in _TITLE_NOISE)
+
+
+def _company_key(company: str | None) -> str:
+    words = _semantic_text(company).split()
+    while len(words) > 1 and words[-1] in _COMPANY_SUFFIXES:
+        words.pop()
+    return "".join(words)  # "Baires Dev" e "BairesDev" são a mesma empresa
+
+
+def _semantic_key(record: VacancyRecord) -> tuple[str, str] | None:
+    title = _title_key(record.title)
+    company = _company_key(record.company)
+    if not title or not company or _semantic_text(record.title) in _GENERIC_TITLES:
         return None
-    return title, company, location
+    return title, company
+
+
+def _is_remote(record: VacancyRecord) -> bool:
+    if record.workplace_model.value == "REMOTE":
+        return True
+    text = _semantic_text(" ".join(part for part in (record.title, record.location) if part))
+    return any(marker in text for marker in _REMOTE_MARKERS)
+
+
+def _locations_compatible(first: VacancyRecord, second: VacancyRecord) -> bool:
+    """Mesma vaga se o local bate, se uma é remota ou se uma não diz o local."""
+
+    first_location = _semantic_text(first.location)
+    second_location = _semantic_text(second.location)
+    if not first_location or not second_location or first_location == second_location:
+        return True
+    return _is_remote(first) or _is_remote(second)
 
 
 def _source_priority(record: VacancyRecord) -> int:
@@ -113,15 +169,37 @@ def _source_priority(record: VacancyRecord) -> int:
     return 1
 
 
+def _published(record: VacancyRecord) -> datetime:
+    return parse_iso_datetime(record.published_at) or datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _choose_keeper(records: list[VacancyRecord], cluster: list[int], preferred: set[str]) -> int:
+    """Qual anúncio fica: o que a pessoa acompanha; depois a fonte mais confiável;
+    numa republicação (mesmo portal), o mais recente; entre portais, o primeiro visto."""
+
+    tracked = [index for index in cluster if canonicalize_url(records[index].canonical_url) in preferred]
+    candidates = tracked or cluster
+    best = min(_source_priority(records[index]) for index in candidates)
+    candidates = [index for index in candidates if _source_priority(records[index]) == best]
+    if len({records[index].source for index in cluster}) == 1:
+        return max(candidates, key=lambda index: (_published(records[index]), -index))
+    return min(candidates)
+
+
 def _merge_cross_source_semantic_duplicates(
     records: list[VacancyRecord],
+    preferred_urls: Collection[str] = (),
 ) -> tuple[list[VacancyRecord], int]:
-    """Une a mesma vaga vista em portais diferentes (cargo+empresa+local iguais).
+    """Une a mesma vaga vista mais de uma vez (cargo + empresa + local compatível).
 
-    Mantém o registro da fonte mais confiável (empate: o primeiro observado) e
-    registra as demais fontes em ALSO_SEEN_IN:<fonte>.
+    Entre portais diferentes, fica a fonte mais confiável (empate: a primeira
+    vista) e as outras viram ``ALSO_SEEN_IN:<fonte>``. No mesmo portal
+    (republicação), fica o anúncio mais recente e ``REPOSTED:<n>`` conta os
+    outros. Uma URL que a pessoa acompanha (``preferred_urls``) sempre fica.
     """
-    groups: dict[tuple[str, str, str], list[int]] = {}
+
+    preferred = {canonicalize_url(url) for url in preferred_urls}
+    groups: dict[tuple[str, str], list[int]] = {}
     for index, record in enumerate(records):
         key = _semantic_key(record)
         if key is not None:
@@ -130,25 +208,28 @@ def _merge_cross_source_semantic_duplicates(
     dropped: set[int] = set()
     replacements: dict[int, VacancyRecord] = {}
     for indexes in groups.values():
-        if len({records[index].source for index in indexes}) < 2:
-            continue
-        keeper = min(indexes, key=lambda index: (_source_priority(records[index]), index))
-        kept = records[keeper]
-        other_sources = sorted(
-            {records[index].source for index in indexes} - {kept.source}
-        )
-        merged_indexes = [
-            index for index in indexes
-            if index != keeper and records[index].source != kept.source
-        ]
-        labels = dict.fromkeys(
-            (
-                *kept.match_labels,
-                *(f"ALSO_SEEN_IN:{source}" for source in other_sources),
-            )
-        )
-        replacements[keeper] = replace(kept, match_labels=tuple(sorted(labels)))
-        dropped.update(merged_indexes)
+        clusters: list[list[int]] = []
+        for index in indexes:
+            for cluster in clusters:
+                if all(_locations_compatible(records[index], records[other]) for other in cluster):
+                    cluster.append(index)
+                    break
+            else:
+                clusters.append([index])
+        for cluster in clusters:
+            if len(cluster) < 2:
+                continue
+            keeper = _choose_keeper(records, cluster, preferred)
+            kept = records[keeper]
+            others = [index for index in cluster if index != keeper]
+            other_sources = sorted({records[index].source for index in others} - {kept.source})
+            reposts = sum(1 for index in others if records[index].source == kept.source)
+            extra = [f"ALSO_SEEN_IN:{source}" for source in other_sources]
+            if reposts:
+                extra.append(f"REPOSTED:{reposts}")
+            labels = dict.fromkeys((*kept.match_labels, *extra))
+            replacements[keeper] = replace(kept, match_labels=tuple(sorted(labels)))
+            dropped.update(others)
 
     merged = [
         replacements.get(index, record)
@@ -195,7 +276,11 @@ def _replace_retained(
             seen_url[key] = updated
 
 
-def deduplicate(records: Iterable[VacancyRecord]) -> DeduplicationResult:
+def deduplicate(
+    records: Iterable[VacancyRecord],
+    *,
+    preferred_urls: Collection[str] = (),
+) -> DeduplicationResult:
     unique: list[VacancyRecord] = []
     ambiguous: list[VacancyRecord] = []
     seen_primary: dict[tuple[str, str], VacancyRecord] = {}
@@ -251,7 +336,7 @@ def deduplicate(records: Iterable[VacancyRecord]) -> DeduplicationResult:
             seen_url[canonical_url] = record
         unique.append(record)
 
-    unique, merged_count = _merge_cross_source_semantic_duplicates(unique)
+    unique, merged_count = _merge_cross_source_semantic_duplicates(unique, preferred_urls)
     return DeduplicationResult(
         tuple(unique),
         tuple(ambiguous),

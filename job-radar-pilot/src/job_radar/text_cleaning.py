@@ -21,6 +21,13 @@ def _fold(value: str) -> str:
     return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
+# Códigos internos do portal: "[Job-32006] Dev", "Técnica - 386089", "Dev (Cód. 123)".
+_LEADING_CODE = re.compile(r"^\[[^\]]*\d[^\]]*\]\s*")
+_TRAILING_CODE = re.compile(
+    r"(?:\s+-\s*\d{4,}|\s*\((?:c[oó]d(?:igo)?|ref)\.?\s*[\w-]+\))$", re.IGNORECASE
+)
+
+
 def clean_title(value: str | None) -> str | None:
     """Remove ruído de exibição do título sem perder informação de senioridade."""
     if value is None:
@@ -28,6 +35,7 @@ def clean_title(value: str | None) -> str | None:
     title = " ".join(value.split())
     if not title:
         return None
+    title = _TRAILING_CODE.sub("", _LEADING_CODE.sub("", title)).strip() or title
 
     if _LEADING_BADGE.match(title) and not _PLACE_AFTER_BADGE.match(title):
         title = _LEADING_BADGE.sub("", title, count=1)
@@ -55,3 +63,38 @@ def spreadsheet_safe(value):
     if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
         return "'" + value
     return value
+
+
+# Código de página que vaza quando o portal põe <script>/<style> dentro do
+# cartão: do primeiro sinal em diante, o resto é código, não vaga.
+_PAGE_CODE = re.compile(
+    r"\(\s*function\s*\(|\(\s*adsbygoogle|window\.\w+\s*=|document\.addEventListener"
+    r"|\.[\w-]+\s*\{[^}]*:[^}]*\}"
+)
+# Botões e caixas de compartilhar que viram texto do cartão.
+_SHARE_BOX = re.compile(
+    r"(?:compartilhar vaga\s*)?que tal compartilhar esta vaga\?"
+    r"(?:\s*(?:email|e-mail|whatsapp|linkedin|facebook|x \(twitter\)|twitter|copiar link))*"
+    r"|compartilhar vaga",
+    re.IGNORECASE,
+)
+_UI_PHRASES = re.compile(r"(?<!\w)(?:quero essa vaga|salvar vaga)(?!\w)", re.IGNORECASE)
+# Primeira Vaga Tech: "Voltar B Engenheiro..." (link de voltar + inicial do logo).
+# A letra do logo nem sempre vem (logo em imagem); "QA ..." não é logo.
+_BACK_LINK = re.compile(r"^(?i:voltar)\s+(?:[A-Z0-9]\s+(?=\S))?")
+
+
+def clean_description(value: str | None) -> str | None:
+    """Descrição sem código de página, botões e restos de navegação do portal."""
+
+    if value is None:
+        return None
+    text = " ".join(value.split())
+    code = _PAGE_CODE.search(text)
+    if code is not None:
+        text = text[: code.start()]
+    text = _BACK_LINK.sub("", text)
+    text = _SHARE_BOX.sub(" ", text)
+    text = _UI_PHRASES.sub(" ", text)
+    text = " ".join(text.split())
+    return text or None

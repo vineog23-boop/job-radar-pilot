@@ -11,6 +11,8 @@ from typing import Any, Callable, Iterator, Sequence
 from job_radar.dates import parse_published_at
 from job_radar.fetching import FetchPolicy, _visible_response_text, page_html
 from job_radar.fit import fit_state
+from job_radar.sources.base import VISIBLE_TEXT_XPATH
+from job_radar.text_cleaning import clean_description
 from job_radar.models import (
     CollectionStatus,
     SourceConfig,
@@ -44,13 +46,15 @@ def _main_text(response: object) -> str:
     """Prefere o miolo da página (main/article) para evitar menu e rodapé."""
 
     try:
-        parts = response.css("main ::text, article ::text").getall()  # type: ignore[attr-defined]
-        focused = " ".join(" ".join(parts).split())
+        parts = response.xpath(  # type: ignore[attr-defined]
+            f"//main{VISIBLE_TEXT_XPATH[1:]} | //article{VISIBLE_TEXT_XPATH[1:]}"
+        ).getall()
+        focused = clean_description(" ".join(parts)) or ""
         if len(focused) >= 200:
             return focused
     except Exception:
         pass
-    return " ".join(_visible_response_text(response).split())
+    return clean_description(_visible_response_text(response)) or ""
 
 
 def _walk_json_ld(node: Any) -> Iterator[dict[str, Any]]:

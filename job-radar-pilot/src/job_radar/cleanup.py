@@ -288,6 +288,19 @@ def _read_payloads(path: Path) -> list[dict[str, Any]]:
     return payloads
 
 
+def job_identity(job: Mapping[str, Any]) -> str:
+    """Chave de uma vaga salva que nunca é vazia (a URL pode ser null no JSONL)."""
+
+    url = job.get("canonical_url")
+    if url:
+        return f"url:{url}"
+    if job.get("source_job_id"):
+        return f"id:{job.get('source')}:{job.get('source_job_id')}"
+    return "fallback:" + "|".join(
+        str(job.get(key) or "").casefold() for key in ("source", "company", "title", "location")
+    )
+
+
 def read_discarded(output_dir: Path) -> list[dict[str, Any]]:
     path = output_dir / DISCARDED_NAME
     try:
@@ -301,7 +314,7 @@ def write_discarded(output_dir: Path, payloads: list[dict[str, Any]]) -> None:
 
     unique: dict[str, dict[str, Any]] = {}
     for job in payloads:
-        unique.setdefault(str(job.get("canonical_url")), job)
+        unique.setdefault(job_identity(job), job)
     kept = list(unique.values())[-MAX_DISCARDED:]
     content = "".join(
         json.dumps(job, ensure_ascii=False, sort_keys=True) + "\n" for job in kept

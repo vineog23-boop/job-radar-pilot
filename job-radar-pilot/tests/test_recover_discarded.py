@@ -209,3 +209,40 @@ def test_dashboard_preview_and_reapply_report_recovered(tmp_path: Path) -> None:
     assert preview["recovered"] == 1
     assert saved["reapplied"]["recovered"] == 1
     assert "https://x.com/2" in _urls(output / "vagas.jsonl")
+
+
+def test_discarded_jobs_without_url_are_not_collapsed(tmp_path: Path) -> None:
+    from job_radar.cleanup import read_discarded, write_discarded
+
+    jobs = [
+        {"source": "ciee", "source_job_id": "A", "canonical_url": None, "title": "Estágio TI A"},
+        {"source": "ciee", "source_job_id": "B", "canonical_url": None, "title": "Estágio TI B"},
+        {"source": "ciee", "source_job_id": None, "canonical_url": None, "title": "Estágio TI C", "company": "X"},
+    ]
+
+    write_discarded(tmp_path, jobs)
+
+    assert [job["title"] for job in read_discarded(tmp_path)] == ["Estágio TI A", "Estágio TI B", "Estágio TI C"]
+
+
+def test_kept_job_without_url_does_not_hide_discarded_without_url(tmp_path: Path) -> None:
+    from job_radar.cleanup import read_discarded
+
+    kept = _record("Dev Java Júnior", "https://x.com/k", ["FIT:READY"])
+    pruned = _record("Dev Java Pleno", "https://x.com/p", ["FIT:EXCLUDE"])
+    result = _result([kept, pruned])
+    nourl_kept = {"canonical_url": None}
+    write_outputs(result, tmp_path, prune=True)
+
+    from job_radar.output import _discarded_to_keep
+
+    basket = _discarded_to_keep(
+        tmp_path,
+        [{"source": "gupy", "source_job_id": "9", "canonical_url": None, "title": "Sem URL"}],
+        (nourl_kept,),
+        result=result,
+        merge_unrefreshed=False,
+        partial=set(),
+    )
+    assert [job["title"] for job in basket] == ["Sem URL"]
+    assert read_discarded(tmp_path)  # cesto da coleta continua lá

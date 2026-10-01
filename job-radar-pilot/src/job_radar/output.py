@@ -214,20 +214,20 @@ def _discarded_to_keep(
 ) -> list[dict[str, Any]]:
     """Cesto novo: podadas agora + as antigas dos portais que não foram refeitos."""
 
-    from job_radar.cleanup import read_discarded
+    from job_radar.cleanup import job_identity, read_discarded
 
     carried: list[dict[str, Any]] = []
     if merge_unrefreshed:
         refreshed = {source.source_code for source in result.source_results}
-        seen_now = {job.get("canonical_url") for job in (*kept, *pruned_jobs)}
+        seen_now = {job_identity(job) for job in (*kept, *pruned_jobs)}
         carried = [
             job
             for job in read_discarded(output_dir)
             if job.get("source") not in refreshed - partial
-            and job.get("canonical_url") not in seen_now
+            and job_identity(job) not in seen_now
         ]
-    kept_urls = {job.get("canonical_url") for job in kept}
-    return [job for job in (*pruned_jobs, *carried) if job.get("canonical_url") not in kept_urls]
+    kept_ids = {job_identity(job) for job in kept}
+    return [job for job in (*pruned_jobs, *carried) if job_identity(job) not in kept_ids]
 
 
 def rewrite_payloads(output_dir: Path, payloads: list[dict[str, Any]]) -> None:

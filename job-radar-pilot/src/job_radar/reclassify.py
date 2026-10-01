@@ -209,6 +209,7 @@ def reclassify_output(
     from job_radar.cleanup import (
         CleanupRules,
         discard_reason,
+        job_identity,
         read_discarded,
         read_jobs_for_rewrite,
         write_discarded,
@@ -218,14 +219,14 @@ def reclassify_output(
     jobs_path = output_dir / "vagas.jsonl"
     previous = read_jobs_for_rewrite(jobs_path) if jobs_path.exists() else []
     updated = reclassify_payloads(previous, profile, default_countries)
-    present = {payload.get("canonical_url") for payload in updated}
+    present = {job_identity(payload) for payload in updated}
     active_rules = rules or CleanupRules()
     moment = now or datetime.now(timezone.utc)
     discarded = read_discarded(output_dir)
     recovered: list[dict[str, Any]] = []
     still_discarded: list[dict[str, Any]] = []
     for payload in reclassify_payloads(discarded, profile, default_countries):
-        if payload.get("canonical_url") in present:
+        if job_identity(payload) in present:
             continue
         if discard_reason(payload, now=moment, rules=active_rules) is None:
             recovered.append(payload)

@@ -50,3 +50,40 @@ def fit_state(job_or_labels: Mapping[str, Any] | Iterable[Any] | None) -> str:
 
 def fit_name(job_or_labels: Mapping[str, Any] | Iterable[Any] | None) -> str:
     return FIT_NAMES[fit_state(job_or_labels)]
+
+
+# Motivos em português para a vaga não ser "Mais compatível" (painel, CSV, xlsx).
+REASON_LABELS = (
+    ("RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"),
+    ("SENIORITY_MISMATCH:", "nível acima do desejado"),
+    ("LOCATION_MISMATCH:", "fora das localidades escolhidas"),
+    ("WORKPLACE_MISMATCH:", "modelo de trabalho diferente"),
+    ("LOCATION_UNCLEAR:", "local não confirmado"),
+    ("WORKPLACE_UNCLEAR:", "modelo de trabalho não confirmado"),
+    ("SENIORITY_UNCLEAR:", "faixa de nível ampla (júnior/pleno)"),
+    ("ELIGIBILITY_UNCLEAR:", "vaga com público restrito"),
+    ("TITLE_EXCLUDED:", "cargo com um termo que você não quer"),
+    ("KEYWORD_BLOCKED:", "cita uma palavra proibida"),
+    ("KEYWORD_MISSING:", "não cita nenhuma palavra obrigatória"),
+    ("COMPANY_EXCLUDED:", "empresa que você quer evitar"),
+    ("CONTRACT_MISMATCH:", "tipo de contrato diferente"),
+    ("LANGUAGE_MISMATCH:", "exige inglês avançado"),
+)
+
+
+def is_off_topic(job_or_labels: Mapping[str, Any] | Iterable[Any] | None) -> bool:
+    return "RELEVANCE:OFF_TOPIC" in labels_of(job_or_labels)
+
+
+def fit_reasons(job_or_labels: Mapping[str, Any] | Iterable[Any] | None) -> list[str]:
+    """Explica em português por que a vaga não é 'Mais compatível'."""
+
+    labels = labels_of(job_or_labels)
+    reasons = [
+        text
+        for prefix, text in REASON_LABELS
+        if any(label.startswith(prefix) for label in labels)
+    ]
+    if not reasons and fit_state(labels) == "AMBIGUOUS":
+        reasons.append("poucos dados para avaliar")
+    return reasons

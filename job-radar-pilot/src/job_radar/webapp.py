@@ -19,7 +19,7 @@ import webbrowser
 
 from job_radar.dates import parse_iso_datetime
 from job_radar.export_document import build_markdown_report
-from job_radar.fit import fit_name, fit_state
+from job_radar.fit import fit_name, fit_reasons, fit_state, is_off_topic
 from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock
 from job_radar.tracking import TrackingError, TrackingStore
 
@@ -99,42 +99,6 @@ _TRACKED_FILTERS = {
 _TRACKING_NAMES = {"SAVED": "Salva", "APPLIED": "Aplicada", "DISCARDED": "Descartada"}
 # Filtro de aderência: "" = relevantes (esconde o que não é de TI), "all" = tudo.
 _MATCH_FILTERS = {"", "all", "ready", "fit", "review", "exclude", "offtopic"}
-_REASON_LABELS = (
-    ("RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"),
-    ("SENIORITY_MISMATCH:", "nível acima do desejado"),
-    ("LOCATION_MISMATCH:", "fora das localidades escolhidas"),
-    ("WORKPLACE_MISMATCH:", "modelo de trabalho diferente"),
-    ("LOCATION_UNCLEAR:", "local não confirmado"),
-    ("WORKPLACE_UNCLEAR:", "modelo de trabalho não confirmado"),
-    ("SENIORITY_UNCLEAR:", "faixa de nível ampla (júnior/pleno)"),
-    ("ELIGIBILITY_UNCLEAR:", "vaga com público restrito"),
-    ("TITLE_EXCLUDED:", "cargo com um termo que você não quer"),
-    ("KEYWORD_BLOCKED:", "cita uma palavra proibida"),
-    ("KEYWORD_MISSING:", "não cita nenhuma palavra obrigatória"),
-    ("COMPANY_EXCLUDED:", "empresa que você quer evitar"),
-    ("CONTRACT_MISMATCH:", "tipo de contrato diferente"),
-    ("LANGUAGE_MISMATCH:", "exige inglês avançado"),
-)
-
-
-def is_off_topic(job: dict[str, Any]) -> bool:
-    return "RELEVANCE:OFF_TOPIC" in (job.get("match_labels") or [])
-
-
-def fit_reasons(job: dict[str, Any]) -> list[str]:
-    """Explica em português por que a vaga não é 'Mais compatível'."""
-
-    labels = [str(label) for label in job.get("match_labels") or []]
-    reasons = [
-        text
-        for prefix, text in _REASON_LABELS
-        if any(label.startswith(prefix) for label in labels)
-    ]
-    if not reasons and fit_state(job) == "AMBIGUOUS":
-        reasons.append("poucos dados para avaliar")
-    return reasons
-
-
 _CSV_COLUMNS = (
     "aderencia",
     "acompanhamento",

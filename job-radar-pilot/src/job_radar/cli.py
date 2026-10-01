@@ -4,6 +4,7 @@ import argparse
 from contextlib import ExitStack
 from dataclasses import replace
 import ipaddress
+import json
 from pathlib import Path
 import socket
 import sys
@@ -122,6 +123,43 @@ def _parser() -> argparse.ArgumentParser:
             "Arquivo de controle do painel: 'pause' pausa a coleta e 'stop' "
             "encerra guardando o que ja foi encontrado."
         ),
+    )
+    evaluate = commands.add_parser(
+        "avaliar",
+        help="Medir o classificador numa amostra salva (sem acessar portais).",
+    )
+    evaluate.add_argument(
+        "--amostra",
+        type=Path,
+        default=_default_sample(),
+        help="JSONL de vagas ja coletadas (padrao: amostra real em tests/fixtures).",
+    )
+    evaluate.add_argument(
+        "--preferencias",
+        type=Path,
+        default=None,
+        help="search-preferences.json a aplicar sobre o profile.yaml (padrao: so o profile.yaml).",
+    )
+    evaluate.add_argument(
+        "--gabarito",
+        type=Path,
+        default=None,
+        help=(
+            "CSV com url e esperado (faixa que voce esperava) para medir acerto "
+            "(padrao: tests/fixtures/gabarito-amostra.csv com a amostra padrao)."
+        ),
+    )
+    evaluate.add_argument(
+        "--base",
+        type=Path,
+        default=None,
+        help="Resultado salvo antes (--salvar) para comparar antes x depois.",
+    )
+    evaluate.add_argument(
+        "--salvar",
+        type=Path,
+        default=None,
+        help="Gravar o resultado em JSON para comparar depois com --base.",
     )
     validate = commands.add_parser(
         "validate-output", help="Validar um JSONL contra o schema local."
@@ -306,6 +344,59 @@ def _run_pipeline(args, sources, profile, history, print_source_progress):
         )
         result = pipeline.run(args.sources)
     return result
+
+
+def _default_sample() -> Path:
+    return _project_root() / "tests" / "fixtures" / "amostra-real-2026-10-01.jsonl"
+
+
+def _evaluate(args: argparse.Namespace) -> int:
+    from job_radar.evaluation import evaluate, format_report, load_gold, load_sample
+
+    project = _project_root()
+    try:
+        profile = load_profile(project / "config" / "profile.yaml")
+        sources = load_sources(project / "config" / "sources.yaml")
+        if args.preferencias is not None:
+            if not args.preferencias.exists():
+                raise ConfigError(f"Preferencias nao encontradas: {args.preferencias}")
+            profile = apply_preferences(
+                profile,
+                load_preferences(
+                    default_profile=profile,
+                    default_search_terms=(),
+                    path=args.preferencias,
+                ),
+            )
+        payloads = load_sample(args.amostra)
+        gold_path = args.gabarito
+        if gold_path is None and args.amostra == _default_sample():
+            default_gold = _default_sample().with_name("gabarito-amostra.csv")
+            gold_path = default_gold if default_gold.exists() else None
+        gold = load_gold(gold_path) if gold_path else None
+        base = (
+            json.loads(args.base.read_text(encoding="utf-8")) if args.base else None
+        )
+    except (ConfigError, PreferencesError, OSError, ValueError) as exc:
+        print(f"AVALIAR_ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    result = evaluate(
+        payloads,
+        profile,
+        {source.code: source.default_country for source in sources},
+        gold=gold,
+        base=base,
+    )
+    print(format_report(result), end="")
+    if args.salvar is not None:
+        args.salvar.parent.mkdir(parents=True, exist_ok=True)
+        args.salvar.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(f"Resultado salvo em {args.salvar}")
+    return 0
 
 
 def _validate(path: Path) -> int:
@@ -529,6 +620,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _auth(args)
     if args.command == "suggest-selectors":
         return _suggest_selectors(args)
+    if args.command == "avaliar":
+        return _evaluate(args)
     return _validate(args.path)
 
 

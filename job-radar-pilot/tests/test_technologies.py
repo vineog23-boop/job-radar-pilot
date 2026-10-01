@@ -117,3 +117,33 @@ def test_dashboard_shows_technologies_found_by_classifier(tmp_path: Path) -> Non
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_legacy_payload_guesses_are_migrated_on_reclassify() -> None:
+    """JSONL de antes da correção: o classificador antigo anexava os TECH_MATCH ao fim."""
+
+    legacy = {
+        "source": "gupy",
+        "canonical_url": "https://x.com/legado",
+        "title": "Analista de Implantação Júnior",
+        "company": "Acme",
+        "description_summary": "Acompanhar a implantação nos clientes.",
+        "location": "Remoto",
+        "workplace_model": "REMOTE",
+        "technologies": ["Excel", "golang", "kafka"],  # portal: Excel; palpites antigos: golang, kafka
+        "match_labels": ["FIT:READY", "TECH_MATCH:golang", "TECH_MATCH:kafka"],
+    }
+    profile = SearchProfile(
+        positive_keywords=("go", "kafka"),
+        seniority_levels=("junior",),
+        location_scopes=("remoto-brasil",),
+    )
+
+    (updated,) = reclassify_payloads([legacy], profile, {"gupy": "BR"})
+
+    assert updated["technologies"] == ["Excel"]
+    assert "TECH_MATCH:golang" not in updated["match_labels"]
+    assert "TECHNOLOGIES:SOURCE_ONLY" in updated["match_labels"]
+    # segunda reaplicação não mexe mais no que veio do portal
+    (again,) = reclassify_payloads([{**updated, "technologies": ["Excel", "kafka"]}], profile, {"gupy": "BR"})
+    assert again["technologies"] == ["Excel", "kafka"]

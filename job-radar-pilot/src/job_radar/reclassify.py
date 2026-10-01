@@ -15,7 +15,12 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from job_radar.classifier import PREFERENCE_BLOCK_PREFIXES, _canonical_term, classify
+from job_radar.classifier import (
+    PREFERENCE_BLOCK_PREFIXES,
+    SOURCE_ONLY_TECHNOLOGIES,
+    _canonical_term,
+    classify,
+)
 from job_radar.fit import fit_state
 from job_radar.models import CollectionStatus, SearchProfile, VacancyRecord, WorkplaceModel
 
@@ -42,6 +47,7 @@ _CLASSIFIER_PREFIXES = (
     "LANGUAGE_MISMATCH:",
     "TITLE_EXCLUDED:",
     "OTHER_STACK:",
+    "TECHNOLOGIES:",
 )
 _TUPLE_FIELDS = {
     "technologies",
@@ -87,7 +93,7 @@ def reclassify_payloads(
     updated: list[dict[str, Any]] = []
     for payload in payloads:
         try:
-            record = record_from_payload(payload)
+            record = record_from_payload(_without_legacy_guesses(payload))
         except (TypeError, ValueError):
             updated.append(dict(payload))
             continue
@@ -105,6 +111,24 @@ def reclassify_payloads(
         )
         updated.append(new_payload)
     return updated
+
+
+def _without_legacy_guesses(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Vaga gravada pela versão antiga: tira de `technologies` os palpites anexados.
+
+    O classificador antigo acrescentava ao FIM de `technologies` os termos dos
+    seus TECH_MATCH (em ordem alfabética). Sem a marca SOURCE_ONLY, a sequência
+    final de itens iguais a esses termos é palpite, não dado do portal.
+    """
+
+    labels = [str(label) for label in payload.get("match_labels") or ()]
+    if SOURCE_ONLY_TECHNOLOGIES in labels:
+        return payload
+    guesses = {label.removeprefix("TECH_MATCH:") for label in labels if label.startswith("TECH_MATCH:")}
+    technologies = list(payload.get("technologies") or ())
+    while technologies and technologies[-1] in guesses:
+        technologies.pop()
+    return {**payload, "technologies": technologies}
 
 
 def _as_kwargs(record: VacancyRecord) -> dict[str, Any]:

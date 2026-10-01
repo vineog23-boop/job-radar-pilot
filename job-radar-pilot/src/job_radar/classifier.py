@@ -232,6 +232,7 @@ _ADVANCED_ENGLISH = re.compile(
 )
 _SENTENCE_END = re.compile(r"[.;!?\n]")
 _NICE_TO_HAVE = re.compile(r"diferencia|desejavel|nice to have|\bplus\b|bonus|nao obrigatorio")
+SOURCE_ONLY_TECHNOLOGIES = "TECHNOLOGIES:SOURCE_ONLY"
 # Prefixos dos rótulos que o perfil do painel pode gerar e que tiram a vaga do perfil.
 PREFERENCE_BLOCK_PREFIXES = (
     "COMPANY_EXCLUDED:",
@@ -800,6 +801,9 @@ def classify(
 
     labels.add(f"FIT:{fit}")
     labels.add(f"FIT_SCORE:{score}")
+    # Marca que `technologies` é só dado do portal (a versão antiga anexava ali
+    # os TECH_MATCH; reclassify migra quem não tem esta marca).
+    labels.add(SOURCE_ONLY_TECHNOLOGIES)
 
     seniority = record.seniority
     if not seniority and detected_levels:

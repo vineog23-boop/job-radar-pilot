@@ -140,11 +140,59 @@ const elements = {
   cleanupPreview: document.querySelector("#cleanup-preview"),
   cleanupRun: document.querySelector("#cleanup-run"),
   cleanupStatus: document.querySelector("#cleanup-status"),
+  newsBanner: document.querySelector("#news-banner"),
+  newsText: document.querySelector("#news-text"),
+  newsShow: document.querySelector("#news-show"),
+  newsDismiss: document.querySelector("#news-dismiss"),
+  quickChips: [...document.querySelectorAll("[data-quick]")],
+  toast: document.querySelector("#toast"),
+  toastText: document.querySelector("#toast-text"),
+  toastUndo: document.querySelector("#toast-undo"),
 };
 
 const FILTER_KEY = "radar.filters";
 const FILTER_DEFAULTS = { match: "", sort: "fit", tracked: "active" };
 const expandedJobs = new Set();
+// Filtros rápidos (chips): somam aos selects.
+const QUICK_FILTERS = ["unseen", "remote", "estagio", "junior", "recent"];
+const quickFilters = new Set();
+
+// Vagas que a pessoa já viu (abriu, expandiu ou marcou como vistas), só neste navegador.
+const SEEN_KEY = "radar.seen.v1";
+const MAX_SEEN = 20000;
+const seen = loadSeen();
+
+function loadSeen() {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY);
+    if (raw === null) return { known: false, urls: new Set() };
+    const urls = JSON.parse(raw);
+    return { known: true, urls: new Set(Array.isArray(urls) ? urls : []) };
+  } catch (error) {
+    return { known: false, urls: new Set() };
+  }
+}
+
+function saveSeen() {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...seen.urls].slice(-MAX_SEEN)));
+  } catch (error) { /* armazenamento indisponível */ }
+}
+
+function markSeen(urls) {
+  let changed = !seen.known;
+  urls.filter(Boolean).forEach((url) => {
+    if (!seen.urls.has(url)) { seen.urls.add(url); changed = true; }
+  });
+  seen.known = true;
+  if (changed) saveSeen();
+}
+
+// Antes da primeira marcação, "não vista" = nova na última coleta (STATUS:NEW).
+function isUnseen(job) {
+  if (!seen.known) return (job.match_labels ?? []).includes("STATUS:NEW");
+  return !seen.urls.has(job.canonical_url);
+}
 
 function saveFilters() {
   try {
@@ -152,8 +200,39 @@ function saveFilters() {
       match: elements.matchFilter.value,
       sort: elements.sortOrder.value,
       tracked: elements.trackingFilter.value,
+      quick: [...quickFilters],
     }));
   } catch (error) { /* armazenamento indisponível: segue sem lembrar */ }
+}
+
+function syncQuickChips() {
+  elements.quickChips.forEach((chip) =>
+    chip.setAttribute("aria-pressed", String(quickFilters.has(chip.dataset.quick)))
+  );
+}
+
+function hasLevel(job, level) {
+  const labels = (job.match_labels ?? []).map(String);
+  return labels.includes(`SENIORITY_MATCH:${level}`) || normalized(job.seniority ?? "") === level;
+}
+
+function isRemoteJob(job) {
+  const labels = (job.match_labels ?? []).map(String);
+  return job.workplace_model === "REMOTE"
+    || labels.includes("WORKPLACE_MATCH:REMOTE")
+    || labels.includes("LOCATION_MATCH:remote_brazil");
+}
+
+function passesQuickFilters(job) {
+  if (quickFilters.has("unseen") && !isUnseen(job)) return false;
+  if (quickFilters.has("remote") && !isRemoteJob(job)) return false;
+  const levels = ["estagio", "junior"].filter((level) => quickFilters.has(level));
+  if (levels.length && !levels.some((level) => hasLevel(job, level))) return false;
+  if (quickFilters.has("recent")) {
+    const published = publishedTime(job);
+    if (published === -Infinity || Date.now() - published > 7 * 86400000) return false;
+  }
+  return true;
 }
 
 function restoreFilters() {
@@ -167,7 +246,11 @@ function restoreFilters() {
     apply(elements.matchFilter, saved.match);
     apply(elements.sortOrder, saved.sort);
     apply(elements.trackingFilter, saved.tracked);
+    (Array.isArray(saved.quick) ? saved.quick : [])
+      .filter((name) => QUICK_FILTERS.includes(name))
+      .forEach((name) => quickFilters.add(name));
   } catch (error) { /* valor salvo inválido: ignora */ }
+  syncQuickChips();
 }
 
 function filtersAreDefault() {
@@ -175,7 +258,8 @@ function filtersAreDefault() {
     && !elements.sourceFilter.value
     && elements.matchFilter.value === FILTER_DEFAULTS.match
     && elements.sortOrder.value === FILTER_DEFAULTS.sort
-    && elements.trackingFilter.value === FILTER_DEFAULTS.tracked;
+    && elements.trackingFilter.value === FILTER_DEFAULTS.tracked
+    && quickFilters.size === 0;
 }
 
 function resetFilters() {
@@ -184,6 +268,8 @@ function resetFilters() {
   elements.matchFilter.value = FILTER_DEFAULTS.match;
   elements.sortOrder.value = FILTER_DEFAULTS.sort;
   elements.trackingFilter.value = FILTER_DEFAULTS.tracked;
+  quickFilters.clear();
+  syncQuickChips();
   saveFilters();
   visibleRows = ROW_PAGE_SIZE;
   renderTable();
@@ -405,10 +491,11 @@ function filteredJobs() {
       return false;
     }
     if (match === "ready" && state !== "READY") return false;
+    if (match === "fit" && !["READY", "CONDITIONAL"].includes(state)) return false;
     if (match === "review" && !["CONDITIONAL", "AMBIGUOUS"].includes(state)) return false;
     if (match === "otherstack" && state !== "OTHER_STACK") return false;
     if (match === "exclude" && state !== "EXCLUDE") return false;
-    return true;
+    return passesQuickFilters(job);
   }).sort((left, right) => {
     const order = { READY: 0, CONDITIONAL: 1, AMBIGUOUS: 2, OTHER_STACK: 3, EXCLUDE: 4 };
     const byState = order[fitState(left)] - order[fitState(right)];
@@ -437,8 +524,24 @@ async function loadTracking() {
   renderTable();
 }
 
-async function updateTracking(job, status, select) {
+let toastTimer;
+let toastUndo = null;
+
+function showToast(text, undo) {
+  window.clearTimeout(toastTimer);
+  elements.toastText.textContent = text;
+  toastUndo = undo;
+  elements.toastUndo.hidden = !undo;
+  elements.toast.hidden = false;
+  toastTimer = window.setTimeout(() => { elements.toast.hidden = true; toastUndo = null; }, 8000);
+}
+
+const TRACKING_NAMES = { SAVED: "Salva", APPLIED: "Aplicada", DISCARDED: "Descartada" };
+
+async function updateTracking(job, status, select, { undoable = true } = {}) {
+  const previous = trackingStatus(job);
   select.disabled = true;
+  let saved = false;
   try {
     const response = await fetch("/api/tracking", {
       method: "PUT",
@@ -448,11 +551,22 @@ async function updateTracking(job, status, select) {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     trackingState = payload.jobs ?? {};
+    saved = true;
   } catch (error) {
     elements.liveStatus.textContent = `Não foi possível salvar o acompanhamento: ${error.message}`;
   } finally {
     select.disabled = false;
+    markSeen([job.canonical_url]);
     renderTable();
+    renderNews();
+  }
+  if (saved && undoable && previous !== status) {
+    const name = TRACKING_NAMES[status] || "sem acompanhamento";
+    const hidden = status === "DISCARDED" && elements.trackingFilter.value === "active";
+    showToast(
+      `"${job.title || "Vaga"}" marcada como ${name}${hidden ? " (some da lista)" : ""}.`,
+      () => updateTracking(job, previous, select, { undoable: false })
+    );
   }
 }
 
@@ -524,7 +638,11 @@ function renderTable() {
     titleCell.title = expanded ? "Ocultar detalhes" : "Ver detalhes da vaga";
     const toggle = () => {
       if (expandedJobs.has(job.canonical_url)) expandedJobs.delete(job.canonical_url);
-      else expandedJobs.add(job.canonical_url);
+      else {
+        expandedJobs.add(job.canonical_url);
+        markSeen([job.canonical_url]);
+        renderNews();
+      }
       renderTable();
     };
     titleCell.addEventListener("click", toggle);
@@ -551,8 +669,9 @@ function renderTable() {
         fitLabel(fitState(job))
       )
     );
-    if ((job.match_labels ?? []).includes("STATUS:NEW")) {
+    if (isUnseen(job)) {
       matchCell.appendChild(textElement("span", "match-pill new", "Nova"));
+      row.classList.add("unseen");
     }
     const reasons = fitReasons(job);
     if (fitState(job) !== "READY" && reasons.length) {
@@ -570,6 +689,7 @@ function renderTable() {
     link.rel = "noopener noreferrer";
     link.setAttribute("aria-label", `Abrir vaga ${job.title || ""}`);
     link.textContent = "↗";
+    link.addEventListener("click", () => { markSeen([job.canonical_url]); renderNews(); });
     actionCell.appendChild(link);
     row.appendChild(actionCell);
     elements.tableBody.appendChild(row);
@@ -750,9 +870,45 @@ async function controlSearch(action) {
   await refreshState();
 }
 
+// Faixa "N vagas compatíveis novas para você".
+function newsJobs() {
+  return (dashboardState.jobs ?? []).filter((job) =>
+    !isOffTopic(job)
+    && ["READY", "CONDITIONAL"].includes(fitState(job))
+    && !trackingStatus(job)
+    && isUnseen(job)
+  );
+}
+
+function renderNews() {
+  const fresh = newsJobs();
+  elements.newsBanner.hidden = fresh.length === 0;
+  if (!fresh.length) return;
+  const ready = fresh.filter((job) => fitState(job) === "READY").length;
+  const since = seen.known ? "que você ainda não viu" : "nesta última busca";
+  elements.newsText.textContent =
+    `${fresh.length} ${fresh.length === 1 ? "vaga compatível nova" : "vagas compatíveis novas"} ${since}` +
+    (ready ? ` (${ready} mais compatíveis).` : ".");
+}
+
+function showNews() {
+  elements.textFilter.value = "";
+  elements.sourceFilter.value = "";
+  elements.matchFilter.value = "fit";
+  elements.trackingFilter.value = "active";
+  quickFilters.clear();
+  quickFilters.add("unseen");
+  syncQuickChips();
+  saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  renderTable();
+  elements.tableBody.closest(".workspace")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function render() {
   updateSourceFilter();
   renderSummary();
+  renderNews();
   renderTable();
   renderSources();
   renderRunState();
@@ -2027,6 +2183,27 @@ elements.linkedinImportButton.addEventListener("click", importLinkedinText);
   filter.addEventListener("change", () => { saveFilters(); rerender(); });
 });
 elements.clearFilters.addEventListener("click", resetFilters);
+elements.quickChips.forEach((chip) => chip.addEventListener("click", () => {
+  const name = chip.dataset.quick;
+  if (quickFilters.has(name)) quickFilters.delete(name);
+  else quickFilters.add(name);
+  syncQuickChips();
+  saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  renderTable();
+}));
+elements.newsShow.addEventListener("click", showNews);
+elements.newsDismiss.addEventListener("click", () => {
+  markSeen((dashboardState.jobs ?? []).map((job) => job.canonical_url));
+  renderNews();
+  renderTable();
+});
+elements.toastUndo.addEventListener("click", () => {
+  const undo = toastUndo;
+  elements.toast.hidden = true;
+  toastUndo = null;
+  if (undo) undo();
+});
 [[elements.cardAll, ""], [elements.cardReady, "ready"]].forEach(([card, match]) => {
   card.addEventListener("click", () => focusResults(match));
   card.addEventListener("keydown", (event) => {

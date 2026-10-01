@@ -23,11 +23,15 @@
         <div class="local-badge"><span></span> Rodando neste PC</div>
       </header>
 
-      <section class="hero">
-        <div>
-          <p class="eyebrow">PAINEL DE OPORTUNIDADES</p>
-          <h1>Encontre as vagas.<br><em>Decida com contexto.</em></h1>
-          <p class="hero-copy">Pesquise os portais configurados e reúna tudo em uma visão organizada para sua análise.</p>
+      <section class="hero command-bar">
+        <div class="day-flow">
+          <h1>Suas vagas</h1>
+          <ol class="flow-steps" aria-label="Como usar o Radar no dia a dia">
+            <li><strong>1 · Buscar</strong><span>Consulta os portais com o seu perfil (ou deixe a busca agendada fazer isso).</span></li>
+            <li><strong>2 · Revisar</strong><span>Comece pelas "Mais compatíveis"; salve, marque como aplicada ou descarte.</span></li>
+            <li><strong>3 · Exportar</strong><span>A planilha das melhores é salva sozinha após cada busca.</span></li>
+          </ol>
+          <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
         </div>
         <div class="search-action">
           <button id="search-button" class="primary-button" type="button">
@@ -38,17 +42,31 @@
             <button id="pause-button" class="ghost-button" type="button" title="Congela a busca depois da página atual; retome quando quiser">⏸ Pausar busca</button>
             <button id="stop-button" class="ghost-button danger-button" type="button" title="Encerra a busca e salva o que já foi encontrado">■ Parar e salvar</button>
           </div>
-          <div class="secondary-actions">
-            <button id="quick-search-button" class="ghost-button action-button" type="button" title="Consulta só os portais focados em tecnologia">Busca rápida (TI)</button>
-            <button id="sources-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="sources-picker">Escolher portais</button>
-            <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
-            <button id="cleanup-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="cleanup-panel">Limpeza</button>
-            <button id="export-button" class="ghost-button action-button export-button" type="button" aria-expanded="false" aria-controls="export-panel">Exportar vagas</button>
-            <button id="linkedin-button" class="linkedin-button" type="button" aria-expanded="false" aria-controls="linkedin-panel">Pesquisar no LinkedIn</button>
+          <div class="action-group" role="group" aria-labelledby="group-search">
+            <span id="group-search" class="action-group-title">Buscar</span>
+            <div class="secondary-actions">
+              <button id="quick-search-button" class="ghost-button action-button" type="button" title="Consulta só os portais focados em tecnologia (mais rápida)">Busca rápida (TI)</button>
+              <button id="sources-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="sources-picker">Escolher portais</button>
+              <button id="preferences-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="preferences-panel">Configurar busca</button>
+              <button id="linkedin-button" class="linkedin-button" type="button" aria-expanded="false" aria-controls="linkedin-panel">Pesquisar no LinkedIn</button>
+            </div>
           </div>
-          <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
+          <div class="action-group" role="group" aria-labelledby="group-list">
+            <span id="group-list" class="action-group-title">Lista</span>
+            <div class="secondary-actions">
+              <button id="cleanup-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="cleanup-panel">Limpeza</button>
+              <button id="export-button" class="ghost-button action-button export-button" type="button" aria-expanded="false" aria-controls="export-panel">Exportar vagas</button>
+            </div>
+          </div>
         </div>
       </section>
+
+      <div id="news-banner" class="news-banner" role="status" hidden>
+        <span class="news-dot" aria-hidden="true"></span>
+        <p id="news-text"></p>
+        <button id="news-show" class="ghost-button" type="button">Ver só as novidades</button>
+        <button id="news-dismiss" class="ghost-button" type="button">Marcar como vistas</button>
+      </div>
 
       <section id="sources-picker" class="preferences-panel" hidden aria-labelledby="sources-picker-title">
         <div class="section-heading">
@@ -411,6 +429,7 @@
             <select id="match-filter">
               <option value="">Vagas de TI</option>
               <option value="ready">Mais compatíveis</option>
+              <option value="fit">Compatíveis + a revisar</option>
               <option value="review">A revisar</option>
               <option value="otherstack">Outra stack</option>
               <option value="exclude">Fora do perfil</option>
@@ -438,6 +457,15 @@
           </label>
         </div>
 
+        <div class="quick-filters" role="group" aria-label="Filtros rápidos">
+          <span class="quick-label">Filtros rápidos:</span>
+          <button type="button" class="chip" data-quick="unseen" aria-pressed="false" title="Vagas que você ainda não abriu nem marcou como vistas">Não vistas</button>
+          <button type="button" class="chip" data-quick="remote" aria-pressed="false">Remoto</button>
+          <button type="button" class="chip" data-quick="estagio" aria-pressed="false">Estágio</button>
+          <button type="button" class="chip" data-quick="junior" aria-pressed="false">Júnior</button>
+          <button type="button" class="chip" data-quick="recent" aria-pressed="false" title="Publicadas nos últimos 7 dias">Últimos 7 dias</button>
+        </div>
+
         <div class="table-wrap">
           <table>
             <thead><tr><th>Vaga</th><th>Empresa</th><th>Local</th><th>Origem</th><th>Aderência</th><th>Acompanhamento</th><th><span class="sr-only">Abrir</span></th></tr></thead>
@@ -462,6 +490,10 @@
 
       <footer><span>Resultados e preferências ficam locais · consultas vão somente aos portais configurados</span><span id="footer-version">Scrapling</span></footer>
     </main>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+      <span id="toast-text"></span>
+      <button id="toast-undo" class="ghost-button" type="button">Desfazer</button>
+    </div>
     <script src="/app.js" defer></script>
   </body>
 </html>

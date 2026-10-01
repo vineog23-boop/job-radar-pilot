@@ -17,6 +17,7 @@ import zipfile
 
 from job_radar.dates import parse_iso_datetime
 from job_radar.fit import fit_state, job_technologies
+from job_radar.tracking import TRACKING_NAMES
 
 _ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 _LEVEL_NAMES = {
@@ -31,7 +32,7 @@ WORKPLACE_NAMES = {
     "ONSITE": "Presencial",
     "UNKNOWN": "A confirmar",
 }
-_TRACKING_NAMES = {"SAVED": "Salva", "APPLIED": "Aplicada", "DISCARDED": "Descartada"}
+_TRACKING_NAMES = TRACKING_NAMES
 
 # Índices de estilo (ver _STYLES).
 _S_HEADER, _S_TEXT, _S_CENTER, _S_LINK, _S_DATE = 1, 2, 3, 4, 5
@@ -172,7 +173,14 @@ def _observations(job: Mapping[str, Any], note: str, reasons: Sequence[str]) -> 
 
 def _status(job: Mapping[str, Any], tracking_status: str) -> tuple[str, int]:
     if tracking_status in _TRACKING_NAMES:
-        style = {"SAVED": _S_BLUE, "APPLIED": _S_GREEN, "DISCARDED": _S_GRAY}[tracking_status]
+        style = {
+            "SAVED": _S_BLUE,
+            "APPLIED": _S_GREEN,
+            "INTERVIEW": _S_GREEN,
+            "OFFER": _S_GREEN,
+            "REJECTED": _S_GRAY,
+            "DISCARDED": _S_GRAY,
+        }[tracking_status]
         return _TRACKING_NAMES[tracking_status], style
     if "STATUS:NEW" in _labels(job):
         return "Nova", _S_BLUE

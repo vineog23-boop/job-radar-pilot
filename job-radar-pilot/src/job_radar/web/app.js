@@ -148,6 +148,7 @@ const elements = {
   toast: document.querySelector("#toast"),
   toastText: document.querySelector("#toast-text"),
   toastUndo: document.querySelector("#toast-undo"),
+  funnel: document.querySelector("#funnel"),
 };
 
 const FILTER_KEY = "radar.filters";
@@ -416,9 +417,20 @@ const TRACKING_OPTIONS = [
   ["", "—"],
   ["SAVED", "Salva"],
   ["APPLIED", "Aplicada"],
+  ["INTERVIEW", "Entrevista"],
+  ["OFFER", "Oferta"],
+  ["REJECTED", "Recusada"],
   ["DISCARDED", "Descartada"],
 ];
-const TRACKED_FILTER_STATUS = { saved: "SAVED", applied: "APPLIED", discarded: "DISCARDED" };
+const TRACKED_FILTER_STATUS = {
+  saved: "SAVED",
+  applied: "APPLIED",
+  interview: "INTERVIEW",
+  offer: "OFFER",
+  rejected: "REJECTED",
+  discarded: "DISCARDED",
+};
+const IN_PROGRESS = ["APPLIED", "INTERVIEW", "OFFER"];
 let linkedinLoaded = false;
 
 function normalized(value) {
@@ -469,6 +481,7 @@ function filteredJobs() {
     if (tracked === "active" && trackedStatus === "DISCARDED") return false;
     if (tracked === "new" && (trackedStatus || !(job.match_labels ?? []).includes("STATUS:NEW"))) return false;
     if (TRACKED_FILTER_STATUS[tracked] && trackedStatus !== TRACKED_FILTER_STATUS[tracked]) return false;
+    if (tracked === "inprogress" && !IN_PROGRESS.includes(trackedStatus)) return false;
     const haystack = normalized([
       job.title,
       job.company,
@@ -522,6 +535,7 @@ async function loadTracking() {
     elements.liveStatus.textContent = `Acompanhamento indisponível: ${error.message}`;
   }
   renderTable();
+  renderFunnel();
 }
 
 let toastTimer;
@@ -536,7 +550,7 @@ function showToast(text, undo) {
   toastTimer = window.setTimeout(() => { elements.toast.hidden = true; toastUndo = null; }, 8000);
 }
 
-const TRACKING_NAMES = { SAVED: "Salva", APPLIED: "Aplicada", DISCARDED: "Descartada" };
+const TRACKING_NAMES = Object.fromEntries(TRACKING_OPTIONS.filter(([value]) => value));
 
 async function updateTracking(job, status, select, { undoable = true } = {}) {
   const previous = trackingStatus(job);
@@ -559,6 +573,7 @@ async function updateTracking(job, status, select, { undoable = true } = {}) {
     markSeen([job.canonical_url]);
     renderTable();
     renderNews();
+    renderFunnel();
   }
   if (saved && undoable && previous !== status) {
     const name = TRACKING_NAMES[status] || "sem acompanhamento";
@@ -868,6 +883,49 @@ async function controlSearch(action) {
     elements.liveStatus.textContent = `Não foi possível ${action === "stop" ? "parar" : "pausar"}: ${error.message}`;
   }
   await refreshState();
+}
+
+// Funil de candidatura (todas as vagas acompanhadas, não só as da lista atual).
+const FUNNEL_STAGES = [
+  ["SAVED", "salva", "salvas", "saved"],
+  ["APPLIED", "aplicada", "aplicadas", "applied"],
+  ["INTERVIEW", "entrevista", "entrevistas", "interview"],
+  ["OFFER", "oferta", "ofertas", "offer"],
+  ["REJECTED", "recusada", "recusadas", "rejected"],
+];
+
+function setTrackingFilter(value) {
+  elements.trackingFilter.value = value;
+  saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  renderTable();
+}
+
+function renderFunnel() {
+  const counts = {};
+  Object.values(trackingState).forEach((entry) => {
+    counts[entry.status] = (counts[entry.status] ?? 0) + 1;
+  });
+  const total = FUNNEL_STAGES.reduce((sum, [status]) => sum + (counts[status] ?? 0), 0);
+  elements.funnel.hidden = total === 0;
+  if (!total) return;
+  const inProgress = IN_PROGRESS.reduce((sum, status) => sum + (counts[status] ?? 0), 0);
+  const parts = FUNNEL_STAGES.map(([status, one, many, filter]) => {
+    const count = counts[status] ?? 0;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "funnel-step";
+    button.textContent = `${count} ${count === 1 ? one : many}`;
+    button.title = `Mostrar só as vagas: ${many}`;
+    button.addEventListener("click", () => setTrackingFilter(filter));
+    return button;
+  });
+  const progress = document.createElement("button");
+  progress.type = "button";
+  progress.className = "chip funnel-progress";
+  progress.textContent = `Em processo: ${inProgress}`;
+  progress.addEventListener("click", () => setTrackingFilter("inprogress"));
+  elements.funnel.replaceChildren(textElement("span", "funnel-label", "Seu funil:"), ...parts, progress);
 }
 
 // Faixa "N vagas compatíveis novas para você".

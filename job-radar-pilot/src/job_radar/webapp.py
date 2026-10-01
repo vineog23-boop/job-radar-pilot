@@ -23,7 +23,12 @@ from job_radar.export_document import build_markdown_report
 from job_radar.fit import fit_name, fit_reasons, fit_state, is_off_topic, job_technologies
 from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock
 from job_radar.text_cleaning import spreadsheet_safe
-from job_radar.tracking import TrackingError, TrackingStore
+from job_radar.tracking import (
+    IN_PROGRESS_STATUSES,
+    TRACKING_NAMES,
+    TrackingError,
+    TrackingStore,
+)
 
 
 _PROGRESS_LINE = re.compile(
@@ -108,11 +113,15 @@ def _normalized_search_text(value: Any) -> str:
 _TRACKED_FILTERS = {
     "active": None,
     "new": None,
+    "inprogress": None,
     "saved": "SAVED",
     "applied": "APPLIED",
+    "interview": "INTERVIEW",
+    "offer": "OFFER",
+    "rejected": "REJECTED",
     "discarded": "DISCARDED",
 }
-_TRACKING_NAMES = {"SAVED": "Salva", "APPLIED": "Aplicada", "DISCARDED": "Descartada"}
+_TRACKING_NAMES = TRACKING_NAMES
 # Filtro de aderência: "" = relevantes (esconde o que não é de TI), "all" = tudo.
 _MATCH_FILTERS = {"", "all", "ready", "fit", "review", "otherstack", "exclude", "offtopic"}
 _CSV_COLUMNS = (
@@ -280,7 +289,9 @@ def filter_jobs_for_export(
             tracked_status or "STATUS:NEW" not in (job.get("match_labels") or [])
         ):
             continue
-        if tracked in _TRACKED_FILTERS and tracked not in {"active", "new"}:
+        if tracked == "inprogress" and tracked_status not in IN_PROGRESS_STATUSES:
+            continue
+        if tracked in _TRACKED_FILTERS and tracked not in {"active", "new", "inprogress"}:
             if tracked_status != _TRACKED_FILTERS[tracked]:
                 continue
         state = fit_state(job)
@@ -341,8 +352,12 @@ _TRACKED_NAMES = {
     "": "Todas",
     "active": "Sem as descartadas",
     "new": "Só novas",
+    "inprogress": "Em processo (aplicada, entrevista, oferta)",
     "saved": "Só salvas",
     "applied": "Só aplicadas",
+    "interview": "Só em entrevista",
+    "offer": "Só com oferta",
+    "rejected": "Só recusadas",
     "discarded": "Só descartadas",
 }
 

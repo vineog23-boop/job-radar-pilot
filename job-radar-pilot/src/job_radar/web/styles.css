@@ -373,3 +373,13 @@ tr.unseen .job-title { color: #fff; }
   .search-field { grid-column: auto; }
   .secondary-actions { grid-template-columns: 1fr 1fr; }
 }
+
+/* funil de candidatura */
+.funnel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; margin: -6px 0 12px; font-size: 12px; color: var(--muted); }
+.funnel-label { margin-right: 4px; }
+.funnel-step { color: #c9d1dd; background: none; border: 0; padding: 4px 6px; border-radius: 6px; font-size: 12px; }
+.funnel-step:hover { color: #fff; background: rgba(255,255,255,.05); }
+.funnel-step + .funnel-step::before { content: "→ "; color: #4b5567; }
+.funnel-progress { margin-left: 8px; }
+tr.tracked-interview td:first-child, tr.tracked-offer td:first-child { box-shadow: inset 3px 0 0 #8fb8ff; }
+tr.tracked-rejected { opacity: .7; }

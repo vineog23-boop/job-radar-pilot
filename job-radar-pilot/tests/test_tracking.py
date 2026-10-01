@@ -25,6 +25,7 @@ def test_set_status_persists_and_can_be_cleared(tmp_path: Path) -> None:
         URL: {
             "status": "APPLIED",
             "updated_at": NOW.isoformat(),
+            "applied_at": NOW.isoformat(),
             "note": "Enviei pelo Gupy",
         }
     }

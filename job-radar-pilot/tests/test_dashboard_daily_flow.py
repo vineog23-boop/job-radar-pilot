@@ -217,3 +217,26 @@ def test_first_use_empty_state_and_live_progress(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_detail_quick_actions_save_and_toggle(dashboard: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(dashboard)
+        page.wait_for_selector("#jobs-table-body tr")
+        page.locator("#jobs-table-body .title-cell", has_text="Java Júnior Remoto").click()
+
+        page.get_by_role("button", name="★ Salvar").click()
+        page.wait_for_function(
+            "document.querySelector('[aria-label=\"Acompanhamento da vaga Java Júnior Remoto\"]').value === 'SAVED'"
+        )
+        assert page.get_by_role("button", name="★ Salvar").get_attribute("aria-pressed") == "true"
+
+        page.get_by_role("button", name="★ Salvar").click()  # clicar de novo desfaz
+        page.wait_for_function(
+            "document.querySelector('[aria-label=\"Acompanhamento da vaga Java Júnior Remoto\"]').value === ''"
+        )
+        browser.close()

@@ -392,3 +392,10 @@ details.refine > summary::before { content: "▸"; color: var(--accent); }
 details.refine[open] > summary::before { content: "▾"; }
 details.refine > summary small { flex-basis: 100%; color: var(--muted); font-size: 12px; font-weight: 400; }
 .empty-state .ghost-button { margin-top: 14px; }
+
+/* ações rápidas no detalhe da vaga */
+.detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.quick-action[aria-pressed="true"] { color: #fff; border-color: var(--accent); background: var(--accent-soft); }
+.quick-saved { color: #f4d58d; }
+.quick-applied { color: #8ee0b8; }
+.quick-discarded { color: #f5a3b1; }

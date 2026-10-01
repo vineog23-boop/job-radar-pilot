@@ -355,6 +355,22 @@ function detailRow(job) {
   list.className = "detail-facts";
   facts.forEach((fact) => list.appendChild(textElement("li", "", fact)));
   box.appendChild(list);
+  const actions = document.createElement("div");
+  actions.className = "detail-actions";
+  actions.setAttribute("role", "group");
+  actions.setAttribute("aria-label", "Ações rápidas da vaga");
+  [["SAVED", "★ Salvar"], ["APPLIED", "✓ Me candidatei"], ["DISCARDED", "✕ Descartar"]].forEach(([status, label]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `ghost-button quick-action quick-${status.toLowerCase()}`;
+    button.textContent = label;
+    const current = trackingStatus(job) === status;
+    button.setAttribute("aria-pressed", String(current));
+    button.disabled = !/^https?:\/\//.test(job.canonical_url ?? "");
+    button.addEventListener("click", () => updateTracking(job, current ? "" : status, button));
+    actions.appendChild(button);
+  });
+  box.appendChild(actions);
   const techs = document.createElement("div");
   techs.className = "detail-techs";
   jobTechnologies(job).forEach((tech) => techs.appendChild(textElement("span", "tech-chip", tech)));

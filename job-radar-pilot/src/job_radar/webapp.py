@@ -475,7 +475,10 @@ class SearchController:
                 return "Nenhuma busca em andamento."
             if self._control == "stop":
                 return "A busca já está sendo encerrada."
-            write_state(self._control_path, states[action])
+            try:
+                write_state(self._control_path, states[action])
+            except OSError as exc:
+                return f"Não foi possível avisar a coleta: {exc}"
             self._control = states[action]
         return None
 
@@ -760,12 +763,18 @@ def _dashboard_handler(
             return None
 
         def _guarded(self, route: Callable[[], None], *, needs_json: bool) -> None:
+            self._responded = False
             refusal = self._request_refusal(needs_json=needs_json)
             if refusal is not None:
                 status, message = refusal
                 self._json(status, {"error": message})
                 return
-            route()
+            try:
+                route()
+            except Exception as exc:  # noqa: BLE001 - fronteira HTTP
+                # Sem isto, o navegador só via a conexão cair ("sem conexão").
+                if not self._responded:
+                    self._json(500, {"error": f"Erro interno: {exc}"})
 
         def do_GET(self) -> None:  # noqa: N802 - contrato BaseHTTPRequestHandler
             self._guarded(self._route_get, needs_json=False)
@@ -784,6 +793,7 @@ def _dashboard_handler(
             *,
             headers: dict[str, str] | None = None,
         ) -> None:
+            self._responded = True
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))

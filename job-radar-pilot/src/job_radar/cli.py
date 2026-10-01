@@ -227,15 +227,25 @@ def _collect(args: argparse.Namespace) -> int:
             if warning.startswith("SOURCE_COUNT_"):
                 print(f"WARNING {item.source_code}: {warning}", flush=True)
     keep_urls: frozenset[str] = frozenset()
+    prune = not getattr(args, "keep_all", False)
     try:
         keep_urls = frozenset(TrackingStore().load())
-    except TrackingError:
-        pass
+    except TrackingError as exc:
+        # Sem saber quais vagas foram salvas/aplicadas, descartar seria arriscar
+        # apagar justamente as que importam: grava tudo e avisa.
+        if prune:
+            print(
+                f"WARNING: {exc} Limpeza automatica desligada nesta coleta para nao "
+                "apagar vagas do acompanhamento.",
+                file=sys.stderr,
+                flush=True,
+            )
+        prune = False
     manifest = write_outputs(
         result,
         args.output.resolve(),
         merge_unrefreshed=bool(args.sources) or result.stopped,
-        prune=not getattr(args, "keep_all", False),
+        prune=prune,
         keep_urls=keep_urls,
         max_age_days=getattr(args, "max_age_days", None),
         rules=load_rules(preferences_path()),

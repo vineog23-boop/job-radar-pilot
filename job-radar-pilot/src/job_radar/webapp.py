@@ -1291,8 +1291,13 @@ def _dashboard_handler(
                     return
                 try:
                     tracked = tracking_store.load()
-                except TrackingError:
-                    tracked = {}
+                except TrackingError as exc:
+                    # Sem o acompanhamento não dá para proteger as vagas salvas.
+                    self._json(
+                        409,
+                        {"error": f"{exc} Corrija o arquivo de acompanhamento antes de limpar."},
+                    )
+                    return
                 remove_urls: set[str] = set()
                 if payload.get("remove_discarded") is True:
                     remove_urls = {

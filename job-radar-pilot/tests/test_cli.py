@@ -615,3 +615,49 @@ def test_validate_output_returns_zero_or_one(
     invalid.write_text('{"source":"only"}\n', encoding="utf-8")
     assert cli.main(["validate-output", str(invalid)]) == 1
     assert "INVALID" in capsys.readouterr().out
+
+
+def test_collect_keeps_everything_when_tracking_is_unreadable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """tracking.json ilegível: não dá para proteger as salvas, então não poda nada."""
+
+    from job_radar.models import VacancyRecord
+
+    local = tmp_path / "local"
+    (local / "JobRadar").mkdir(parents=True)
+    (local / "JobRadar" / "tracking.json").write_text("{corrompido", encoding="utf-8")
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    excluded = VacancyRecord(
+        source="programathor",
+        source_job_id="1",
+        canonical_url="https://programathor.com.br/jobs/1",
+        title="Desenvolvedor Java Senior",
+        company="Acme",
+        observed_at="2026-09-29T12:00:00+00:00",
+        match_labels=("FIT:EXCLUDE", "FIT_SCORE:-1"),
+    )
+    FakePipeline.result = PipelineResult(
+        started_at="2026-09-29T12:00:00+00:00",
+        finished_at="2026-09-29T12:01:00+00:00",
+        records=(excluded,),
+        ambiguous=(),
+        source_results=(
+            SourceRunResult("programathor", CollectionStatus.SUCCESS, records=(excluded,)),
+        ),
+        raw_record_count=1,
+        duplicate_count=0,
+    )
+    monkeypatch.setattr(cli, "JobRadarPipeline", FakePipeline)
+    monkeypatch.setattr(cli, "FetchPolicy", FakeFetchPolicy)
+
+    exit_code = cli.main(
+        ["collect", "--source", "programathor", "--no-history", "--output", str(tmp_path / "out")]
+    )
+
+    lines = (tmp_path / "out" / "vagas.jsonl").read_text(encoding="utf-8").splitlines()
+    assert exit_code == 0
+    assert len(lines) == 1
+    assert "acompanhamento" in capsys.readouterr().err

@@ -775,3 +775,23 @@ def test_dashboard_cleanup_menu_undo_and_discarded(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_api_cleanup_refuses_when_tracking_is_unreadable(tmp_path: Path) -> None:
+    """Sem saber quais vagas foram salvas, a limpeza não pode apagar nada."""
+
+    write_outputs(_result(_mixed_records()), tmp_path / "output")
+    before = (tmp_path / "output" / "vagas.jsonl").read_text(encoding="utf-8")
+    (tmp_path / "tracking.json").write_text("{corrompido", encoding="utf-8")
+    server, thread, base = _server(tmp_path)
+    try:
+        preview_status, preview = _call(f"{base}/api/cleanup", "POST", {"dry_run": True})
+        status, result = _call(f"{base}/api/cleanup", "POST", {})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert preview_status == 409 and "acompanhamento" in preview["error"]
+    assert status == 409 and "acompanhamento" in result["error"]
+    assert (tmp_path / "output" / "vagas.jsonl").read_text(encoding="utf-8") == before

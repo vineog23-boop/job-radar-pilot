@@ -817,6 +817,21 @@ function renderSources() {
       )
     );
     const reported = reportSources.find((item) => item.source === source.source);
+    if (reported && Number.isFinite(reported.useful)) {
+      const useful = reported.useful;
+      copy.appendChild(textElement(
+        "small",
+        "source-yield",
+        `${useful} ${useful === 1 ? "útil" : "úteis"} · ${reported.compatible ?? 0} compatíveis · ${reported.discarded ?? 0} descartadas`
+      ));
+      if (useful === 0 && (reported.records ?? 0) >= 5) {
+        copy.appendChild(textElement(
+          "small",
+          "source-warning",
+          "Este portal rende pouco para o seu perfil: considere desmarcá-lo em Escolher portais."
+        ));
+      }
+    }
     (source.warnings ?? reported?.warnings ?? [])
       .map(countWarningText)
       .filter(Boolean)

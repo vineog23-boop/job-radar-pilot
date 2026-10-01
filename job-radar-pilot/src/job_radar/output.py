@@ -184,6 +184,25 @@ def _csv_text(payloads: Any) -> str:
     return buffer.getvalue()
 
 
+def _yield_by_source(
+    kept: tuple[dict[str, Any], ...], pruned: list[dict[str, Any]]
+) -> dict[str, dict[str, int]]:
+    """Rendimento por portal: vagas que ficaram, descartadas e compatíveis."""
+
+    from job_radar.fit import fit_state, is_off_topic
+
+    counts: dict[str, dict[str, int]] = {}
+    for job in kept:
+        entry = counts.setdefault(str(job.get("source")), {"useful": 0, "discarded": 0, "compatible": 0})
+        entry["useful"] += 1
+        if not is_off_topic(job) and fit_state(job) in {"READY", "CONDITIONAL"}:
+            entry["compatible"] += 1
+    for job in pruned:
+        entry = counts.setdefault(str(job.get("source")), {"useful": 0, "discarded": 0, "compatible": 0})
+        entry["discarded"] += 1
+    return counts
+
+
 def _discarded_to_keep(
     output_dir: Path,
     pruned_jobs: list[dict[str, Any]],
@@ -314,6 +333,7 @@ def write_outputs(
             removed_jobs=pruned_jobs,
         )
     payloads = tuple(payloads_list)
+    yield_by_source = _yield_by_source(payloads, pruned_jobs)
     discarded_jobs = _discarded_to_keep(
         output_dir,
         pruned_jobs,
@@ -365,6 +385,9 @@ def write_outputs(
                     "visited_urls": [
                         canonicalize_url(url) for url in source.visited_urls
                     ],
+                    **yield_by_source.get(
+                        source.source_code, {"useful": 0, "discarded": 0, "compatible": 0}
+                    ),
                 }
                 for source in result.source_results
             ],

@@ -93,6 +93,12 @@ senioridade, tecnologias, data de publicação, fonte, URL e nota.
   saídas.
 - Os rótulos de aderência são sinais determinísticos, não fatos nem decisões de
   candidatura.
+- O painel só responde ao próprio endereço (`127.0.0.1`/`localhost` na porta
+  dele) e recusa pedidos de outros sites: um site malicioso aberto no navegador
+  não consegue pausar/parar a busca, desfazer a limpeza nem ler suas vagas
+  (proteção contra CSRF e DNS rebinding). Todo POST/PUT exige JSON.
+- Os CSVs neutralizam células que o Excel trataria como fórmula (`=`, `+`, `-`,
+  `@`): o texto ganha um `'` na frente. O `.xlsx` e o JSONL guardam o original.
 
 `FIT:READY` significa somente **mais compatível no Radar local**. Ele não é o
 estado `READY` canônico do funil/SQLite, não comprova vaga aberta e não autoriza
@@ -167,10 +173,15 @@ Comece por lotes pequenos: layouts, termos e limites dos portais podem mudar.
 - `output/vagas.csv`: visão humana reduzida.
 - `output/relatorio-execucao.json`: versão, commit upstream, fontes, paginação,
   contagens, bloqueios, warnings e erros sanitizados.
+- `output/vagas-descartadas-na-coleta.jsonl`: vagas que a limpeza automática da
+  coleta descartou (fora do perfil, fora de TI, vencidas). Ficam guardadas para
+  voltar à lista se você ampliar o perfil (ver **Reaplicar**).
+- `output/.radar-output.lock`: trava entre a coleta (inclusive a agendada) e o
+  painel, para um não regravar a lista por cima do outro.
 
 Na interface, **Baixar relatório** transforma em Markdown exatamente as vagas
 visíveis pelos filtros atuais. O documento separa mais compatíveis, condicionais,
-dados insuficientes e fora do perfil; também registra os estados de cobertura de
+dados insuficientes, outra stack e fora do perfil; também registra os estados de cobertura de
 cada portal. Se a saída local estiver corrompida, o download falha de forma
 explícita em vez de gerar um relatório vazio. O arquivo é produzido localmente e
 não é enviado para serviços externos.
@@ -194,6 +205,8 @@ Validar um arquivo:
 - `3`: coleta terminou honestamente com fonte parcial, bloqueada, autenticada ou
   em erro; consulte `relatorio-execucao.json`.
 - `4`: busca interrompida pela pessoa (botão Parar no painel); o que já foi encontrado foi salvo.
+- `5`: outra coleta (por exemplo, a agendada) já estava gravando a mesma pasta de
+  saída; nada foi coletado. Tente de novo quando ela terminar.
 
 `EMPTY` significa que a página declarou ausência de resultados. Se os seletores
 esperados desaparecerem, o status é `ERROR/LAYOUT_CHANGED`, não vazio.
@@ -412,7 +425,21 @@ Tudo opcional; cada item vira um rótulo na vaga e aparece no detalhe e no motiv
 | **Tipo de contrato** | CLT, PJ, Freelance/temporário. Só exclui quando a vaga diz explicitamente um contrato não aceito; "CLT ou PJ" passa se um deles for aceito; vaga que não fala de contrato nunca é excluída. |
 | **Idioma** | "Esconder vagas que exigem inglês avançado ou fluente". Quando o inglês aparece como diferencial/desejável, a vaga continua (`LANGUAGE:english_plus`). |
 
-**Ver impacto** mostra, sem salvar, quantas vagas da lista ficariam "Mais compatíveis", "A revisar" e "Fora do perfil" com as configurações da tela. Com **Reaplicar às vagas já salvas** marcado (padrão), salvar recalcula a aderência da lista atual na hora, sem consultar os portais e sem apagar nada (a limpeza continua sendo uma ação separada).
+**Ver impacto** mostra, sem salvar, quantas vagas da lista ficariam "Mais compatíveis", "A revisar", "de outra stack" e "Fora do perfil" com as configurações da tela. Com **Reaplicar às vagas já salvas** marcado (padrão), salvar recalcula a aderência da lista atual na hora, sem consultar os portais e sem apagar nada (a limpeza continua sendo uma ação separada). As vagas que a coleta tinha descartado também são reavaliadas: se o perfil novo for mais amplo (ex.: passou a aceitar pleno), as que agora passam **voltam para a lista** ("N voltam das descartadas na coleta"). Se uma coleta (inclusive a agendada) estiver gravando a lista, a reaplicação espera e o painel avisa.
+
+### Faixas de aderência
+
+| Faixa no painel | Rótulo | Quando |
+|---|---|---|
+| **Mais compatível** | `FIT:READY` | Cita a sua stack e confirma nível, local e modelo de trabalho. |
+| **A revisar** | `FIT:CONDITIONAL` | Cita a sua stack, mas falta confirmar nível, local ou modelo. |
+| **Dados insuficientes** | `FIT:AMBIGUOUS` | Vaga de TI sem stack nenhuma no texto (ex.: "Desenvolvedor Back-end Júnior" sem descrição). Boa candidata a abrir e ler. |
+| **Outra stack** | `FIT:OTHER_STACK` | Vaga de TI que cita outra stack (Python, Node, .NET, PHP, React…) e nenhuma tecnologia sua; o motivo mostra qual (`OTHER_STACK:python`). Filtro próprio "Outra stack". |
+| **Fora do perfil** | `FIT:EXCLUDE` | Nível, local, modelo, contrato, empresa ou palavra proibida não batem. |
+
+"Backend", "front-end", "full stack", "API REST" e "mobile" descrevem a função, não a stack: só contam como sua tecnologia principal quando o perfil não tem nenhuma tecnologia específica. Assim, "Backend Python Júnior" não vira "Mais compatível" para um perfil Java.
+
+As tecnologias aceitam apelidos nos dois sentidos: `springboot`/`spring-boot`, `node`/`nodejs`/`node.js`, `js`/`javascript`, `k8s`/`kubernetes`, `postgres`/`postgresql`, `csharp`/`c sharp`/`c#`, `dotnet`/`.net`, `go`/`golang`. Termos curtos têm regras próprias para não confundir: `go` não casa com "go-live" nem com a sigla de Goiás, `js` não casa com "JSP" nem "Node.js", `r` não casa com "R$".
 
 ### Pausar ou parar a busca
 
@@ -427,15 +454,28 @@ Todo o resto da limpeza fica no menu próprio **Limpeza** (botão no topo do pai
 2. **Limpar o que já está salvo** — ao abrir o menu, a prévia já mostra quantas vagas seriam removidas, por motivo, com exemplos (título, empresa, portal). Há uma opção para remover também as vagas que você marcou como *descartadas*.
 3. **Desfazer** — antes de limpar, as vagas removidas vão para `vagas.antes-da-limpeza.jsonl`; o botão *Desfazer última limpeza* devolve todas (a cópia vale para a última limpeza).
 
-Vagas que você marcou como salva ou aplicada nunca são apagadas.
+Vagas que você marcou como salva ou aplicada nunca são apagadas. Se o arquivo de acompanhamento (`tracking.json`) estiver ilegível, a limpeza do painel recusa e a coleta grava tudo sem descartar, para não apagar justamente as vagas que você salvou. Se o `vagas.jsonl` tiver uma linha estragada, limpar, desfazer e reaplicar recusam e avisam em vez de regravar o arquivo sem ela.
 ## Rotina diária e portais de tecnologia
 
 - `collect --tech-only` consulta apenas portais marcados com `tech_focus: true` em `config/sources.yaml`.
 - Portais com `fixed_queries: true` (GeekHunter, Quickin) mantêm suas próprias consultas e não são sobrescritos pelos termos salvos no perfil.
 - Buscas parciais (`--source`/`--tech-only`) preservam as vagas dos demais portais no `vagas.jsonl`.
-- Vagas sem relação com TI recebem `RELEVANCE:OFF_TOPIC` e ficam ocultas no painel (filtro "Fora do escopo").
+- Vagas sem relação com TI recebem `RELEVANCE:OFF_TOPIC` e ficam ocultas no painel (filtro "Fora de TI").
 - Agendar coleta diária com aviso de vagas novas: `scripts\agendar-coleta.ps1 -Horario 08:00` (remover com `-Remover`).
 - Detalhes da revisão: `docs/REVISAO-2026-09-29.md`.
+## Medir o classificador (`avaliar`)
+
+Para saber se uma mudança no classificador melhorou ou piorou, sem acessar portal nenhum:
+
+```powershell
+.\scripts\run-job-radar.ps1 avaliar                                   # amostra real em tests/fixtures
+.\scripts\run-job-radar.ps1 avaliar --salvar antes.json               # guarda o resultado
+.\scripts\run-job-radar.ps1 avaliar --base antes.json                 # antes x depois
+.\scripts\run-job-radar.ps1 avaliar --preferencias "$env:LOCALAPPDATA\JobRadar\search-preferences.json"
+```
+
+Mostra quantas vagas caem em cada faixa, por portal, os motivos mais comuns e quais vagas mudaram de faixa. Sem gabarito, isso mede **mudança**, não **acerto**. Para medir acerto, abra `tests/fixtures/gabarito-amostra.csv` (60 vagas da amostra) e preencha a coluna `esperado` com a faixa que **você** daria: `READY`, `CONDITIONAL`, `AMBIGUOUS`, `OTHER_STACK`, `EXCLUDE` ou `OFF_TOPIC`. O arquivo não mostra a faixa do classificador de propósito, para não influenciar a sua resposta. Com linhas preenchidas, o `avaliar` mostra a taxa de acerto e as confusões. A base de antes das mudanças de 01/10/2026 está em `tests/fixtures/avaliacao-base-antes-p1.json`.
+
 ## Desenvolvimento e testes
 
 ```powershell

@@ -4,7 +4,8 @@ Backlog para o Claude Code (nuvem ou local). Atualizado em **01/10/2026**, depoi
 adicionaram: fontes por API/RSS (Gupy API, Primeira Vaga Tech, Empregos Tech), LinkedIn seguro
 (links + importação), exportação `.xlsx`, menu Limpeza com desfazer, 25 stacks + stacks próprias,
 palavras-chave/empresas/contrato/inglês, reaplicação do perfil às vagas salvas, gerador de termos
-da área (até 20 termos) e pausar/parar a busca. Suíte: **~630 testes passando**.
+da área (até 20 termos) e pausar/parar a busca. Suíte: **~775 testes passando** (CI verde de
+novo desde 01/10/2026; ver "Revisão geral de 01/10/2026" no fim).
 
 Leia antes o `CLAUDE.md` da raiz (setup, regras e armadilhas). Regras rápidas: plano antes de
 código, teste antes da implementação, um commit por item, branch + PR, README atualizado quando
@@ -34,7 +35,12 @@ indeed 34, geekhunter 22, infojobs 20; os demais abaixo de 20.
 
 ## P1 — Qualidade do match (maior impacto para o usuário)
 
-### 1.1 "Dados insuficientes" está escondendo "outra stack"
+### ✅ 1.1 "Dados insuficientes" está escondendo "outra stack" — FEITO em 01/10/2026
+- Feito: `FIT:OTHER_STACK` + `OTHER_STACK:<stack>`, filtro "Outra stack" no painel; "backend",
+  "api rest" etc. deixaram de ser stack principal quando o perfil tem tecnologia específica
+  (11% das READY da amostra eram Python/Node/.NET). Amostra: READY 94→73, OTHER_STACK 0→66.
+
+Texto original:
 - Evidência: dos 882 `AMBIGUOUS`, 432 já têm nível compatível e 291 têm local compatível, mas só
   36 têm `TECH_MATCH`. Exemplos: "Desenvolvedor Python Junior Remoto", "Front-end Junior React".
   São vagas de TI **de outra stack**, não vagas sem dados. 250 não têm descrição.
@@ -47,7 +53,11 @@ indeed 34, geekhunter 22, infojobs 20; os demais abaixo de 20.
 - Pronto quando: na amostra real, as vagas Python/React/PHP de perfil Java saem como
   `OTHER_STACK`; os cargos genéricos sem stack continuam `AMBIGUOUS`; testes parametrizados.
 
-### 1.2 Aliases de tecnologia
+### ✅ 1.2 Aliases de tecnologia — FEITO em 01/10/2026
+- Feito: apelidos nos dois sentidos e limites rígidos para termos curtos (go/js/r/c), mais
+  inglês "diferencial" só na mesma frase, contrato negado e "redes sociais".
+
+Texto original:
 - O usuário escreve "springboot", "spring-boot", "js", "k8s", "node.js", "nodejs", "c sharp".
   Hoje o casamento é literal (com hífen/espaço flexível). Criar uma tabela de aliases
   (`springboot`↔`spring boot`, `node`/`nodejs`/`node.js`, `javascript`/`js`, `kubernetes`/`k8s`,
@@ -63,7 +73,13 @@ indeed 34, geekhunter 22, infojobs 20; os demais abaixo de 20.
   clica para aplicar (mesmo estilo dos chips de "Aparecem muito nas suas vagas").
 - Pronto quando: teste com tracking simulado gera sugestões coerentes e nada é aplicado sozinho.
 
-### 1.4 Medir o classificador
+### ✅ 1.4 Medir o classificador — FEITO em 01/10/2026 (falta o gabarito humano)
+- Feito: `job-radar avaliar` (`src/job_radar/evaluation.py`) com `--salvar`/`--base` e
+  `--gabarito`. Base de antes do P1: `tests/fixtures/avaliacao-base-antes-p1.json`.
+- **Pendente do usuário**: preencher a coluna `esperado` de `tests/fixtures/gabarito-amostra.csv`
+  (60 vagas). Sem isso a ferramenta mede mudança, não acerto.
+
+Texto original:
 - Script `job-radar-pilot/tools/avaliar_classificador.py` (ou comando `job-radar avaliar`) que
   roda o classificador na amostra real e imprime a distribuição por faixa, por portal e os
   motivos mais comuns, para comparar antes/depois de cada mudança do P1.
@@ -130,10 +146,12 @@ indeed 34, geekhunter 22, infojobs 20; os demais abaixo de 20.
   Extrair uma tabela de rotas e módulos por assunto (preferências, exportação, limpeza, busca).
 - 4.3 `fetching.py` (~710) e `sources/base.py` (~550): separar robots/bloqueio/ações de navegador
   e paginação/registro/fallback adaptativo (pendência antiga).
-- 4.4 **Desempenho do classificador**: `_contains_term` monta a regex a cada chamada, para cada
+- ✅ 4.4 (FEITO 01/10: padrões e termos canônicos em cache; 6.000 vagas 8,5 s → 5,7 s)
+  **Desempenho do classificador**: `_contains_term` monta a regex a cada chamada, para cada
   termo e cada vaga (a reaplicação do perfil roda isso milhares de vezes). Cachear os padrões
   compilados (`functools.lru_cache`) e medir antes/depois com a amostra real.
-- 4.5 **Segurança do servidor local** (`127.0.0.1:8765`): validar o cabeçalho `Host`
+- ✅ 4.5 (FEITO 01/10: Host, Origin e JSON obrigatório em POST/PUT; nenhum endpoint aceita
+  caminho de arquivo do cliente) **Segurança do servidor local** (`127.0.0.1:8765`): validar o cabeçalho `Host`
   (proteção contra DNS rebinding), exigir `Content-Type: application/json` também nos POST sem
   corpo (`/api/search/pause|resume|stop`) para que um site malicioso não consiga disparar ações
   por formulário cross-origin, e revisar se algum endpoint aceita caminho de arquivo vindo do
@@ -157,7 +175,8 @@ indeed 34, geekhunter 22, infojobs 20; os demais abaixo de 20.
 
 ## Ordem sugerida
 
-1.4 → 1.1 → 1.2 → 4.4 → 4.5 → 1.3 → 3.1 → 2.3 → 4.2 → 4.1 → 2.2 → restante.
+~~1.4 → 1.1 → 1.2 → 4.4 → 4.5~~ (feitos) → gabarito humano do 1.4 → 1.3 → 3.1 → 2.3 → 4.2 →
+4.1 → 2.2 → restante.
 
 ## Já feito (não refazer)
 
@@ -171,3 +190,21 @@ próprias; etiquetas; palavras-chave obrigatórias/diferenciais/proibidas; empre
 evitar/favoritas; contrato; inglês avançado; "Ver impacto" e reaplicação às vagas salvas;
 gerador de termos da área (20 termos + estimativa de consultas); pausar/retomar/parar a busca;
 CI no GitHub Actions.
+
+## Revisão geral de 01/10/2026 (feito)
+
+Achados da auditoria e o que foi corrigido (um commit por item, branch
+`claude/beautiful-goldberg-de71gj`):
+
+- CI vermelho desde 30/09: testes dependiam da pasta de execução → independem.
+- Painel: CSRF (parar/pausar/desfazer por formulário de outro site) e DNS rebinding → Host,
+  Origin e JSON obrigatório.
+- `tracking.json` ilegível desligava a proteção das vagas salvas → poda desligada / 409.
+- Coleta agendada × painel regravando o mesmo arquivo → `output/.radar-output.lock`, saída 5.
+- Leitura do `FIT:` espalhada em 7 arquivos → `job_radar.fit`.
+- Classificador gravava palpite em `technologies` → só exibição junta (`job_technologies`).
+- Vagas podadas na coleta não voltavam ao ampliar o perfil → `vagas-descartadas-na-coleta.jsonl`.
+- CSV com injeção de fórmula → `spreadsheet_safe`.
+- `/api/state` relia e o painel redesenhava tudo a cada 5 s → `output_version` + `?since=`.
+- P3: erro inesperado vira 500 com mensagem; limpar/desfazer/reaplicar recusam linha ilegível;
+  `history.json` corrompido é guardado em cópia.

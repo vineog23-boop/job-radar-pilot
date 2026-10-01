@@ -41,10 +41,27 @@ class SeenHistory:
 
     def _read_document(self) -> dict[str, object]:
         try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            text = self._path.read_text(encoding="utf-8")
+        except OSError:
             return {}
-        return data if isinstance(data, dict) else {}
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            self._preserve_corrupt()
+            return {}
+        return data
+
+    def _preserve_corrupt(self) -> None:
+        """Guarda o histórico ilegível ao lado antes de a próxima gravação o trocar."""
+
+        stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+        copy = self._path.with_name(f"{self._path.stem}.corrompido-{stamp}{self._path.suffix}")
+        try:
+            os.replace(self._path, copy)
+        except OSError:
+            pass
 
     def _load(self) -> dict[str, str]:
         seen = self._read_document().get("seen")

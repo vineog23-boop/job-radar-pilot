@@ -2391,5 +2391,6 @@ elements.toggleSources.addEventListener("click", () => {
 });
 
 restoreFilters();
-refreshState();
-loadTracking();
+// Acompanhamento primeiro: a lista é desenhada uma vez só, já com o status
+// de cada vaga (antes as duas cargas corriam e a tabela piscava na abertura).
+loadTracking().finally(refreshState);

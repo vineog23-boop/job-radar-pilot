@@ -177,3 +177,43 @@ def test_preferences_show_profile_summary_and_collapsed_advanced_filters(dashboa
         assert "ativo" in page.locator("#refine-count").inner_text()
         assert page.locator("#refine-count").inner_text() != "nenhum ativo"
         browser.close()
+
+
+def test_first_use_empty_state_and_live_progress(tmp_path: Path) -> None:
+    from threading import Event
+
+    from playwright.sync_api import sync_playwright
+
+    release = Event()
+
+    def runner(output_dir, sources, workers, on_line):
+        on_line("gupy-api: SUCCESS; pages=2; cards=150; records=120; stop=EXHAUSTED")
+        release.wait(timeout=20)
+        return 0
+
+    controller = SearchController(tmp_path / "output", runner=runner)
+    server = create_server("127.0.0.1", 0, controller, WEB)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.locator("#empty-state").wait_for(state="visible")
+            assert page.locator("#empty-title").inner_text() == "Ainda não há vagas aqui"
+            assert page.locator("#empty-clear").is_hidden()
+
+            controller.start()
+            page.wait_for_function(
+                "document.querySelector('#live-status').textContent.includes('1 portal concluído')",
+                timeout=10000,
+            )
+            assert "120 vagas lidas" in page.locator("#live-status").inner_text()
+            browser.close()
+    finally:
+        release.set()
+        controller.wait(timeout=5)
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

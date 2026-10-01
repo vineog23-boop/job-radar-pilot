@@ -11,6 +11,9 @@ const elements = {
   downloadCsv: document.querySelector("#download-csv"),
   tableBody: document.querySelector("#jobs-table-body"),
   emptyState: document.querySelector("#empty-state"),
+  emptyTitle: document.querySelector("#empty-title"),
+  emptyText: document.querySelector("#empty-text"),
+  emptyClear: document.querySelector("#empty-clear"),
   visibleCount: document.querySelector("#visible-count"),
   sourceStatuses: document.querySelector("#source-statuses"),
   toggleSources: document.querySelector("#toggle-sources"),
@@ -722,6 +725,12 @@ function renderTable() {
       : `${jobs.length} ${jobs.length === 1 ? "vaga" : "vagas"}`;
   elements.moreRow.hidden = jobs.length <= shown;
   elements.emptyState.hidden = jobs.length !== 0;
+  const noJobsYet = (dashboardState.jobs ?? []).length === 0;
+  elements.emptyTitle.textContent = noJobsYet ? "Ainda não há vagas aqui" : "Nenhuma vaga neste filtro";
+  elements.emptyText.textContent = noJobsYet
+    ? "Confira o seu perfil em \"Configurar busca\" e clique em \"Buscar vagas agora\". A busca completa leva alguns minutos; a \"Busca rápida (TI)\" é mais curta."
+    : "Nenhuma vaga combina com todos os filtros ativos. Limpe os filtros ou faça uma nova busca.";
+  elements.emptyClear.hidden = noJobsYet || filtersAreDefault();
   const reportParameters = new URLSearchParams();
   if (elements.textFilter.value.trim()) reportParameters.set("text", elements.textFilter.value.trim());
   if (elements.sourceFilter.value) reportParameters.set("source", elements.sourceFilter.value);
@@ -867,6 +876,13 @@ function renderRunState() {
     ERROR: dashboardState.error || "A busca encontrou um erro.",
   };
   let message = messages[dashboardState.status] || "Painel pronto.";
+  if (running && !dashboardState.paused && !dashboardState.stopping) {
+    const finished = Object.values(dashboardState.sources ?? {});
+    if (finished.length) {
+      const read = finished.reduce((sum, source) => sum + (source.records ?? 0), 0);
+      message = `Buscando… ${finished.length} ${finished.length === 1 ? "portal concluído" : "portais concluídos"}, ${read} vagas lidas até agora.`;
+    }
+  }
   if (running && dashboardState.stopping) {
     message = "Encerrando… terminando a consulta atual e salvando as vagas.";
   } else if (running && dashboardState.paused) {
@@ -2308,6 +2324,7 @@ elements.linkedinImportButton.addEventListener("click", importLinkedinText);
   filter.addEventListener("change", () => { saveFilters(); rerender(); });
 });
 elements.clearFilters.addEventListener("click", resetFilters);
+elements.emptyClear.addEventListener("click", resetFilters);
 elements.quickChips.forEach((chip) => chip.addEventListener("click", () => {
   const name = chip.dataset.quick;
   if (quickFilters.has(name)) quickFilters.delete(name);

@@ -391,3 +391,4 @@ details.refine > summary::-webkit-details-marker { display: none; }
 details.refine > summary::before { content: "▸"; color: var(--accent); }
 details.refine[open] > summary::before { content: "▾"; }
 details.refine > summary small { flex-basis: 100%; color: var(--muted); font-size: 12px; font-weight: 400; }
+.empty-state .ghost-button { margin-top: 14px; }

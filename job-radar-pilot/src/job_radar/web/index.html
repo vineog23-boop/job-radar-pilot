@@ -257,8 +257,9 @@
           <button id="profile-save" class="ghost-button" type="button">Salvar como perfil</button>
         </div>
         <form id="preferences-form" class="preferences-form">
+          <p id="profile-summary" class="wide-field profile-summary" aria-live="polite"></p>
           <fieldset class="wide-field">
-            <legend>Stacks de interesse</legend>
+            <legend>1 · Stacks de interesse</legend>
             <small>Marque as áreas que você procura e clique em "Preencher sugestões" para montar as tecnologias e os termos de busca. Não achou a sua? Crie uma stack com as tecnologias que quiser.</small>
             <div id="stack-chips" class="chip-row" role="group" aria-label="Stacks"></div>
             <div class="stack-actions">
@@ -284,7 +285,7 @@
             </div>
           </fieldset>
           <label class="wide-field" for="search-terms">
-            <strong>Termos de busca <span id="search-terms-count" class="counter">0/20</span></strong>
+            <strong>2 · Termos de busca <span id="search-terms-count" class="counter">0/20</span></strong>
             <small>Um por linha, até 20. Vão para os portais que pesquisam por texto — prefira termos curtos que um recrutador usaria no título (ex.: "java junior", "estágio backend").</small>
             <textarea id="search-terms" rows="5" maxlength="2440" required></textarea>
           </label>
@@ -308,7 +309,7 @@
           </div>
 
           <fieldset>
-            <legend>Nível</legend>
+            <legend>3 · Nível</legend>
             <small>Marque um ou mais níveis. Vagas de outro nível ficam fora do perfil.</small>
             <label class="check-option"><input id="seniority-internship" type="checkbox" value="estagio"> Estágio</label>
             <label class="check-option"><input id="seniority-junior" type="checkbox" value="junior"> Júnior</label>
@@ -316,14 +317,14 @@
             <label class="check-option"><input id="seniority-senior" type="checkbox" value="senior"> Sênior</label>
           </fieldset>
           <fieldset>
-            <legend>Modelo de trabalho</legend>
+            <legend>4 · Modelo de trabalho</legend>
             <small>Deixe todos desmarcados para aceitar qualquer modelo.</small>
             <label class="check-option"><input id="workplace-remote" type="checkbox" value="REMOTE"> Remoto</label>
             <label class="check-option"><input id="workplace-hybrid" type="checkbox" value="HYBRID"> Híbrido</label>
             <label class="check-option"><input id="workplace-onsite" type="checkbox" value="ONSITE"> Presencial</label>
           </fieldset>
           <label class="wide-field" for="location-scopes">
-            <strong>Localidades</strong>
+            <strong>5 · Onde (localidades)</strong>
             <small>Uma por linha. Use "Cidade UF" (ex.: Curitiba PR), um estado (ex.: SP), "brasil" ou "remoto-brasil".</small>
             <textarea id="location-scopes" rows="4" maxlength="1212"></textarea>
             <span class="chip-row" role="group" aria-label="Atalhos de localidade">
@@ -332,7 +333,7 @@
             </span>
           </label>
           <div class="wide-field tag-field">
-            <label for="technologies-entry"><strong>Tecnologias que pesam na aderência</strong></label>
+            <label for="technologies-entry"><strong>6 · Tecnologias que pesam na aderência</strong></label>
             <small>Digite e tecle Enter (ou vírgula); cole uma lista para adicionar várias. A vaga precisa citar ao menos uma tecnologia principal para ser "Mais compatível". Em branco usa o perfil padrão.</small>
             <textarea id="technologies" class="tag-source" rows="3" maxlength="2440" aria-label="Tecnologias" data-placeholder="ex.: java, spring boot, sql"></textarea>
             <div id="tech-insights" class="insights" hidden>
@@ -340,8 +341,12 @@
               <div id="tech-insights-chips" class="chip-row"></div>
             </div>
           </div>
-          <section class="wide-field refine" aria-labelledby="refine-title">
-            <h3 id="refine-title">Palavras-chave e filtros finos</h3>
+          <details id="refine-details" class="wide-field refine">
+            <summary>
+              <span id="refine-title">Filtros avançados (opcional)</span>
+              <span id="refine-count" class="counter">nenhum ativo</span>
+              <small>palavras obrigatórias e proibidas, cargos a evitar, empresas, contrato e inglês</small>
+            </summary>
             <p class="hint">Tudo opcional. Ajusta a aderência sem nova busca: ao salvar, o Radar reaplica às vagas que já estão na lista (nada é apagado).</p>
             <div class="refine-grid">
               <div class="exclusion-block tag-field">
@@ -388,7 +393,7 @@
                 <small>Quando o inglês aparece só como diferencial, a vaga continua.</small>
               </fieldset>
             </div>
-          </section>
+          </details>
           <div class="preferences-footer">
             <label class="check-option"><input id="reapply-saved" type="checkbox" checked> Reaplicar às vagas já salvas</label>
             <button id="preview-preferences" class="ghost-button" type="button" title="Mostra quantas vagas da lista ficariam compatíveis, sem salvar">Ver impacto</button>

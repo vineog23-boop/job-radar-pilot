@@ -149,6 +149,9 @@ const elements = {
   toastText: document.querySelector("#toast-text"),
   toastUndo: document.querySelector("#toast-undo"),
   funnel: document.querySelector("#funnel"),
+  profileSummary: document.querySelector("#profile-summary"),
+  refineDetails: document.querySelector("#refine-details"),
+  refineCount: document.querySelector("#refine-count"),
 };
 
 const FILTER_KEY = "radar.filters";
@@ -1585,6 +1588,51 @@ function fillPreferencesForm(payload) {
   refreshTagInputs();
   updateSearchTermsCount();
   elements.preferencesImpact.hidden = true;
+  updateProfileSummary();
+  // Filtros avançados abrem sozinhos quando algum já está em uso.
+  if (updateRefineCount() > 0) elements.refineDetails.open = true;
+}
+
+const LEVEL_NAMES = { estagio: "Estágio", junior: "Júnior", pleno: "Pleno", senior: "Sênior" };
+const MODEL_NAMES = { REMOTE: "Remoto", HYBRID: "Híbrido", ONSITE: "Presencial" };
+
+function listPreview(values, limit = 3) {
+  if (!values.length) return "";
+  const shown = values.slice(0, limit).join(", ");
+  return values.length > limit ? `${shown} +${values.length - limit}` : shown;
+}
+
+// "Você procura: ..." — o perfil em uma linha, atualizado enquanto edita.
+function updateProfileSummary() {
+  const payload = currentPreferencesPayload();
+  const stacks = [...document.querySelectorAll('#stack-chips [aria-pressed="true"]')]
+    .map((chip) => chip.textContent.trim());
+  const parts = [
+    stacks.length ? listPreview(stacks, 2) : null,
+    payload.seniority_levels.map((level) => LEVEL_NAMES[level] || level).join(", ") || "qualquer nível",
+    payload.workplace_models.map((model) => MODEL_NAMES[model] || model).join(", ") || "qualquer modelo",
+    listPreview(payload.location_scopes) || "sem localidade",
+    `${payload.search_terms.length} ${payload.search_terms.length === 1 ? "termo" : "termos"} de busca`,
+    `${payload.technologies.length} tecnologias`,
+  ].filter(Boolean);
+  elements.profileSummary.textContent = `Você procura: ${parts.join(" · ")}`;
+}
+
+function updateRefineCount() {
+  const payload = currentPreferencesPayload();
+  const active = [
+    payload.required_keywords,
+    payload.bonus_keywords,
+    payload.blocked_keywords,
+    payload.excluded_terms,
+    payload.excluded_companies,
+    payload.favorite_companies,
+    payload.contract_types,
+  ].filter((values) => values.length).length + (payload.avoid_advanced_english ? 1 : 0);
+  elements.refineCount.textContent = active
+    ? `${active} ${active === 1 ? "ativo" : "ativos"}`
+    : "nenhum ativo";
+  return active;
 }
 
 const SENIORITY_BOXES = () => [
@@ -2137,6 +2185,10 @@ elements.preferencesButton.addEventListener("click", async () => {
 });
 elements.closePreferences.addEventListener("click", () => showPreferences(false));
 elements.preferencesForm.addEventListener("submit", savePreferences);
+["input", "change"].forEach((type) =>
+  elements.preferencesForm.addEventListener(type, () => { updateProfileSummary(); updateRefineCount(); })
+);
+elements.stackChips.addEventListener("click", () => window.setTimeout(updateProfileSummary, 0));
 elements.applySuggestions.addEventListener("click", applySuggestions);
 document.querySelectorAll("textarea.tag-source").forEach(setupTagInput);
 elements.searchTerms.addEventListener("input", updateSearchTermsCount);

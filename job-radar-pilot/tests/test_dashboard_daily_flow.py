@@ -153,3 +153,27 @@ def test_phone_layout_has_no_horizontal_scroll(dashboard: str) -> None:
         page.wait_for_timeout(300)
         assert page.evaluate("document.documentElement.scrollWidth") <= 390
         browser.close()
+
+
+def test_preferences_show_profile_summary_and_collapsed_advanced_filters(dashboard: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(dashboard)
+        page.get_by_role("button", name="Configurar busca").click()
+        summary = page.locator("#profile-summary")
+        page.wait_for_function("document.querySelector('#profile-summary').textContent.length > 0")
+        assert summary.inner_text().startswith("Você procura:")
+
+        page.locator("#workplace-remote").check()
+        assert "Remoto" in summary.inner_text()
+
+        details = page.locator("#refine-details")
+        if details.get_attribute("open") is None:
+            page.locator("#refine-details summary").click()
+        page.locator("#contract-pj").check()
+        assert "ativo" in page.locator("#refine-count").inner_text()
+        assert page.locator("#refine-count").inner_text() != "nenhum ativo"
+        browser.close()

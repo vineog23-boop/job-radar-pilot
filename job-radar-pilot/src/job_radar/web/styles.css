@@ -383,3 +383,11 @@ tr.unseen .job-title { color: #fff; }
 .funnel-progress { margin-left: 8px; }
 tr.tracked-interview td:first-child, tr.tracked-offer td:first-child { box-shadow: inset 3px 0 0 #8fb8ff; }
 tr.tracked-rejected { opacity: .7; }
+
+/* configurar busca: resumo do perfil e filtros avançados recolhidos */
+.profile-summary { margin: 0; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,113,71,.3); background: var(--accent-soft); color: #ffe4da; font-size: 13px; line-height: 1.5; }
+details.refine > summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #dce2eb; font-size: 14px; font-weight: 600; }
+details.refine > summary::-webkit-details-marker { display: none; }
+details.refine > summary::before { content: "▸"; color: var(--accent); }
+details.refine[open] > summary::before { content: "▾"; }
+details.refine > summary small { flex-basis: 100%; color: var(--muted); font-size: 12px; font-weight: 400; }

@@ -148,3 +148,23 @@ def test_stale_or_expired_records_are_not_fetched() -> None:
         fetcher_factory=lambda: fetcher, max_age_days=30, now=now,
     )
     assert fetcher.urls == ["https://x.com.br/gupy/3"] and count == 1
+
+
+def test_gupy_next_data_fills_published_and_deadline() -> None:
+    from job_radar.enrich import extract_detail_metadata
+
+    html = (
+        '<script id="__NEXT_DATA__" type="application/json">'
+        '{"props":{"pageProps":{"job":{"publishedAt":"2026-09-25T19:35:20.154Z",'
+        '"expiresAt":"2026-10-01","workplaceType":"hybrid"}}}}</script>'
+    )
+    meta = extract_detail_metadata(html)
+    assert meta.published_at == "2026-09-25T19:35:20.154000+00:00"
+    assert meta.application_deadline == "2026-10-02T02:59:59+00:00"
+
+
+def test_gupy_next_data_without_expiry_leaves_deadline_empty() -> None:
+    from job_radar.enrich import extract_detail_metadata
+
+    html = '<script id="__NEXT_DATA__">{"job":{"publishedAt":"2026-09-25T00:00:00Z"}}</script>'
+    assert extract_detail_metadata(html).application_deadline is None

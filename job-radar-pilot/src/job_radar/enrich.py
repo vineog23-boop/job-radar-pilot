@@ -28,6 +28,10 @@ _JSON_LD = re.compile(
     r"<script[^>]+type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
     re.IGNORECASE | re.DOTALL,
 )
+_NEXT_DATA = re.compile(
+    r"<script[^>]+id=[\"']__NEXT_DATA__[\"'][^>]*>(.*?)</script>",
+    re.IGNORECASE | re.DOTALL,
+)
 _META_PUBLISHED = re.compile(
     r"<meta[^>]+(?:property|name|itemprop)=[\"'](?:article:published_time|"
     r"og:published_time|datePublished|datePosted)[\"'][^>]*?content=[\"']([^\"']+)[\"']",
@@ -70,6 +74,20 @@ def _walk_json_ld(node: Any) -> Iterator[dict[str, Any]]:
         yield from _walk_json_ld(node.get("@graph"))
 
 
+def _walk_next_data(node: Any) -> Iterator[dict[str, Any]]:
+    """Objetos de vaga do ``__NEXT_DATA__`` (Gupy): têm ``publishedAt`` e ``expiresAt``."""
+
+    if isinstance(node, list):
+        for item in node:
+            yield from _walk_next_data(item)
+    elif isinstance(node, dict):
+        if "publishedAt" in node and "expiresAt" in node:
+            yield node
+        for value in node.values():
+            if isinstance(value, (dict, list)):
+                yield from _walk_next_data(value)
+
+
 def extract_detail_metadata(html: str, *, now: datetime | None = None) -> DetailMetadata:
     """Lê data de publicação e empresa da página de detalhe.
 
@@ -102,6 +120,18 @@ def extract_detail_metadata(html: str, *, now: datetime | None = None) -> Detail
                 )
                 if isinstance(name, str) and name.strip():
                     company = " ".join(name.split())[:120]
+    if published is None or deadline is None:
+        match = _NEXT_DATA.search(html)
+        try:
+            next_data = json.loads(match.group(1)) if match else None
+        except (ValueError, TypeError):
+            next_data = None
+        for posting in _walk_next_data(next_data):
+            if published is None and isinstance(posting.get("publishedAt"), str):
+                published = parse_published_at(posting["publishedAt"], now=now)
+            if deadline is None:
+                deadline = parse_deadline(posting.get("expiresAt"))
+            break
     if published is None:
         for pattern in (_META_PUBLISHED, _TIME_TAG):
             match = pattern.search(html)
@@ -134,7 +164,14 @@ def _priority(classified: VacancyRecord) -> int | None:
 
 def _needs_detail(record: VacancyRecord) -> bool:
     long_text = len(record.description_summary or "") >= MAX_DETAIL_CHARS // 2
-    return not long_text or not record.published_at or not record.company
+    # A Gupy só expõe o prazo (expiresAt) na página da vaga.
+    needs_deadline = record.source.startswith("gupy") and not record.application_deadline
+    return (
+        not long_text
+        or not record.published_at
+        or not record.company
+        or needs_deadline
+    )
 
 
 def enrich_records(

@@ -240,3 +240,22 @@ def test_detail_quick_actions_save_and_toggle(dashboard: str) -> None:
             "document.querySelector('[aria-label=\"Acompanhamento da vaga Java Júnior Remoto\"]').value === ''"
         )
         browser.close()
+
+
+def test_default_period_is_30_days_and_hides_undated_jobs(dashboard: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(dashboard)
+        page.evaluate("localStorage.removeItem('radar.filters')")
+        page.reload()
+        page.wait_for_selector("#age-filter")
+        assert page.locator("#age-filter").input_value() == "30"
+        within_window = len(_titles(page))
+        # "Qualquer data" nunca mostra menos que a janela de 30 dias.
+        page.locator("#age-filter").select_option("")
+        page.wait_for_selector("#jobs-table-body tr")
+        assert len(_titles(page)) >= within_window
+        browser.close()

@@ -1,8 +1,10 @@
 sources:
+  # Desativada: o endpoint anônimo respondeu 404 em todas as consultas (01/10/2026).
+  # A cobertura da Gupy vem da fonte pública `gupy` abaixo.
   - code: gupy-api
     kind: json
     start_url: https://employability-portal.gupy.io/api/v1/jobs?limit=100
-    enabled: true
+    enabled: false
     max_pages: 5
     min_interval_seconds: 1
     requires_auth: false
@@ -72,7 +74,7 @@ sources:
   - code: gupy
     kind: gupy
     start_url: https://portal.gupy.io/job-search/term%3Ddesenvolvedor%20junior
-    enabled: false
+    enabled: true
     max_pages: 3
     min_interval_seconds: 2
     requires_auth: false

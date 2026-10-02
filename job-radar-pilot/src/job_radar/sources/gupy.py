@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from job_radar.adaptive import CardSelection
+from job_radar.dates import parse_published_at
 from job_radar.models import SourceConfig, VacancyRecord
 from job_radar.sources.base import (
     PaginatedAdapter,
@@ -14,6 +16,20 @@ from job_radar.sources.base import (
 
 _LEGACY_CARD_SELECTOR = "[data-testid='job-card']"
 _CURRENT_CARD_SELECTOR = "#job-listing-results li"
+_PUBLISHED_TEXT = re.compile(
+    r"publicad[ao]\s+em\s*:?\s*(\d{2}/\d{2}/\d{4})", re.IGNORECASE
+)
+
+
+def _card_published_at(card: object) -> str | None:
+    """Data do texto "Publicada em dd/mm/aaaa" do cartão; sem o texto, None."""
+
+    try:
+        text = str(card.get_all_text())  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    match = _PUBLISHED_TEXT.search(text)
+    return parse_published_at(match.group(1)) if match else None
 
 
 class GupyAdapter(PaginatedAdapter):
@@ -24,7 +40,7 @@ class GupyAdapter(PaginatedAdapter):
             card_method: str,
         ) -> VacancyRecord | None:
             current_layout = variant == "current"
-            return make_record_with_fallback(
+            record = make_record_with_fallback(
                 card_method=card_method,
                 config=config,
                 page=page,
@@ -42,6 +58,11 @@ class GupyAdapter(PaginatedAdapter):
                 location_selector="[data-testid='job-location']",
                 validated_fallback=True,
             )
+            if record is not None and record.published_at is None:
+                published = _card_published_at(card)
+                if published:
+                    record = replace(record, published_at=published)
+            return record
 
         legacy_configured = tuple(page.css(_LEGACY_CARD_SELECTOR))  # type: ignore[attr-defined]
         current_configured = tuple(page.css(_CURRENT_CARD_SELECTOR))  # type: ignore[attr-defined]

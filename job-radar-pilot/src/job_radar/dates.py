@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 import re
 import unicodedata
 
@@ -108,3 +108,42 @@ def parse_iso_datetime(value: object) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+_SAO_PAULO = timezone(timedelta(hours=-3), "America/Sao_Paulo")
+_DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def parse_deadline(value: str | None) -> str | None:
+    """Prazo de candidatura em ISO 8601 UTC. Só data vale até 23:59:59 de Brasília."""
+
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    try:
+        if _DATE_ONLY.match(text):
+            day = datetime.fromisoformat(text).date()
+            moment = datetime.combine(day, time(23, 59, 59), tzinfo=_SAO_PAULO)
+        else:
+            moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if moment.tzinfo is None:
+                moment = moment.replace(tzinfo=_SAO_PAULO)
+    except ValueError:
+        return None
+    return moment.astimezone(timezone.utc).isoformat()
+
+
+def is_stale(
+    published_at: str | None, max_age_days: int | None, now: datetime
+) -> bool:
+    """True só quando há data de publicação comprovada fora da janela."""
+
+    published = parse_iso_datetime(published_at)
+    if published is None or max_age_days is None:
+        return False
+    return published < now - timedelta(days=max_age_days)
+
+
+def is_expired(application_deadline: str | None, now: datetime) -> bool:
+    deadline = parse_iso_datetime(application_deadline)
+    return deadline is not None and deadline < now

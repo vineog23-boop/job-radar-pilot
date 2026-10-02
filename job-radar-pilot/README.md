@@ -100,6 +100,14 @@ respeitam exatamente os filtros ativos, inclusive o de acompanhamento. O CSV
 traz aderência, acompanhamento, cargo, empresa, local, modalidade,
 senioridade, tecnologias, data de publicação, fonte, URL e nota.
 
+## Vigência: publicação, prazo e período
+
+- **Publicada em** vem só do portal (campo estruturado ou texto "Publicada em"); a data de coleta (`observed_at`) nunca a substitui.
+- **Prazo** (`application_deadline`) vem do `validThrough` da página oficial. Só a data vale até 23:59 de Brasília.
+- O painel abre em **Últimos 30 dias** (também 7 e 15). Vaga sem data de publicação ou com prazo vencido fica fora dessas janelas e aparece em **Qualquer data**; nada é apagado.
+- A coleta não abre a página de detalhe de vaga fora da janela ou com prazo vencido (`enrich_max_age_days`, padrão 30).
+- **Gupy:** a API anônima (`gupy-api`) retornou 404 e está desativada; a fonte `gupy` usa a busca pública do portal, respeitando robots.txt, sem login. É cobertura parcial, sem garantia de disponibilidade.
+
 ## Limites de segurança
 
 - Não acessa SQLite, Notion, RADAR, `pipeline-state.json` nem a pasta

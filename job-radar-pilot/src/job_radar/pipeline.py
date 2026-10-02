@@ -251,6 +251,7 @@ class JobRadarPipeline:
         now: Callable[[], datetime] | None = None,
         history: SeenHistory | None = None,
         enrich_limit: int = 0,
+        enrich_max_age_days: int | None = 30,
         enrich_fetcher_factory: Callable[[], FetchPolicy] | None = None,
         control: RunControl | None = None,
         preferred_urls: Collection[str] = (),
@@ -269,6 +270,7 @@ class JobRadarPipeline:
             raise ValueError("workers > 1 exige fetcher_factory")
         self._history = history
         self._enrich_limit = enrich_limit
+        self._enrich_max_age_days = enrich_max_age_days
         self._enrich_fetcher_factory = enrich_fetcher_factory or FetchPolicy
         self.enriched_count = 0
         self._sources = tuple(sources)
@@ -560,6 +562,8 @@ class JobRadarPipeline:
                 classify_one,
                 selected,
                 limit=self._enrich_limit,
+                max_age_days=self._enrich_max_age_days,
+                now=self._now(),
                 fetcher_factory=self._enrich_fetcher_factory,
             )
             raw_records = list(enriched_records)

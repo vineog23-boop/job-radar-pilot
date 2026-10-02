@@ -112,3 +112,39 @@ def test_off_topic_records_are_never_fetched() -> None:
 
     assert count == 0
     assert fetcher.urls == []
+
+
+def test_json_ld_valid_through_fills_application_deadline() -> None:
+    from job_radar.enrich import extract_detail_metadata
+
+    html = (
+        '<script type="application/ld+json">{"@type":"JobPosting",'
+        '"datePosted":"2026-09-30","validThrough":"2026-10-20"}</script>'
+    )
+    meta = extract_detail_metadata(html)
+    assert meta.application_deadline == "2026-10-21T02:59:59+00:00"
+    assert meta.published_at is not None
+
+
+def test_stale_or_expired_records_are_not_fetched() -> None:
+    from datetime import datetime, timezone
+    from dataclasses import replace
+
+    fetcher = _Fetcher()
+    now = datetime(2026, 10, 2, tzinfo=timezone.utc)
+    old = replace(_record(title="duvidosa"), published_at="2026-07-01T00:00:00+00:00")
+    closed = replace(
+        _record(title="duvidosa"),
+        canonical_url="https://x.com.br/gupy/2",
+        application_deadline="2026-09-01T00:00:00+00:00",
+    )
+    fresh = replace(
+        _record(title="duvidosa"),
+        canonical_url="https://x.com.br/gupy/3",
+        published_at="2026-09-30T00:00:00+00:00",
+    )
+    _, count = enrich_records(
+        [old, closed, fresh], _classify, [_source()], limit=5,
+        fetcher_factory=lambda: fetcher, max_age_days=30, now=now,
+    )
+    assert fetcher.urls == ["https://x.com.br/gupy/3"] and count == 1

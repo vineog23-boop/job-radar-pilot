@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import re
 from typing import Any, Callable, Iterator, Sequence
 
-from job_radar.dates import parse_published_at
+from job_radar.dates import is_expired, is_stale, parse_deadline, parse_published_at
 from job_radar.fetching import FetchPolicy, _visible_response_text, page_html
 from job_radar.fit import fit_state
 from job_radar.sources.base import VISIBLE_TEXT_XPATH
@@ -40,6 +40,7 @@ _TIME_TAG = re.compile(r"<time[^>]+datetime=[\"']([^\"']+)[\"']", re.IGNORECASE)
 class DetailMetadata:
     published_at: str | None = None
     company: str | None = None
+    application_deadline: str | None = None
 
 
 def _main_text(response: object) -> str:
@@ -79,6 +80,7 @@ def extract_detail_metadata(html: str, *, now: datetime | None = None) -> Detail
 
     published: str | None = None
     company: str | None = None
+    deadline: str | None = None
     for block in _JSON_LD.findall(html):
         try:
             data = json.loads(block.strip())
@@ -89,6 +91,8 @@ def extract_detail_metadata(html: str, *, now: datetime | None = None) -> Detail
                 raw_date = posting.get("datePosted")
                 if isinstance(raw_date, str):
                     published = parse_published_at(raw_date, now=now)
+            if deadline is None:
+                deadline = parse_deadline(posting.get("validThrough"))
             if company is None:
                 organization = posting.get("hiringOrganization")
                 name = (
@@ -105,7 +109,9 @@ def extract_detail_metadata(html: str, *, now: datetime | None = None) -> Detail
                 published = parse_published_at(match.group(1), now=now)
                 if published:
                     break
-    return DetailMetadata(published_at=published, company=company)
+    return DetailMetadata(
+        published_at=published, company=company, application_deadline=deadline
+    )
 
 
 def _priority(classified: VacancyRecord) -> int | None:
@@ -138,6 +144,8 @@ def enrich_records(
     *,
     limit: int,
     fetcher_factory: Callable[[], FetchPolicy] = FetchPolicy,
+    max_age_days: int | None = None,
+    now: datetime | None = None,
 ) -> tuple[tuple[VacancyRecord, ...], int]:
     """Busca a página de detalhe de até ``limit`` vagas candidatas.
 
@@ -151,6 +159,7 @@ def enrich_records(
 
     if limit <= 0:
         return tuple(raw_records), 0
+    moment = now or datetime.now(timezone.utc)
     by_code = {source.code: source for source in sources}
     ranked: list[tuple[int, int, SourceConfig]] = []
     for index, record in enumerate(raw_records):
@@ -161,6 +170,9 @@ def enrich_records(
             or source.requires_auth
             or not record.canonical_url.startswith("https://")
             or not _needs_detail(record)
+            # Vaga velha ou com prazo vencido não gasta requisição de detalhe.
+            or is_stale(record.published_at, max_age_days, moment)
+            or is_expired(record.application_deadline, moment)
         ):
             continue
         priority = _priority(classify_fn(record))
@@ -187,6 +199,8 @@ def enrich_records(
             new_fields: dict[str, Any] = {}
             if not record.published_at and metadata.published_at:
                 new_fields["published_at"] = metadata.published_at
+            if not record.application_deadline and metadata.application_deadline:
+                new_fields["application_deadline"] = metadata.application_deadline
             if not record.company and metadata.company:
                 new_fields["company"] = metadata.company
             if len(text) < 80 and not new_fields:

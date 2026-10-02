@@ -49,3 +49,25 @@ def test_parses_portuguese_long_date() -> None:
     assert parse_published_at("1 de março de 2026", now=now).startswith("2026-03-01")
     assert parse_published_at("31 de fevereiro de 2026", now=now) is None
     assert parse_published_at("15 de dezembro de 2026", now=now) is None
+
+
+def test_parse_deadline_date_only_valid_until_end_of_day_in_brasilia() -> None:
+    from job_radar.dates import is_expired, parse_deadline
+    from datetime import datetime, timezone
+
+    deadline = parse_deadline("2026-10-20")
+    assert deadline == "2026-10-21T02:59:59+00:00"
+    assert not is_expired(deadline, datetime(2026, 10, 21, 2, 0, tzinfo=timezone.utc))
+    assert is_expired(deadline, datetime(2026, 10, 21, 3, 0, tzinfo=timezone.utc))
+    assert parse_deadline("lixo") is None and parse_deadline(None) is None
+
+
+def test_is_stale_requires_a_proven_date() -> None:
+    from job_radar.dates import is_stale
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 10, 2, tzinfo=timezone.utc)
+    assert is_stale("2026-08-01T00:00:00+00:00", 30, now)
+    assert not is_stale("2026-09-25T00:00:00+00:00", 30, now)
+    assert not is_stale(None, 30, now)
+    assert not is_stale("2026-08-01T00:00:00+00:00", None, now)

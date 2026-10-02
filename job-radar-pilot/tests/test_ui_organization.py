@@ -48,6 +48,8 @@ def test_dashboard_details_clear_filters_cards_and_memory(tmp_path) -> None:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.evaluate("localStorage.removeItem('radar.filters')")
+            page.reload()  # filtros de fábrica, inclusive "Últimos 30 dias"
             page.wait_for_selector("#jobs-table-body tr")
             assert page.locator("#jobs-table-body tr").count() == 2
             assert page.locator("#clear-filters").is_hidden()

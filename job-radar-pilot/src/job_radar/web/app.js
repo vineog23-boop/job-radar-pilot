@@ -8,6 +8,7 @@ const elements = {
   matchFilter: document.querySelector("#match-filter"),
   sortOrder: document.querySelector("#sort-order"),
   ageFilter: document.querySelector("#age-filter"),
+  activityFilter: document.querySelector("#activity-filter"),
   trackingFilter: document.querySelector("#tracking-filter"),
   downloadCsv: document.querySelector("#download-csv"),
   tableBody: document.querySelector("#jobs-table-body"),
@@ -159,7 +160,7 @@ const elements = {
 };
 
 const FILTER_KEY = "radar.filters";
-const FILTER_DEFAULTS = { match: "", sort: "fit", tracked: "active", age: "30" };
+const FILTER_DEFAULTS = { match: "", sort: "fit", tracked: "active", age: "30", activity: "active" };
 const expandedJobs = new Set();
 // Filtros rápidos (chips): somam aos selects.
 const QUICK_FILTERS = ["unseen", "remote", "estagio", "junior", "recent"];
@@ -208,6 +209,7 @@ function saveFilters() {
       match: elements.matchFilter.value,
       sort: elements.sortOrder.value,
       age: elements.ageFilter.value,
+      activity: elements.activityFilter.value,
       tracked: elements.trackingFilter.value,
       quick: [...quickFilters],
     }));
@@ -255,6 +257,7 @@ function restoreFilters() {
     apply(elements.matchFilter, saved.match);
     apply(elements.sortOrder, saved.sort);
     apply(elements.ageFilter, saved.age);
+    apply(elements.activityFilter, saved.activity);
     apply(elements.trackingFilter, saved.tracked);
     (Array.isArray(saved.quick) ? saved.quick : [])
       .filter((name) => QUICK_FILTERS.includes(name))
@@ -269,6 +272,7 @@ function filtersAreDefault() {
     && elements.matchFilter.value === FILTER_DEFAULTS.match
     && elements.sortOrder.value === FILTER_DEFAULTS.sort
     && elements.ageFilter.value === FILTER_DEFAULTS.age
+    && elements.activityFilter.value === FILTER_DEFAULTS.activity
     && elements.trackingFilter.value === FILTER_DEFAULTS.tracked
     && quickFilters.size === 0;
 }
@@ -279,6 +283,7 @@ function resetFilters() {
   elements.matchFilter.value = FILTER_DEFAULTS.match;
   elements.sortOrder.value = FILTER_DEFAULTS.sort;
   elements.ageFilter.value = FILTER_DEFAULTS.age;
+  elements.activityFilter.value = FILTER_DEFAULTS.activity;
   elements.trackingFilter.value = FILTER_DEFAULTS.tracked;
   quickFilters.clear();
   syncQuickChips();
@@ -499,6 +504,35 @@ function searchValues(value) {
 
 // Período de publicação: sem data comprovada ou com prazo vencido, a vaga não
 // entra numa janela de dias; "Qualquer data" mostra tudo.
+// Espelha job_radar/activity.py: situação derivada dos dados salvos.
+const LISTING_FRESH_MS = 7 * 86400000;
+function activityState(job) {
+  const now = Date.now();
+  const published = Date.parse(job.published_at ?? "");
+  const deadline = Date.parse(job.application_deadline ?? "");
+  if (!Number.isNaN(deadline) && deadline < now) return "CLOSED";
+  if (Number.isNaN(published) || published > now) return "UNKNOWN";
+  if (!Number.isNaN(deadline)) return "ACTIVE_CONFIRMED";
+  const observed = Date.parse(job.observed_at ?? "");
+  return !Number.isNaN(observed) && now - observed <= LISTING_FRESH_MS ? "ACTIVE_LISTED" : "UNKNOWN";
+}
+
+const ACTIVITY_LABELS = {
+  ACTIVE_CONFIRMED: "ativa (prazo em aberto)",
+  ACTIVE_LISTED: "listada na última busca",
+  CLOSED: "encerrada",
+  UNKNOWN: "situação não comprovada",
+};
+
+function passesActivityFilter(job) {
+  const choice = elements.activityFilter.value;
+  if (choice === "all") return true;
+  const state = activityState(job);
+  if (choice === "closed") return state === "CLOSED";
+  if (choice === "unproven") return state === "UNKNOWN";
+  return state === "ACTIVE_CONFIRMED" || state === "ACTIVE_LISTED";
+}
+
 function passesAgeFilter(job) {
   const days = Number(elements.ageFilter.value);
   if (!days) return true;
@@ -546,7 +580,7 @@ function filteredJobs() {
     if (match === "review" && !["CONDITIONAL", "AMBIGUOUS"].includes(state)) return false;
     if (match === "otherstack" && state !== "OTHER_STACK") return false;
     if (match === "exclude" && state !== "EXCLUDE") return false;
-    return passesAgeFilter(job) && passesQuickFilters(job);
+    return passesAgeFilter(job) && passesActivityFilter(job) && passesQuickFilters(job);
   }).sort((left, right) => {
     const order = { READY: 0, CONDITIONAL: 1, AMBIGUOUS: 2, OTHER_STACK: 3, EXCLUDE: 4 };
     const byState = order[fitState(left)] - order[fitState(right)];
@@ -679,6 +713,7 @@ function renderTable() {
         [
           jobTechnologies(job).slice(0, 4).join(" · ") || "Tecnologias não informadas",
           publishedLabel(job) && `publicada em ${publishedLabel(job)}`,
+          ACTIVITY_LABELS[activityState(job)],
           alsoSeenIn(job).length && `também em ${alsoSeenIn(job).join(", ")}`,
         ].filter(Boolean).join(" — ")
       )
@@ -2349,6 +2384,7 @@ elements.linkedinImportButton.addEventListener("click", importLinkedinText);
   elements.matchFilter,
   elements.sortOrder,
   elements.ageFilter,
+  elements.activityFilter,
   elements.trackingFilter,
 ].forEach((filter) => {
   const rerender = () => {

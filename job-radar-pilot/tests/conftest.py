@@ -29,7 +29,7 @@ _AGE_ANY_SCRIPT = (
     "if (!sessionStorage.getItem('age-any-seeded')) {"
     "sessionStorage.setItem('age-any-seeded', '1');"
     "if (!localStorage.getItem('radar.filters')) "
-    "localStorage.setItem('radar.filters', JSON.stringify({age: ''}));}"
+    "localStorage.setItem('radar.filters', JSON.stringify({age: '', activity: 'all'}));}"
 )
 
 

@@ -19,7 +19,7 @@ from job_radar.models import (
 )
 from job_radar.output import write_outputs
 from job_radar.pipeline import PipelineResult
-from job_radar.preferences import PreferencesError, SearchPreferences, preferences_from_dict
+from job_radar.preferences import PreferencesError, preferences_from_dict
 from job_radar.presets import (
     STACKS,
     StackError,

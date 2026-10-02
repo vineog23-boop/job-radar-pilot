@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread
 from urllib.request import urlopen
@@ -116,7 +116,13 @@ def _serve(tmp_path: Path):
 
     output = tmp_path / "output"
     output.mkdir()
-    jobs = [_job(1), _job(2, fit="CONDITIONAL", points=2)]
+    # Datas relativas a hoje: o painel abre em "Últimos 30 dias" + "Ativas".
+    live = datetime.now(timezone.utc)
+    dates = {
+        "published_at": (live - timedelta(days=1)).isoformat(),
+        "observed_at": live.isoformat(),
+    }
+    jobs = [_job(1, **dates), _job(2, fit="CONDITIONAL", points=2, **dates)]
     (output / "vagas.jsonl").write_text(
         "\n".join(json.dumps(j) for j in jobs) + "\n", encoding="utf-8"
     )

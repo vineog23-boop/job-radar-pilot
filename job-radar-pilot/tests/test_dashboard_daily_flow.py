@@ -23,6 +23,7 @@ def _job(index: int, title: str, labels: list[str], **extra) -> dict:
         "canonical_url": f"https://example.com/vaga/{index}",
         "source": "example",
         "match_labels": labels,
+        "observed_at": datetime.now(timezone.utc).isoformat(),
         **extra,
     }
 
@@ -258,4 +259,25 @@ def test_default_period_is_30_days_and_hides_undated_jobs(dashboard: str) -> Non
         page.locator("#age-filter").select_option("")
         page.wait_for_selector("#jobs-table-body tr")
         assert len(_titles(page)) >= within_window
+        browser.close()
+
+
+def test_activity_state_in_browser_mirrors_python_rules(dashboard: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    now = datetime.now(timezone.utc)
+    iso = lambda days: (now + timedelta(days=days)).isoformat()  # noqa: E731
+    cases = {
+        "CLOSED": {"published_at": iso(-5), "application_deadline": iso(-1), "observed_at": iso(0)},
+        "ACTIVE_CONFIRMED": {"published_at": iso(-5), "application_deadline": iso(5)},
+        "ACTIVE_LISTED": {"published_at": iso(-5), "observed_at": iso(-1)},
+        "UNKNOWN": {"published_at": iso(-5), "observed_at": iso(-30)},
+    }
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(dashboard)
+        page.wait_for_selector("#jobs-table-body tr")
+        for expected, job in cases.items():
+            assert page.evaluate("(job) => activityState(job)", job) == expected
         browser.close()

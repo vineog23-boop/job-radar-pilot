@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from urllib.request import urlopen
 
 from test_xlsx_export import NOW, _job, _serve

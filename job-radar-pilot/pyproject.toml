@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=9,<10"]
+test = ["pytest>=9,<10", "ruff>=0.6"]
 
 [project.scripts]
 job-radar = "job_radar.cli:main"
@@ -31,3 +31,11 @@ addopts = "--strict-markers --strict-config"
 filterwarnings = [
   "ignore:The 'strip_cdata' option of HTMLParser\\(\\) has never done anything.*:DeprecationWarning:lxml.html",
 ]
+
+[tool.ruff]
+target-version = "py313"
+extend-exclude = ["output", "debug.log"]
+
+[tool.ruff.lint]
+# Só erros reais (sintaxe, nomes não definidos, imports/variáveis sem uso).
+select = ["E9", "F"]

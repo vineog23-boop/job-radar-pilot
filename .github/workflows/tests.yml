@@ -34,6 +34,9 @@ jobs:
           & $py -m pip install -e "vendor/Scrapling[fetchers]" -e "job-radar-pilot[test]"
           & $py -m playwright install chromium
 
+      - name: Lint (ruff: erros reais, sem estilo)
+        run: job-radar-pilot\.venv\Scripts\python.exe -m ruff check job-radar-pilot/src job-radar-pilot/tests --config job-radar-pilot/pyproject.toml
+
       - name: Rodar testes (sem rede para os portais)
         env:
           PYTHONPATH: job-radar-pilot/src

@@ -6,11 +6,10 @@ import json
 from pathlib import Path
 from threading import Event, Thread
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
 
 import pytest
 
-from job_radar import webapp
 from job_radar.webapp import SearchController, create_server
 
 

@@ -399,3 +399,7 @@ details.refine > summary small { flex-basis: 100%; color: var(--muted); font-siz
 .quick-saved { color: #f4d58d; }
 .quick-applied { color: #8ee0b8; }
 .quick-discarded { color: #f5a3b1; }
+
+.age-custom { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.age-custom[hidden] { display: none; }
+.age-custom label { display: inline-flex; align-items: center; gap: 4px; }

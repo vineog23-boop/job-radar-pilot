@@ -448,9 +448,14 @@
               <option value="7">Últimos 7 dias</option>
               <option value="15">Últimos 15 dias</option>
               <option value="30" selected>Últimos 30 dias</option>
+              <option value="custom">Personalizado…</option>
               <option value="">Qualquer data</option>
             </select>
           </label>
+          <span id="age-custom" class="age-custom" hidden>
+            <label>De <input id="age-from" type="date"></label>
+            <label>até <input id="age-to" type="date"></label>
+          </span>
           <label>
             <span class="sr-only">Situação da vaga</span>
             <select id="activity-filter">

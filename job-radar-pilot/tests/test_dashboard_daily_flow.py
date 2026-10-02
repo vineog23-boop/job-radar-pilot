@@ -281,3 +281,61 @@ def test_activity_state_in_browser_mirrors_python_rules(dashboard: str) -> None:
         for expected, job in cases.items():
             assert page.evaluate("(job) => activityState(job)", job) == expected
         browser.close()
+
+
+def test_custom_date_range_is_inclusive_and_remembered(dashboard: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    day = lambda days: (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%d")  # noqa: E731
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(dashboard)
+        page.wait_for_selector("#jobs-table-body tr")
+        assert page.locator("#age-custom").is_hidden()
+
+        page.locator("#age-filter").select_option("custom")
+        assert page.locator("#age-custom").is_visible()
+
+        # Janela recente: só as vagas de 2 dias atrás.
+        page.locator("#age-from").fill(day(-4))
+        page.locator("#age-to").fill(day(0))
+        assert sorted(_titles(page)) == ["Java Júnior Remoto", "Python Júnior"]
+
+        # Janela antiga (~40 dias): só as antigas, e nada de recente.
+        page.locator("#age-from").fill(day(-45))
+        page.locator("#age-to").fill(day(-35))
+        assert sorted(_titles(page)) == ["Estágio Java Presencial", "Java Júnior antiga"]
+
+        # Só a data final: tudo até aquela data.
+        page.locator("#age-from").fill("")
+        assert sorted(_titles(page)) == ["Estágio Java Presencial", "Java Júnior antiga"]
+
+        page.reload()
+        page.wait_for_selector("#age-filter")
+        assert page.locator("#age-filter").input_value() == "custom"
+        assert page.locator("#age-to").input_value() == day(-35)
+
+        page.locator("#clear-filters").click()
+        assert page.locator("#age-custom").is_hidden()
+        assert page.locator("#age-from").input_value() == ""
+        browser.close()
+
+
+def test_custom_range_boundaries_use_brasilia_day(dashboard: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(dashboard)
+        page.wait_for_selector("#jobs-table-body tr")
+        check = "([job, from, to]) => inCustomRange(job, from, to)"
+        # 02/10 00:30 em Brasília (03:30Z) e 02/10 23:30 em Brasília (03/10 02:30Z).
+        early = {"published_at": "2026-10-02T03:30:00+00:00"}
+        late = {"published_at": "2026-10-03T02:30:00+00:00"}
+        assert page.evaluate(check, [early, "2026-10-02", "2026-10-02"])
+        assert page.evaluate(check, [late, "2026-10-02", "2026-10-02"])
+        assert not page.evaluate(check, [late, "2026-10-03", "2026-10-03"])
+        assert not page.evaluate(check, [{"published_at": None}, "2026-10-02", ""])
+        browser.close()

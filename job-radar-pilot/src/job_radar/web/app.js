@@ -9,6 +9,9 @@ const elements = {
   sortOrder: document.querySelector("#sort-order"),
   ageFilter: document.querySelector("#age-filter"),
   activityFilter: document.querySelector("#activity-filter"),
+  ageCustom: document.querySelector("#age-custom"),
+  ageFrom: document.querySelector("#age-from"),
+  ageTo: document.querySelector("#age-to"),
   trackingFilter: document.querySelector("#tracking-filter"),
   downloadCsv: document.querySelector("#download-csv"),
   tableBody: document.querySelector("#jobs-table-body"),
@@ -209,6 +212,8 @@ function saveFilters() {
       match: elements.matchFilter.value,
       sort: elements.sortOrder.value,
       age: elements.ageFilter.value,
+      ageFrom: elements.ageFrom.value,
+      ageTo: elements.ageTo.value,
       activity: elements.activityFilter.value,
       tracked: elements.trackingFilter.value,
       quick: [...quickFilters],
@@ -257,6 +262,9 @@ function restoreFilters() {
     apply(elements.matchFilter, saved.match);
     apply(elements.sortOrder, saved.sort);
     apply(elements.ageFilter, saved.age);
+    if (typeof saved.ageFrom === "string") elements.ageFrom.value = saved.ageFrom;
+    if (typeof saved.ageTo === "string") elements.ageTo.value = saved.ageTo;
+    syncAgeCustom();
     apply(elements.activityFilter, saved.activity);
     apply(elements.trackingFilter, saved.tracked);
     (Array.isArray(saved.quick) ? saved.quick : [])
@@ -272,6 +280,8 @@ function filtersAreDefault() {
     && elements.matchFilter.value === FILTER_DEFAULTS.match
     && elements.sortOrder.value === FILTER_DEFAULTS.sort
     && elements.ageFilter.value === FILTER_DEFAULTS.age
+    && !elements.ageFrom.value
+    && !elements.ageTo.value
     && elements.activityFilter.value === FILTER_DEFAULTS.activity
     && elements.trackingFilter.value === FILTER_DEFAULTS.tracked
     && quickFilters.size === 0;
@@ -283,6 +293,9 @@ function resetFilters() {
   elements.matchFilter.value = FILTER_DEFAULTS.match;
   elements.sortOrder.value = FILTER_DEFAULTS.sort;
   elements.ageFilter.value = FILTER_DEFAULTS.age;
+  elements.ageFrom.value = "";
+  elements.ageTo.value = "";
+  syncAgeCustom();
   elements.activityFilter.value = FILTER_DEFAULTS.activity;
   elements.trackingFilter.value = FILTER_DEFAULTS.tracked;
   quickFilters.clear();
@@ -533,7 +546,23 @@ function passesActivityFilter(job) {
   return state === "ACTIVE_CONFIRMED" || state === "ACTIVE_LISTED";
 }
 
+function syncAgeCustom() {
+  elements.ageCustom.hidden = elements.ageFilter.value !== "custom";
+}
+
+// Intervalo personalizado: datas inicial e final inclusivas, em horário de Brasília.
+function inCustomRange(job, from, to) {
+  const published = publishedTime(job);
+  if (published === -Infinity) return false;
+  if (from && published < Date.parse(`${from}T00:00:00-03:00`)) return false;
+  if (to && published > Date.parse(`${to}T23:59:59.999-03:00`)) return false;
+  return true;
+}
+
 function passesAgeFilter(job) {
+  if (elements.ageFilter.value === "custom") {
+    return inCustomRange(job, elements.ageFrom.value, elements.ageTo.value);
+  }
   const days = Number(elements.ageFilter.value);
   if (!days) return true;
   const published = publishedTime(job);
@@ -2384,6 +2413,8 @@ elements.linkedinImportButton.addEventListener("click", importLinkedinText);
   elements.matchFilter,
   elements.sortOrder,
   elements.ageFilter,
+  elements.ageFrom,
+  elements.ageTo,
   elements.activityFilter,
   elements.trackingFilter,
 ].forEach((filter) => {
@@ -2392,7 +2423,7 @@ elements.linkedinImportButton.addEventListener("click", importLinkedinText);
     renderTable();
   };
   filter.addEventListener("input", rerender);
-  filter.addEventListener("change", () => { saveFilters(); rerender(); });
+  filter.addEventListener("change", () => { syncAgeCustom(); saveFilters(); rerender(); });
 });
 elements.clearFilters.addEventListener("click", resetFilters);
 elements.emptyClear.addEventListener("click", resetFilters);

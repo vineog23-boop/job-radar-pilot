@@ -105,6 +105,7 @@ senioridade, tecnologias, data de publicação, fonte, URL e nota.
 - **Publicada em** vem só do portal (campo estruturado ou texto "Publicada em"); a data de coleta (`observed_at`) nunca a substitui.
 - **Prazo** (`application_deadline`) vem do `validThrough` da página oficial. Só a data vale até 23:59 de Brasília.
 - O painel abre em **Últimos 30 dias** (também 7 e 15). Vaga sem data de publicação ou com prazo vencido fica fora dessas janelas e aparece em **Qualquer data**; nada é apagado.
+- **Período personalizado:** em "Personalizado…" informe data inicial e/ou final; os dois dias entram (horário de Brasília). Vaga sem data de publicação continua de fora.
 - **Situação** (derivada, nunca gravada): *ativa (prazo em aberto)*, *listada na última busca* (vista há até 7 dias, sem prazo), *encerrada* (prazo vencido) ou *não comprovada*. O painel abre em "Ativas"; registros antigos preservados de coletas passadas viram "não comprovada" em vez de parecerem ativos.
 - A coleta não abre a página de detalhe de vaga fora da janela ou com prazo vencido (`enrich_max_age_days`, padrão 30).
 - **Gupy:** a API anônima (`gupy-api`) retornou 404 e está desativada; a fonte `gupy` usa a busca pública do portal, respeitando robots.txt, sem login. É cobertura parcial, sem garantia de disponibilidade.

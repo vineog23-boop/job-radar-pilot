@@ -256,7 +256,17 @@ def _collect(args: argparse.Namespace) -> int:
 
 
 def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
+    requested = set(args.sources) if getattr(args, "sources", None) else None
+    total_sources = sum(
+        1
+        for item in sources
+        if item.enabled and (requested is None or item.code in requested)
+    )
+    finished_sources = 0
+
     def print_source_progress(source: object) -> None:
+        nonlocal finished_sources
+        finished_sources += 1
         print(
             f"{source.source_code}: {source.status.value}; "
             f"pages={source.pages_observed}; cards={source.cards_observed}; "
@@ -269,6 +279,7 @@ def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
                 f"WARNING {source.source_code}: {warning}",
                 flush=True,
             )
+        print(f"PROGRESS: {finished_sources}/{total_sources} portais", flush=True)
 
     keep_urls: frozenset[str] = frozenset()
     prune = not getattr(args, "keep_all", False)

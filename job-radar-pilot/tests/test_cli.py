@@ -472,11 +472,11 @@ def test_collect_workers_three_uses_factory_and_prints_progress_once(
         ]
     )
 
+    output = capsys.readouterr().out
     progress_lines = [
-        line
-        for line in capsys.readouterr().out.splitlines()
-        if line.startswith("programathor:")
+        line for line in output.splitlines() if line.startswith("programathor:")
     ]
+    assert "PROGRESS: 1/1 portais" in output.splitlines()
     assert exit_code == 0
     assert ProgressPipeline.kwargs["workers"] == 3
     assert ProgressPipeline.kwargs["fetcher_factory"] is FakeFetchPolicy

@@ -256,6 +256,10 @@ def _passes_extra_filters(
         # Sem data publicada não dá para provar que é recente: fica de fora.
         if published is None or (now - published).days > max_age_days:
             return False
+        # Prazo vencido na página oficial: a vaga já não aceita candidatura.
+        deadline = parse_iso_datetime(job.get("application_deadline"))
+        if deadline is not None and deadline < now:
+            return False
     return True
 
 

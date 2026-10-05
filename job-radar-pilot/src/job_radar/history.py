@@ -98,10 +98,13 @@ class SeenHistory:
         self._write({"version": 1, "seen": seen, "source_counts": source_counts})
 
     def _write(self, document: dict[str, object]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        handle, temp_name = tempfile.mkstemp(
-            dir=self._path.parent, prefix="history-", suffix=".tmp"
-        )
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            handle, temp_name = tempfile.mkstemp(
+                dir=self._path.parent, prefix="history-", suffix=".tmp"
+            )
+        except OSError:
+            return
         try:
             with os.fdopen(handle, "w", encoding="utf-8") as stream:
                 json.dump(document, stream, ensure_ascii=False)

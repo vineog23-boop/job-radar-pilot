@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import tempfile
 
 from job_radar.history import NEW_LABEL, SeenHistory
 from job_radar.models import VacancyRecord
@@ -129,3 +130,16 @@ def test_valid_history_is_not_copied(tmp_path: Path) -> None:
     history.annotate([_record("2")], NOW)
 
     assert not list(tmp_path.glob("*corrompido*"))
+
+
+def test_source_count_check_continues_when_history_directory_is_not_writable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    history = SeenHistory(tmp_path / "h.json")
+
+    def deny_temporary_file(*args, **kwargs):
+        raise PermissionError("sem permissao para criar historico temporario")
+
+    monkeypatch.setattr(tempfile, "mkstemp", deny_temporary_file)
+
+    assert history.check_source_counts([_result("gupy", 10)]) == {}

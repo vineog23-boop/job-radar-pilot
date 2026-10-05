@@ -571,6 +571,28 @@ fora da área de tecnologia nunca entram. O Score (0-100) soma 20 pontos por
 critério atendido (tecnologia, nível, local, modelo), +10 se `FIT:READY` e até
 +10 pela recência. Os mesmos filtros valem para CSV e relatório (`.md`).
 
+## Verificar se os links ainda estão no ar (`verify-links`)
+
+A data da coleta não prova que a vaga ainda está disponível agora: um
+agregador pode manter uma vaga removida na listagem, ou a vaga pode ter saído
+do ar minutos depois da coleta. `job-radar verify-links` refaz o fetch do
+link de cada vaga READY/CONDITIONAL salva, agora, e grava o resultado como
+rótulo (`LINK:LIVE`, `LINK:DEAD` ou `LINK:UNKNOWN`, mais
+`LINK_CHECKED_AT:<data>`), sem mudar nenhum outro campo:
+
+```
+python -m job_radar.cli verify-links            # so READY/CONDITIONAL, ate 80 por chamada
+python -m job_radar.cli verify-links --limit 0  # sem limite
+python -m job_radar.cli verify-links --all      # verifica todas as vagas, nao so as melhores
+```
+
+`LINK:DEAD` é reconhecido por mensagens típicas de página removida ("vaga não
+encontrada", "vaga expirada", "job no longer available" etc. — mesmo quando o
+portal responde HTTP 200, um "soft 404"). Fontes que bloqueiam scraping
+direto (ex.: `indeed`) ficam `LINK:UNKNOWN` sem gastar requisição. Os scripts
+em `scripts/exportar_verificadas.py` (XLSX) e `scripts/exportar_csv_verificadas.py`
+(CSV) exportam só as vagas com `LINK:LIVE`.
+
 ## Organização do painel
 
 - **Barra de trabalho:** o fluxo 1 Buscar · 2 Revisar · 3 Exportar, o status da

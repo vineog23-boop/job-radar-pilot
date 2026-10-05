@@ -82,6 +82,11 @@ _UI_PHRASES = re.compile(r"(?<!\w)(?:quero essa vaga|salvar vaga)(?!\w)", re.IGN
 # Primeira Vaga Tech: "Voltar B Engenheiro..." (link de voltar + inicial do logo).
 # A letra do logo nem sempre vem (logo em imagem); "QA ..." não é logo.
 _BACK_LINK = re.compile(r"^(?i:voltar)\s+(?:[A-Z0-9]\s+(?=\S))?")
+# Alguns agregadores (ex.: PrimeiraVagaTech) colam ao final um bloco gerado por
+# IA ("Dica 1 ... Dica 2 ... palavras de alto CPC") e um botão de call-to-action.
+# Nenhum dos dois é conteúdo real da vaga; cortar a partir do primeiro sinal.
+_AI_TIPS_SECTION = re.compile(r"\bdicas?\s+importantes\b.*$", re.IGNORECASE | re.DOTALL)
+_CTA_SECTION = re.compile(r"\bpronto para (?:este|esse) desafio\??.*$", re.IGNORECASE | re.DOTALL)
 
 
 def clean_description(value: str | None) -> str | None:
@@ -96,5 +101,7 @@ def clean_description(value: str | None) -> str | None:
     text = _BACK_LINK.sub("", text)
     text = _SHARE_BOX.sub(" ", text)
     text = _UI_PHRASES.sub(" ", text)
+    text = _AI_TIPS_SECTION.sub("", text)
+    text = _CTA_SECTION.sub("", text)
     text = " ".join(text.split())
     return text or None

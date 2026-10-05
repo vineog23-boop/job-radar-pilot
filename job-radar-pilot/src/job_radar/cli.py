@@ -180,6 +180,31 @@ def _parser() -> argparse.ArgumentParser:
     )
     suggest.add_argument("target", metavar="SOURCE_OR_URL")
     suggest.add_argument("--text", required=True, help="Titulo visivel de uma vaga.")
+    verify = commands.add_parser(
+        "verify-links",
+        help=(
+            "Reconfirmar agora, com uma nova busca na pagina, se as vagas salvas "
+            "(por padrao READY/CONDITIONAL) ainda estao no ar."
+        ),
+    )
+    verify.add_argument(
+        "--output",
+        type=Path,
+        default=_project_root() / "output",
+        help="Diretorio das saidas (padrao: output/).",
+    )
+    verify.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximo de vagas verificadas nesta chamada (padrao: todas as candidatas).",
+    )
+    verify.add_argument(
+        "--all",
+        action="store_true",
+        dest="all_fits",
+        help="Verificar todas as vagas, nao so READY/CONDITIONAL.",
+    )
     return parser
 
 
@@ -652,6 +677,37 @@ def _suggest_selectors(args: argparse.Namespace) -> int:
     return 0
 
 
+def _verify_links(args: argparse.Namespace) -> int:
+    from job_radar.link_check import verify_output
+
+    project = _project_root()
+    try:
+        sources = load_sources(project / "config" / "sources.yaml")
+    except ConfigError as exc:
+        print(f"CONFIG_ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    output_dir = args.output.resolve()
+    try:
+        with OutputLock(output_dir):
+            result = verify_output(
+                output_dir,
+                sources,
+                limit=args.limit,
+                only_best_fit=not args.all_fits,
+            )
+    except OutputBusyError as exc:
+        print(f"COLLECTION_BUSY: {exc}", file=sys.stderr)
+        return EXIT_BUSY
+
+    print(f"TOTAL: {result['total']} vagas no arquivo")
+    print(f"VERIFICADAS: {result['checked']}")
+    print(f"LINK_LIVE: {result.get('LINK:LIVE', 0)}")
+    print(f"LINK_DEAD: {result.get('LINK:DEAD', 0)}")
+    print(f"LINK_UNKNOWN: {result.get('LINK:UNKNOWN', 0)}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "collect":
@@ -662,6 +718,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _suggest_selectors(args)
     if args.command == "avaliar":
         return _evaluate(args)
+    if args.command == "verify-links":
+        return _verify_links(args)
     return _validate(args.path)
 
 

@@ -39,6 +39,16 @@ PRIMEIRA = (
     "Voltar B Engenheiro Java Júnior Remoto BairesDev Há 3 dias BRASIL, SP CLT "
     "A combinar Descrição da Vaga Panorama Geral"
 )
+PRIMEIRA_COM_DICAS = (
+    "Engenheiro Java Júnior Remoto BairesDev. Requisitos: Java, Git, inglês avançado. "
+    "Dicas Importantes Dica 1 – Como acelerar sua contratação e dominar o processo "
+    "seletivo Para maximizar sua aprovação, demonstre dominio de Java. "
+    "Dica 2 – Como maximizar seu ganho salarial e crescer na carreira tech com "
+    "palavras de alto CPC Para impulsionar sua progressão corporativa, concentre "
+    "seus estudos em termos de alto CPC. Informações Adicionais Área BACKEND "
+    "Pronto para este desafio? Clique no botão abaixo para acessar a página oficial "
+    "da vaga e se candidatar. Me Candidatar / Ver Vaga"
+)
 
 
 def test_script_tail_is_removed() -> None:
@@ -67,6 +77,16 @@ def test_back_link_and_logo_letter_are_removed() -> None:
     assert clean_description(PRIMEIRA).startswith("Engenheiro Java Júnior Remoto BairesDev")
     assert clean_description("Voltar Desenvolvedor Java LINA") == "Desenvolvedor Java LINA"
     assert clean_description("Voltar QA Analyst Júnior") == "QA Analyst Júnior"
+
+
+def test_ai_tips_and_cta_block_is_removed() -> None:
+    cleaned = clean_description(PRIMEIRA_COM_DICAS)
+
+    assert cleaned == (
+        "Engenheiro Java Júnior Remoto BairesDev. Requisitos: Java, Git, inglês avançado."
+    )
+    for marker in ("Dica 1", "Dica 2", "CPC", "Me Candidatar", "Informações Adicionais"):
+        assert marker not in cleaned, marker
 
 
 @pytest.mark.parametrize("value", [None, "", "   "])

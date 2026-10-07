@@ -286,3 +286,17 @@ def test_full_run_without_merge_replaces_previous_output(tmp_path: Path) -> None
     manifest = write_outputs(_result(), tmp_path)
 
     assert manifest.record_count == 2
+
+
+def test_new_collection_retains_verification_without_old_fit(tmp_path):
+    from dataclasses import replace
+    previous = replace(_record(), match_labels=("FIT:READY", "LINK:LIVE", "LINK_CHECKED_AT:2026-10-01T00:00:00+00:00", "LINK_CHECK_METHOD:JOB_DETAIL_V2"))
+    write_outputs(replace(_result(), records=(previous,)), tmp_path)
+    fresh = replace(_record(), match_labels=("FIT:EXCLUDE",), observed_at="2026-10-06T00:00:00+00:00")
+    write_outputs(replace(_result(), records=(fresh,)), tmp_path)
+    payload = json.loads((tmp_path / "vagas.jsonl").read_text())
+    assert payload["match_labels"] == ["FIT:EXCLUDE", "LINK:LIVE", "LINK_CHECKED_AT:2026-10-01T00:00:00+00:00", "LINK_CHECK_METHOD:JOB_DETAIL_V2"]
+    assert payload["observed_at"] == "2026-10-06T00:00:00+00:00"
+    newer = replace(fresh, match_labels=("FIT:EXCLUDE", "LINK:DEAD", "LINK_CHECKED_AT:2026-10-06T00:00:00+00:00", "LINK_CHECK_METHOD:JOB_DETAIL_V2"))
+    write_outputs(replace(_result(), records=(newer,)), tmp_path)
+    assert json.loads((tmp_path / "vagas.jsonl").read_text())["match_labels"] == list(newer.match_labels)

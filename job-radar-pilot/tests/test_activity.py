@@ -30,6 +30,26 @@ def test_preserved_old_record_is_not_active_by_inertia() -> None:
     assert activity_state(_job(observed_at="2026-09-01T00:00:00+00:00"), NOW) == UNKNOWN
 
 
-def test_missing_or_future_publication_is_unknown() -> None:
-    assert activity_state(_job(published_at=None), NOW) == UNKNOWN
+def test_recent_listing_without_publication_is_listed_but_future_publication_is_unknown() -> None:
+    assert activity_state(_job(published_at=None), NOW) == ACTIVE_LISTED
     assert activity_state(_job(published_at="2026-12-01T00:00:00+00:00"), NOW) == UNKNOWN
+
+
+def test_recent_v2_link_confirms_without_publication_and_dead_closes():
+    base = _job(published_at=None, observed_at="2026-08-01T00:00:00+00:00")
+    for link, want in (("LIVE", ACTIVE_CONFIRMED), ("DEAD", CLOSED), ("UNKNOWN", UNKNOWN)):
+        assert activity_state({**base, "match_labels": [f"LINK:{link}", "LINK_CHECKED_AT:2026-10-02T10:00:00+00:00", "LINK_CHECK_METHOD:JOB_DETAIL_V2"]}, NOW) == want
+
+
+def test_expired_deadline_wins_live_and_link_age_is_bounded():
+    base = _job(published_at=None, observed_at="2026-08-01T00:00:00+00:00")
+    labels = ["LINK:LIVE", "LINK_CHECK_METHOD:JOB_DETAIL_V2"]
+    for date in ("2026-09-01T00:00:00+00:00", "2026-10-03T00:00:00+00:00"):
+        assert activity_state({**base, "match_labels": [*labels, f"LINK_CHECKED_AT:{date}"]}, NOW) == UNKNOWN
+    fresh = {**base, "match_labels": [*labels, "LINK_CHECKED_AT:2026-10-02T10:00:00+00:00"]}
+    assert activity_state({**fresh, "application_deadline": "2026-10-01T00:00:00+00:00"}, NOW) == CLOSED
+    assert activity_state({**base, "match_labels": ["LINK:LIVE", "LINK_CHECKED_AT:2026-10-02T10:00:00+00:00"]}, NOW) == UNKNOWN
+
+
+def test_future_observation_never_counts_as_recent_listing():
+    assert activity_state(_job(observed_at="2026-10-03T00:00:00+00:00"), NOW) == UNKNOWN

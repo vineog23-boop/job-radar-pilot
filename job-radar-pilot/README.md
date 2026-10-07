@@ -589,7 +589,8 @@ agregador pode manter uma vaga removida na listagem, ou a vaga pode ter saído
 do ar minutos depois da coleta. `job-radar verify-links` refaz o fetch do
 link de cada vaga READY/CONDITIONAL salva, agora, e grava o resultado como
 rótulo (`LINK:LIVE`, `LINK:DEAD` ou `LINK:UNKNOWN`, mais
-`LINK_CHECKED_AT:<data>`), sem mudar nenhum outro campo:
+`LINK_CHECKED_AT:<data>` e `LINK_CHECK_METHOD:JOB_DETAIL_V2`), preservando a data da
+observação e o acompanhamento:
 
 ```
 python -m job_radar.cli verify-links            # so READY/CONDITIONAL, ate 80 por chamada
@@ -600,7 +601,20 @@ python -m job_radar.cli verify-links --all      # verifica todas as vagas, nao s
 `LINK:DEAD` é reconhecido por mensagens típicas de página removida ("vaga não
 encontrada", "vaga expirada", "job no longer available" etc. — mesmo quando o
 portal responde HTTP 200, um "soft 404"). Fontes que bloqueiam scraping
-direto (ex.: `indeed`) ficam `LINK:UNKNOWN` sem gastar requisição. Os scripts
+direto (ex.: `indeed`), desativadas ou autenticadas ficam `LINK:UNKNOWN` sem gastar requisição.
+HTTP 404/410 só encerra a vaga quando recebido de uma consulta autorizada pelo
+FetchPolicy. `LINK:LIVE` exige detalhes e candidatura, ou metadados JobPosting,
+com o título correspondente quando conhecido. Página institucional, login,
+CAPTCHA e redirecionamento à página inicial não comprovam disponibilidade.
+
+No painel, **Verificar disponibilidade** consulta até 80 vagas compatíveis,
+priorizando o Score, e mostra progresso e contagens. Busca, limpeza, importação
+e reaplicação aguardam a verificação terminar. Evidência de link vale por sete
+dias; LIVE antigo, futuro ou legado sem o marcador de método não confirma a
+vaga. Prazo vencido prevalece mesmo sobre LIVE. Uma nova coleta preserva a
+verificação anterior da mesma URL sem renovar sua data.
+
+Os scripts
 em `scripts/exportar_verificadas.py` (XLSX) e `scripts/exportar_csv_verificadas.py`
 (CSV) exportam só as vagas com `LINK:LIVE`.
 

@@ -54,12 +54,15 @@
           <div class="action-group" role="group" aria-labelledby="group-list">
             <span id="group-list" class="action-group-title">Lista</span>
             <div class="secondary-actions">
+              <button id="verify-links-button" class="ghost-button action-button" type="button" title="Verifica até 80 vagas compatíveis; login, bloqueio ou ausência de evidência ficam não comprovados">Verificar disponibilidade</button>
               <button id="cleanup-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="cleanup-panel">Limpeza</button>
               <button id="export-button" class="ghost-button action-button export-button" type="button" aria-expanded="false" aria-controls="export-panel">Exportar vagas</button>
             </div>
           </div>
         </div>
       </section>
+
+      <p id="verification-status" class="live-status" aria-live="polite"></p>
 
       <div id="news-banner" class="news-banner" role="status" hidden>
         <span class="news-dot" aria-hidden="true"></span>

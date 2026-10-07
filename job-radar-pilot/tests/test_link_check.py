@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from types import SimpleNamespace
 
 from job_radar.fetching import FetchResult
@@ -60,7 +59,7 @@ def test_classify_page_text_detects_dead_markers() -> None:
 
 
 def test_classify_page_text_live_with_enough_content() -> None:
-    text = "Descrição completa da vaga com requisitos em Java e Spring Boot. " * 3
+    text = "Vaga Java. Descrição completa com requisitos em Java e Spring Boot. Candidate-se agora. " * 3
     assert classify_page_text(text) == LINK_LIVE
 
 
@@ -71,7 +70,7 @@ def test_classify_page_text_unknown_when_empty_or_short() -> None:
 
 
 def test_verify_records_marks_dead_and_live_from_fresh_fetch() -> None:
-    live_html = "<html><body><p>" + "Requisitos Java Spring Boot junior remoto. " * 6 + "</p></body></html>"
+    live_html = "<html><body><p>" + "Vaga Java Spring Boot junior remoto. Requisitos Java. Candidate-se agora. " * 6 + "</p></body></html>"
     dead_html = "<html><body><p>Vaga não encontrada ou erro ao carregar</p></body></html>"
     dead_record = _record(url="https://x.com.br/primeiravagatech/dead")
     live_record = _record(url="https://x.com.br/primeiravagatech/live")
@@ -106,7 +105,7 @@ def test_verify_records_skips_non_best_fit_by_default() -> None:
 def test_verify_records_includes_all_when_only_best_fit_is_false() -> None:
     other = _record(labels=("FIT:AMBIGUOUS",))
     fetcher = _ScriptedFetcher(
-        {other.canonical_url: "<html><body>" + "conteudo real da vaga aqui. " * 6 + "</body></html>"}
+        {other.canonical_url: "<html><body>" + "Vaga Java com requisitos e responsabilidades. Candidate-se agora. " * 6 + "</body></html>"}
     )
 
     updated, counts = verify_records(
@@ -133,7 +132,7 @@ def test_verify_records_skips_indeed_as_unknown_without_fetch() -> None:
 def test_verify_records_limit_caps_how_many_are_checked() -> None:
     records = [_record(url=f"https://x.com.br/primeiravagatech/{i}") for i in range(5)]
     fetcher = _ScriptedFetcher(
-        {record.canonical_url: "conteudo real da vaga aqui. " * 10 for record in records}
+        {record.canonical_url: "Vaga Java com requisitos e responsabilidades. Candidate-se agora. " * 10 for record in records}
     )
 
     _, counts = verify_records(records, [_source()], limit=2, fetcher_factory=lambda: fetcher)
@@ -145,7 +144,7 @@ def test_verify_records_limit_caps_how_many_are_checked() -> None:
 def test_verify_records_replaces_previous_link_labels() -> None:
     record = _record(labels=("FIT:READY", "LINK:DEAD", "LINK_CHECKED_AT:old"))
     fetcher = _ScriptedFetcher(
-        {record.canonical_url: "conteudo real e atual da vaga agora. " * 6}
+        {record.canonical_url: "Vaga Java com requisitos e responsabilidades. Candidate-se agora. " * 6}
     )
 
     updated, _ = verify_records([record], [_source()], fetcher_factory=lambda: fetcher)
@@ -154,3 +153,123 @@ def test_verify_records_replaces_previous_link_labels() -> None:
     assert labels.count("LINK:DEAD") == 0
     assert link_status(labels) == LINK_LIVE
     assert sum(label.startswith("LINK_CHECKED_AT:") for label in labels) == 1
+
+
+def test_institutional_login_and_captcha_never_confirm_live():
+    for text in (
+        "Nossa empresa e nossos valores. " * 20,
+        "Faça login para continuar. Vaga Java requisitos candidate-se. " * 8,
+        "CAPTCHA confirme que você é humano. Vaga Java candidate-se. " * 8,
+    ):
+        assert classify_page_text(text) == LINK_UNKNOWN
+
+
+def test_job_identity_required_when_title_available():
+    from job_radar.link_check import check_canonical_url
+    url = "https://x.com.br/jobs/1"
+    fetcher = _ScriptedFetcher({url: "Vaga Python requisitos responsabilidades candidate-se agora."})
+    assert check_canonical_url(url, _source(), fetcher, expected_title="Java Junior") == LINK_UNKNOWN
+    fetcher = _ScriptedFetcher({url: "Java Junior vaga requisitos responsabilidades candidate-se agora."})
+    assert check_canonical_url(url, _source(), fetcher, expected_title="Java Junior") == LINK_LIVE
+
+
+def test_authorized_404_and_410_are_dead_but_failed_fetch_is_unknown():
+    from job_radar.link_check import check_canonical_url
+    class Fetcher:
+        def __init__(self, status, code):
+            self.status, self.code = status, code
+        def fetch(self, url, source):
+            return FetchResult(status=self.status, response=SimpleNamespace(status=self.code, body=b"", url=url))
+    for code in (404, 410):
+        assert check_canonical_url("https://x.com.br/jobs/1", _source(), Fetcher(CollectionStatus.SUCCESS, code)) == LINK_DEAD
+        assert check_canonical_url("https://x.com.br/jobs/1", _source(), Fetcher(CollectionStatus.BLOCKED, code)) == LINK_UNKNOWN
+
+
+def test_redirect_to_home_does_not_confirm_another_job():
+    from job_radar.link_check import check_canonical_url
+    class Fetcher:
+        def fetch(self, url, source):
+            return FetchResult(status=CollectionStatus.SUCCESS, response=SimpleNamespace(status=200, body=b"Vaga Java requisitos responsabilidades candidate-se agora. " * 10, url="https://x.com.br/"))
+    assert check_canonical_url("https://x.com.br/jobs/1", _source(), Fetcher()) == LINK_UNKNOWN
+
+
+def test_verification_emits_method_progress_and_prioritizes_best_score():
+    from datetime import datetime, timezone
+    low = _record(labels=("FIT:CONDITIONAL", "FIT_SCORE:1"), url="https://x.com.br/low")
+    high = _record(labels=("FIT:READY", "FIT_SCORE:4"), url="https://x.com.br/high")
+    fetcher = _ScriptedFetcher({high.canonical_url: "Vaga requisitos responsabilidades candidate-se agora."})
+    progress = []
+    updated, counts = verify_records([low, high], [_source()], limit=1, fetcher_factory=lambda: fetcher,
+        now=datetime(2026, 10, 6, tzinfo=timezone.utc), on_progress=lambda *args: progress.append(args))
+    assert link_status(updated[0].match_labels) is None
+    assert "LINK_CHECK_METHOD:JOB_DETAIL_V2" in updated[1].match_labels
+    assert progress[0][0:2] == (0, 1)
+    assert progress[-1][0:2] == (1, 1)
+    assert counts[LINK_LIVE] == 1
+
+
+def test_structured_jobposting_with_identity_confirms_without_visible_apply():
+    from job_radar.link_check import check_canonical_url
+    url = 'https://x.com.br/jobs/1'
+    html = '''<html><body>Oportunidade em nossa equipe<script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Java Junior","description":"Requisitos Java e Spring Boot"}</script></body></html>'''
+    fetcher = _ScriptedFetcher({url: html})
+    assert check_canonical_url(url, _source(), fetcher, expected_title='Java Junior') == LINK_LIVE
+    assert check_canonical_url(url, _source(), fetcher, expected_title='Python Senior') == LINK_UNKNOWN
+
+
+def test_login_url_with_job_content_is_unknown():
+    from job_radar.link_check import check_canonical_url
+    class Fetcher:
+        def fetch(self, url, source):
+            return FetchResult(status=CollectionStatus.SUCCESS, response=SimpleNamespace(status=200,
+                body=b'Vaga Java requisitos responsabilidades candidate-se agora.', url='https://x.com.br/login'))
+    assert check_canonical_url('https://x.com.br/jobs/1', _source(), Fetcher()) == LINK_UNKNOWN
+
+
+def test_disabled_or_authenticated_sources_are_not_fetched():
+    from dataclasses import replace
+    record = _record()
+    for source in (replace(_source(), enabled=False), replace(_source(), requires_auth=True)):
+        fetcher = _ScriptedFetcher({record.canonical_url: 'Vaga requisitos candidate-se agora.'})
+        updated, _ = verify_records([record], [source], fetcher_factory=lambda: fetcher)
+        assert link_status(updated[0].match_labels) == LINK_UNKNOWN
+        assert fetcher.urls == []
+
+
+def test_verify_output_preserves_observation_and_tracking_and_refuses_corruption(tmp_path):
+    import json
+    import pytest
+    from job_radar.cleanup import CleanupError
+    from job_radar.link_check import verify_output
+    from job_radar.output import _record_payload
+    record = _record()
+    payload = _record_payload(record)
+    output = tmp_path / 'output'
+    output.mkdir()
+    path = output / 'vagas.jsonl'
+    path.write_text(json.dumps(payload) + '\n')
+    tracking = output / 'tracking.json'
+    tracking.write_text('{"saved":"intacto"}')
+    fetcher = _ScriptedFetcher({record.canonical_url: 'Vaga requisitos responsabilidades candidate-se agora.'})
+    result = verify_output(output, [_source()], fetcher_factory=lambda: fetcher)
+    verified = json.loads(path.read_text())
+    assert result['checked'] == 1
+    assert verified['observed_at'] == '2026-09-29T00:00:00+00:00'
+    for key in payload.keys() - {'match_labels', 'content_hash'}:
+        assert verified[key] == payload[key]
+    assert tracking.read_text() == '{"saved":"intacto"}'
+    path.write_text(json.dumps(payload) + '\ncorrompido\n')
+    before = path.read_bytes()
+    with pytest.raises(CleanupError):
+        verify_output(output, [_source()], fetcher_factory=lambda: fetcher)
+    assert path.read_bytes() == before
+
+
+def test_redirect_to_named_home_does_not_confirm_job():
+    from job_radar.link_check import check_canonical_url
+    class Fetcher:
+        def fetch(self, url, source):
+            return FetchResult(status=CollectionStatus.SUCCESS, response=SimpleNamespace(status=200,
+                body=b'Vaga Java requisitos responsabilidades candidate-se agora.' * 8,
+                url='https://x.com.br/home'))
+    assert check_canonical_url('https://x.com.br/jobs/1', _source(), Fetcher()) == LINK_UNKNOWN

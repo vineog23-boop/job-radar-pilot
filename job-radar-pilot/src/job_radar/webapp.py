@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import csv
 import io
 import json
@@ -456,6 +456,15 @@ def run_collection(
     )
 
 
+def run_verification(output_dir: Path, on_progress: Callable[..., None]) -> dict[str, Any]:
+    """O controlador já segura OutputLock durante toda a verificação."""
+    from job_radar.config import load_sources
+    from job_radar.link_check import verify_output
+
+    sources = load_sources(_project_root() / "config" / "sources.yaml")
+    return verify_output(output_dir, sources, on_progress=on_progress)
+
+
 class SearchController:
     def __init__(
         self,
@@ -463,12 +472,17 @@ class SearchController:
         runner: CollectionRunner = run_collection,
         *,
         workers: int = 1,
+        verification_runner: Callable[[Path, Callable[..., None]], dict[str, Any]] = run_verification,
     ) -> None:
         if workers < 1 or workers > 4:
             raise ValueError("workers deve estar entre 1 e 4")
         self._output_dir = output_dir
         self._runner = runner
         self._workers = workers
+        self._verification_runner = verification_runner
+        self._verification_thread: Thread | None = None
+        self._verification = {"status": "IDLE", "checked": 0, "total": 0, "error": None,
+                              "counts": {"LINK:LIVE": 0, "LINK:DEAD": 0, "LINK:UNKNOWN": 0}}
         self._lock = Lock()
         self._thread: Thread | None = None
         self._status = "IDLE"
@@ -509,7 +523,7 @@ class SearchController:
 
     def start(self, sources: list[str] | None = None) -> bool:
         with self._lock:
-            if self._thread is not None and self._thread.is_alive():
+            if self._status == "RUNNING" or self._verification["status"] == "RUNNING":
                 return False
             self._status = "RUNNING"
             self._exit_code = None
@@ -534,6 +548,66 @@ class SearchController:
             )
             self._thread.start()
             return True
+
+    @contextmanager
+    def output_mutation(self):
+        """Reserva a saída sem brecha entre o estado do painel e a trava."""
+        with self._lock:
+            if self._status == "RUNNING" or self._verification["status"] == "RUNNING":
+                raise OutputBusyError("Espere a busca ou verificação terminar.")
+            output_lock = OutputLock(self._output_dir)
+            output_lock.__enter__()
+        try:
+            yield
+        finally:
+            output_lock.__exit__(None, None, None)
+
+    def start_verification(self) -> bool:
+        with self._lock:
+            if self._status == "RUNNING" or self._verification["status"] == "RUNNING":
+                return False
+            output_lock = OutputLock(self._output_dir)
+            try:
+                output_lock.__enter__()
+            except OutputBusyError:
+                return False
+            self._verification = {"status": "RUNNING", "checked": 0, "total": 0, "error": None,
+                                  "counts": {"LINK:LIVE": 0, "LINK:DEAD": 0, "LINK:UNKNOWN": 0}}
+            self._verification_thread = Thread(target=self._run_verification, args=(output_lock,),
+                                               name="job-radar-verify", daemon=True)
+            try:
+                self._verification_thread.start()
+            except Exception:
+                output_lock.__exit__(None, None, None)
+                self._verification["status"] = "ERROR"
+                raise
+            return True
+
+    def _verification_progress(self, checked: int, total: int, counts: dict[str, int]) -> None:
+        with self._lock:
+            self._verification.update(checked=checked, total=total, counts=dict(counts))
+
+    def _run_verification(self, output_lock: OutputLock) -> None:
+        error = None
+        try:
+            result = self._verification_runner(self._output_dir, self._verification_progress)
+            counts = {key: result.get(key, 0) for key in ("LINK:LIVE", "LINK:DEAD", "LINK:UNKNOWN")}
+            checked = result.get("checked", sum(counts.values()))
+            self._verification_progress(checked, checked, counts)
+        except Exception as exc:  # noqa: BLE001 - boundary de thread
+            error = str(exc)
+        finally:
+            output_lock.__exit__(None, None, None)
+            with self._lock:
+                self._verification.update(status="ERROR" if error else "DONE", error=error)
+
+    def wait_verification(self, timeout: float | None = None) -> bool:
+        with self._lock:
+            thread = self._verification_thread
+        if thread is None:
+            return True
+        thread.join(timeout=timeout)
+        return not thread.is_alive()
 
     def _run(self, sources: list[str] | None) -> None:
         try:
@@ -588,6 +662,7 @@ class SearchController:
         with self._lock:
             state = {
                 "status": self._status,
+                "verification": {**self._verification, "counts": dict(self._verification["counts"])},
                 "paused": self._status == "RUNNING" and self._control == "pause",
                 "stopping": self._status == "RUNNING" and self._control == "stop",
                 "exit_code": self._exit_code,
@@ -614,7 +689,7 @@ class SearchController:
 
     def is_running(self) -> bool:
         with self._lock:
-            return self._thread is not None and self._thread.is_alive()
+            return self._status == "RUNNING" or self._verification["status"] == "RUNNING"
 
     def wait(self, timeout: float | None = None) -> bool:
         with self._lock:
@@ -1000,7 +1075,7 @@ def _dashboard_handler(
                     load_profile(_project_root() / "config" / "profile.yaml"),
                     preferences_from_dict(self._load_preferences_payload()),
                 )
-                with OutputLock(controller.output_dir):
+                with controller.output_mutation():
                     result = import_into_output(controller.output_dir, text, profile)
             except OutputBusyError as exc:
                 self._json(409, {"error": str(exc)})
@@ -1421,7 +1496,7 @@ def _dashboard_handler(
                         if entry.get("status") == "DISCARDED"
                     }
                 # A prévia só lê; a limpeza de verdade regrava o arquivo.
-                with nullcontext() if dry_run else OutputLock(controller.output_dir):
+                with nullcontext() if dry_run else controller.output_mutation():
                     result = clean_output(
                         controller.output_dir,
                         keep_urls=set(tracked) - remove_urls,
@@ -1447,7 +1522,7 @@ def _dashboard_handler(
                 self._json(409, {"error": "Espere a busca terminar para desfazer."})
                 return
             try:
-                with OutputLock(controller.output_dir):
+                with controller.output_mutation():
                     result = undo_cleanup(controller.output_dir)
             except OutputBusyError as exc:
                 self._json(409, {"error": str(exc)})
@@ -1499,6 +1574,12 @@ def _dashboard_handler(
 
         def _route_post(self) -> None:
             path = self.path.split("?", maxsplit=1)[0]
+            if path == "/api/verify-links":
+                if not controller.start_verification():
+                    self._json(409, {"error": "Espere a busca ou verificação terminar."})
+                else:
+                    self._json(202, {"accepted": True})
+                return
             if path in {"/api/export/csv", "/api/export/markdown", "/api/export/xlsx", "/api/export/ai"}:
                 self._post_export_selection(path.rsplit("/", 1)[-1])
                 return
@@ -1562,6 +1643,9 @@ def _dashboard_handler(
 
         def _route_put(self) -> None:
             path = self.path.split("?", maxsplit=1)[0]
+            if path == "/api/preferences" and parse_qs(urlsplit(self.path).query).get("reapply", [""])[-1] == "1" and controller.is_running():
+                self._json(409, {"error": "Espere a busca ou verificação terminar para reaplicar."})
+                return
             if path == "/api/tracking":
                 try:
                     payload = self._read_json_body()
@@ -1620,13 +1704,14 @@ def _dashboard_handler(
             if query.get("reapply", [""])[-1] == "1":
                 body["reapplied"] = None
                 if controller.is_running():
-                    body["reapply_skipped"] = "Busca em andamento: a próxima coleta já usa o perfil novo."
+                    self._json(409, {"error": "Espere a busca ou verificação terminar para reaplicar."})
+                    return
                 else:
                     from job_radar.reclassify import reclassify_output
 
                     try:
                         profile, countries = self._profile_for(preferences)
-                        with OutputLock(controller.output_dir):
+                        with controller.output_mutation():
                             body["reapplied"] = reclassify_output(
                                 controller.output_dir,
                                 profile,
@@ -1634,6 +1719,9 @@ def _dashboard_handler(
                                 rules=self._cleanup_rules(),
                             )
                     except OutputBusyError as exc:
+                        if controller.is_running():
+                            self._json(409, {"error": str(exc)})
+                            return
                         body["reapply_skipped"] = str(exc)
                     except (OSError, ValueError, RuntimeError) as exc:
                         body["reapply_skipped"] = f"Não foi possível reaplicar: {exc}"

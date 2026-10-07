@@ -1,6 +1,8 @@
 "use strict";
 
 const elements = {
+  verifyLinksButton: document.querySelector("#verify-links-button"),
+  verificationStatus: document.querySelector("#verification-status"),
   searchButton: document.querySelector("#search-button"),
   liveStatus: document.querySelector("#live-status"),
   textFilter: document.querySelector("#text-filter"),
@@ -528,14 +530,21 @@ function activityState(job) {
   const published = Date.parse(job.published_at ?? "");
   const deadline = Date.parse(job.application_deadline ?? "");
   if (!Number.isNaN(deadline) && deadline < now) return "CLOSED";
-  if (Number.isNaN(published) || published > now) return "UNKNOWN";
-  if (!Number.isNaN(deadline)) return "ACTIVE_CONFIRMED";
+  const labels = job.match_labels || [];
+  const checkedLabel = labels.find((label) => label.startsWith("LINK_CHECKED_AT:"));
+  const checked = Date.parse(checkedLabel?.slice("LINK_CHECKED_AT:".length) || "");
+  if (!Number.isNaN(checked) && checked <= now && now - checked <= LISTING_FRESH_MS) {
+    if (labels.includes("LINK:DEAD")) return "CLOSED";
+    if (labels.includes("LINK:LIVE") && labels.includes("LINK_CHECK_METHOD:JOB_DETAIL_V2")) return "ACTIVE_CONFIRMED";
+  }
+  if (!Number.isNaN(published) && published > now) return "UNKNOWN";
+  if (!Number.isNaN(published) && !Number.isNaN(deadline)) return "ACTIVE_CONFIRMED";
   const observed = Date.parse(job.observed_at ?? "");
-  return !Number.isNaN(observed) && now - observed <= LISTING_FRESH_MS ? "ACTIVE_LISTED" : "UNKNOWN";
+  return !Number.isNaN(observed) && observed <= now && now - observed <= LISTING_FRESH_MS ? "ACTIVE_LISTED" : "UNKNOWN";
 }
 
 const ACTIVITY_LABELS = {
-  ACTIVE_CONFIRMED: "ativa (prazo em aberto)",
+  ACTIVE_CONFIRMED: "ativa (evidência recente ou prazo em aberto)",
   ACTIVE_LISTED: "listada na última busca",
   CLOSED: "encerrada",
   UNKNOWN: "situação não comprovada",
@@ -981,9 +990,21 @@ function renderSources() {
 
 function renderRunState() {
   const running = dashboardState.status === "RUNNING";
-  elements.searchButton.disabled = running;
-  elements.quickSearchButton.disabled = running;
-  elements.searchSelected.disabled = running;
+  const verification = dashboardState.verification || { status: "IDLE" };
+  const verifying = verification.status === "RUNNING";
+  const busy = running || verifying;
+  elements.searchButton.disabled = busy;
+  elements.quickSearchButton.disabled = busy;
+  elements.searchSelected.disabled = busy;
+  elements.verifyLinksButton.disabled = busy;
+  if (verifying) {
+    elements.verificationStatus.textContent = `Verificando disponibilidade: ${verification.checked} de ${verification.total} vagas…`;
+  } else if (verification.status === "ERROR") {
+    elements.verificationStatus.textContent = `Verificação interrompida: ${verification.error}`;
+  } else if (verification.status === "DONE") {
+    const counts = verification.counts || {};
+    elements.verificationStatus.textContent = `Disponibilidade verificada: ${counts["LINK:LIVE"] || 0} ativa(s), ${counts["LINK:DEAD"] || 0} encerrada(s), ${counts["LINK:UNKNOWN"] || 0} não comprovada(s). Bloqueio, login ou falta de evidência impedem confirmação.`;
+  }
   elements.searchButton.classList.toggle("running", running && !dashboardState.paused);
   elements.runControls.hidden = !running;
   elements.pauseButton.textContent = dashboardState.paused ? "▶ Retomar busca" : "⏸ Pausar busca";
@@ -1158,7 +1179,7 @@ async function refreshState() {
   } catch (error) {
     elements.liveStatus.textContent = `Interface sem conexão com o coletor: ${error.message}`;
   }
-  const delay = dashboardState.status === "RUNNING" ? 900 : 5000;
+  const delay = dashboardState.status === "RUNNING" || dashboardState.verification?.status === "RUNNING" ? 900 : 5000;
   refreshTimer = window.setTimeout(refreshState, delay);
 }
 
@@ -2321,6 +2342,21 @@ async function savePreferences(event) {
     saveButton.disabled = false;
   }
 }
+
+elements.verifyLinksButton.addEventListener("click", async () => {
+  elements.verifyLinksButton.disabled = true;
+  try {
+    const response = await fetch("/api/verify-links", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    await refreshState();
+  } catch (error) {
+    elements.verificationStatus.textContent = `Não foi possível verificar: ${error.message}`;
+    elements.verifyLinksButton.disabled = false;
+  }
+});
 
 elements.searchButton.addEventListener("click", () => startSearch());
 elements.quickSearchButton.addEventListener("click", startQuickSearch);

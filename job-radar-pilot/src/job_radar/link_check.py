@@ -1,7 +1,7 @@
 """Verificação real de disponibilidade: refaz o fetch do link no momento da checagem.
 
-``activity.py`` infere a situação da vaga só pelas datas salvas (sem acessar a
-rede de novo); isso não prova que a vaga ainda está no ar — um agregador pode
+``activity.py`` infere a situação pelas datas e evidências salvas (sem acessar a
+rede de novo); uma listagem recente não prova que a vaga ainda está no ar — um agregador pode
 continuar listando uma vaga removida, ou a página pode ter sido tirada do ar
 depois da coleta. Este módulo faz a prova real: busca o ``canonical_url`` de
 novo, agora, e classifica a página em LIVE/DEAD/UNKNOWN.
@@ -18,8 +18,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from job_radar.fetching import FetchPolicy, _visible_response_text
-from job_radar.fit import fit_state
+from job_radar.fetching import (
+    FetchPolicy,
+    _detect_block_signal,
+    _visible_response_text,
+    page_html,
+)
+from urllib.parse import urlsplit
+import json
+import re
+import unicodedata
+from job_radar.fit import fit_state, is_off_topic
 from job_radar.models import CollectionStatus, SourceConfig, SourceKind, VacancyRecord
 
 LINK_LIVE = "LINK:LIVE"
@@ -27,6 +36,9 @@ LINK_DEAD = "LINK:DEAD"
 LINK_UNKNOWN = "LINK:UNKNOWN"
 _LINK_PREFIX = "LINK:"
 _CHECKED_AT_PREFIX = "LINK_CHECKED_AT:"
+_METHOD_PREFIX = "LINK_CHECK_METHOD:"
+LINK_METHOD = "LINK_CHECK_METHOD:JOB_DETAIL_V2"
+VerificationProgress = Callable[[int, int, dict[str, int]], None]
 
 # Mensagens típicas de "vaga removida" nos portais já vistos (soft-404: a
 # página responde 200, mas o conteúdo diz que a vaga não existe mais).
@@ -52,32 +64,110 @@ _DEAD_MARKERS: tuple[str, ...] = (
     "404 not found",
 )
 
-# Texto visível mínimo para considerar a página "com conteúdo" (abaixo disso,
-# pode ser um shell vazio de SPA que nossa busca estática não renderiza).
-_MIN_LIVE_TEXT_CHARS = 120
-
 DEFAULT_VERIFY_LIMIT = 80
-_SKIP_SOURCES = {"indeed"}  # bloqueia scraping direto (403); checagem fica UNKNOWN.
+_SKIP_SOURCES = {"indeed", "linkedin"}
 
 
-def classify_page_text(text: str | None) -> str:
-    """LIVE/DEAD/UNKNOWN a partir do texto visível já buscado agora."""
+def _fold(text: str) -> str:
+    return " ".join(
+        "".join(
+            char
+            for char in unicodedata.normalize("NFKD", text.casefold())
+            if not unicodedata.combining(char)
+        ).split()
+    )
 
+
+def _identity_matches(text: str, expected_title: str | None) -> bool:
+    return not expected_title or _fold(expected_title) in _fold(text)
+
+
+def _blocked_text(text: str) -> bool:
+    folded = _fold(text)
+    return any(
+        marker in folded
+        for marker in (
+            "captcha",
+            "confirme que voce e humano",
+            "verify you are human",
+            "faca login",
+            "login para",
+            "sign in to",
+            "log in to",
+            "acesso restrito",
+        )
+    )
+
+
+def classify_page_text(text: str | None, expected_title: str | None = None) -> str:
+    """Confirma apenas página de vaga com detalhes, candidatura e identidade."""
     if not text:
         return LINK_UNKNOWN
-    folded = " ".join(text.split()).casefold()
-    for marker in _DEAD_MARKERS:
-        if marker in folded:
-            return LINK_DEAD
-    if len(folded) >= _MIN_LIVE_TEXT_CHARS:
+    folded = _fold(text)
+    if _blocked_text(text):
+        return LINK_UNKNOWN
+    if any(_fold(marker) in folded for marker in _DEAD_MARKERS):
+        return LINK_DEAD
+    specific = any(
+        marker in folded for marker in ("vaga", "job", "position", "oportunidade")
+    )
+    details = any(
+        marker in folded
+        for marker in (
+            "requisitos",
+            "responsabilidades",
+            "requirements",
+            "responsibilities",
+            "qualificacoes",
+        )
+    )
+    apply = any(
+        marker in folded
+        for marker in (
+            "candidate-se",
+            "candidatar",
+            "candidatura",
+            "apply now",
+            "apply for",
+            "inscreva-se",
+        )
+    )
+    if specific and details and apply and _identity_matches(text, expected_title):
         return LINK_LIVE
     return LINK_UNKNOWN
+
+
+def _job_posting_live(html: str, expected_title: str | None) -> bool:
+    def contains_job(value: Any) -> bool:
+        if isinstance(value, list):
+            return any(contains_job(item) for item in value)
+        if not isinstance(value, dict):
+            return False
+        kind = value.get("@type")
+        if kind == "JobPosting" or (isinstance(kind, list) and "JobPosting" in kind):
+            return bool(
+                value.get("title") and value.get("description")
+            ) and _identity_matches(str(value["title"]), expected_title)
+        return contains_job(value.get("@graph"))
+
+    for body in re.findall(
+        r"<script\b[^>]*type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
+        html,
+        re.I | re.S,
+    ):
+        try:
+            if contains_job(json.loads(body)):
+                return True
+        except (ValueError, TypeError):
+            continue
+    return False
 
 
 def check_canonical_url(
     url: str,
     source: SourceConfig,
     fetcher: FetchPolicy,
+    expected_title: str | None = None,
 ) -> str:
     """Busca ``url`` agora (sem navegador pesado) e classifica o resultado."""
 
@@ -90,8 +180,43 @@ def check_canonical_url(
         return LINK_UNKNOWN
     if fetched.status is not CollectionStatus.SUCCESS or fetched.response is None:
         return LINK_UNKNOWN
-    text = _visible_response_text(fetched.response)
-    return classify_page_text(text)
+    response = fetched.response
+    if _detect_block_signal(response)[0] is not None:
+        return LINK_UNKNOWN
+    if getattr(response, "status", None) in {404, 410}:
+        return LINK_DEAD
+    if getattr(response, "status", None) != 200:
+        return LINK_UNKNOWN
+    final_url = str(getattr(response, "url", url))
+    original, final = urlsplit(url), urlsplit(final_url)
+    home_paths = {
+        "",
+        "home",
+        "index",
+        "index.html",
+        "index.php",
+        "careers",
+        "carreiras",
+        "jobs",
+        "vagas",
+    }
+    if (
+        original.path.rstrip("/") != final.path.rstrip("/")
+        and final.path.strip("/").casefold() in home_paths
+    ):
+        return LINK_UNKNOWN
+    text = _visible_response_text(response)
+    status = classify_page_text(text, expected_title)
+    # Bloqueios e remoções visíveis prevalecem sobre metadados antigos.
+    if status != LINK_UNKNOWN:
+        return status
+    if _blocked_text(text):
+        return LINK_UNKNOWN
+    return (
+        LINK_LIVE
+        if _job_posting_live(page_html(response), expected_title)
+        else LINK_UNKNOWN
+    )
 
 
 def _is_best_fit(record: VacancyRecord) -> bool:
@@ -102,7 +227,9 @@ def _without_link_labels(labels: Sequence[str]) -> tuple[str, ...]:
     return tuple(
         label
         for label in labels
-        if not label.startswith(_LINK_PREFIX) and not label.startswith(_CHECKED_AT_PREFIX)
+        if not label.startswith(_LINK_PREFIX)
+        and not label.startswith(_CHECKED_AT_PREFIX)
+        and not label.startswith(_METHOD_PREFIX)
     )
 
 
@@ -114,6 +241,7 @@ def verify_records(
     only_best_fit: bool = True,
     fetcher_factory: Callable[[], FetchPolicy] = FetchPolicy,
     now: datetime | None = None,
+    on_progress: VerificationProgress | None = None,
 ) -> tuple[tuple[VacancyRecord, ...], dict[str, int]]:
     """Reconfirma, agora, se cada vaga candidata ainda está no ar.
 
@@ -129,30 +257,50 @@ def verify_records(
     by_code = {source.code: source for source in sources}
     candidates: list[int] = []
     for index, record in enumerate(records):
-        if only_best_fit and not _is_best_fit(record):
+        if only_best_fit and (
+            not _is_best_fit(record) or is_off_topic(record.match_labels)
+        ):
             continue
         if not (record.canonical_url or "").startswith("https://"):
             continue
         candidates.append(index)
+    from job_radar.output import _record_payload
+    from job_radar.xlsx_export import job_score
+
+    candidates.sort(
+        key=lambda index: -job_score(_record_payload(records[index]), moment)
+    )
     picked = candidates if not limit or limit <= 0 else candidates[:limit]
 
     updated = list(records)
     counts = {LINK_LIVE: 0, LINK_DEAD: 0, LINK_UNKNOWN: 0}
+    if on_progress:
+        on_progress(0, len(picked), dict(counts))
     with fetcher_factory() as fetcher:
         for index in picked:
             record = records[index]
             source = by_code.get(record.source)
-            if source is None or record.source in _SKIP_SOURCES:
+            if (
+                source is None
+                or not source.enabled
+                or source.requires_auth
+                or record.source in _SKIP_SOURCES
+            ):
                 status = LINK_UNKNOWN
             else:
-                status = check_canonical_url(record.canonical_url, source, fetcher)
+                status = check_canonical_url(
+                    record.canonical_url, source, fetcher, expected_title=record.title
+                )
             counts[status] += 1
             labels = (
                 *_without_link_labels(record.match_labels),
                 status,
                 f"{_CHECKED_AT_PREFIX}{checked_at}",
+                LINK_METHOD,
             )
             updated[index] = replace(record, match_labels=labels)
+            if on_progress:
+                on_progress(sum(counts.values()), len(picked), dict(counts))
     return tuple(updated), counts
 
 
@@ -171,17 +319,21 @@ def verify_output(
     only_best_fit: bool = True,
     fetcher_factory: Callable[[], FetchPolicy] = FetchPolicy,
     now: datetime | None = None,
+    on_progress: VerificationProgress | None = None,
 ) -> dict[str, Any]:
     """Relê ``vagas.jsonl``, reconfirma os links candidatos e regrava o arquivo.
 
     Só os rótulos ``LINK:*``/``LINK_CHECKED_AT:`` mudam; nada é descartado e
     nenhum outro campo é tocado (mesmo padrão de ``reclassify_output``).
+    O chamador deve segurar OutputLock; a CLI e o painel já fazem isso.
     """
 
     from job_radar.output import _record_payload, rewrite_payloads
-    from job_radar.reclassify import read_payloads, record_from_payload
+    from job_radar.reclassify import record_from_payload
+    from job_radar.cleanup import read_jobs_for_rewrite
 
-    payloads = read_payloads(output_dir)
+    path = output_dir / "vagas.jsonl"
+    payloads = read_jobs_for_rewrite(path) if path.exists() else []
     if not payloads:
         return {"total": 0, LINK_LIVE: 0, LINK_DEAD: 0, LINK_UNKNOWN: 0, "checked": 0}
 
@@ -201,14 +353,21 @@ def verify_output(
         only_best_fit=only_best_fit,
         fetcher_factory=fetcher_factory,
         now=now,
+        on_progress=on_progress,
     )
 
     final_payloads = list(payloads)
     changed = 0
     for record, position in zip(updated_records, positions):
-        if link_status(record.match_labels) is None:
+        if list(record.match_labels) == list(
+            payloads[position].get("match_labels", [])
+        ):
             continue
-        final_payloads[position] = _record_payload(record)
+        final_payloads[position] = {
+            **payloads[position],
+            "match_labels": list(record.match_labels),
+            "content_hash": _record_payload(record)["content_hash"],
+        }
         changed += 1
     if changed:
         rewrite_payloads(output_dir, final_payloads)

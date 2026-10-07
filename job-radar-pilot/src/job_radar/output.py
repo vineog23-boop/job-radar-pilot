@@ -318,8 +318,19 @@ def write_outputs(
         if source.status not in {CollectionStatus.SUCCESS, CollectionStatus.EMPTY}
     }
     seen = {job_identity(payload) for payload in payloads_list}
+    previous = _previous_payloads(final_jsonl)
+    by_url = {payload.get("canonical_url"): payload for payload in previous if payload.get("canonical_url")}
+    verification_prefixes = ("LINK:", "LINK_CHECKED_AT:", "LINK_CHECK_METHOD:")
+    for payload in payloads_list:
+        labels = payload["match_labels"]
+        old = by_url.get(payload.get("canonical_url"))
+        if old and not any(label.startswith(verification_prefixes) for label in labels):
+            labels.extend(label for label in old.get("match_labels", []) if label.startswith(verification_prefixes))
+            from job_radar.reclassify import record_from_payload
+
+            payload["content_hash"] = _record_payload(record_from_payload(payload))["content_hash"]
     carried = []
-    for payload in _previous_payloads(final_jsonl):
+    for payload in previous:
         preserve = (
             payload.get("canonical_url") in keep_urls
             or payload.get("source") in partial

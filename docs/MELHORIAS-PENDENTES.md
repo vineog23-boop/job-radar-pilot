@@ -316,3 +316,22 @@ no PC) → 4.2/4.1 (quebrar webapp.py e app.js).
 - `fetch_details` e `default_company` validados; paginadores antigos preservados.
 - 99Freelas segue como projetos freelance; Telegram aguarda canais públicos;
   LinkedIn segue manual. Não foram duplicadas fontes já existentes.
+
+### ⚠️ CI do GitHub ficou quebrado (silenciosamente) de 02/10 a 07/10/2026
+
+O passo `name: Lint (ruff: erros reais, sem estilo)` do workflow estava sem aspas; o `:`
+depois de "ruff" quebrava o parser YAML e **nenhum job rodava** — toda execução falhava em 0s,
+sem log de teste nenhum. Como ninguém olhou `gh run list` nesse intervalo, commits e PRs foram
+descritos como "CI verde" com base só na suíte local. Corrigido em `c30bb26`. A primeira execução
+real desde então (07/10) rodou de verdade e revelou duas falhas que só aparecem no CI remoto
+(mais lento, Windows de verdade) — corrigidas em `9992db0`:
+- Um teste rodava `run-job-radar.ps1` (launcher Windows-only) contra a venv real; no runner
+  macOS do CI (que tem `pwsh` instalado) ele sempre falhava porque o caminho da venv é fixo para
+  Windows — agora pula fora do Windows.
+- 3 testes Playwright liam a tabela sem esperar a primeira linha renderizar; no Windows do CI
+  (mais lento) a leitura corria antes do primeiro `/api/state` terminar.
+
+Ainda não confirmado: se `test_own_tracking_change_keeps_status_keyboard_focus` (Windows) foi
+uma falha de timing isolada ou um bug real de foco perdido durante o re-render da tabela — a
+asserção já usa `expect(...).to_be_focused()` (que já espera/repete), então não é o mesmo tipo de
+problema dos outros três. Acompanhar a próxima execução do CI antes de mexer no código de foco.

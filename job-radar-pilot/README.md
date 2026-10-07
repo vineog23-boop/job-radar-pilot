@@ -393,15 +393,18 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 | `query_path` / `query_param` | Habilita a varredura de termos de busca. |
 | `default_country` | País assumido para vagas remotas sem país explícito. |
 | `adaptive` | Liga/desliga o fallback adaptativo (padrão `true`). |
-| `kind: json` + `api` | Portal com API JSON pública (Gupy, Primeira Vaga Tech). `api.items` (caminho da lista), `page_param`/`page_mode` (`offset`, `page0`, `page1`)/`page_size`/`size_param`, `workplace_param`/`state_param` (filtros de modelo e estado vindos do perfil), `strip_levels` e `fields` (mapeamento `title`, `company`, `url` ou `url_template`, `published`...). Um portal novo vira só configuração. |
+| `default_company` | Empresa cadastrada explicitamente, usada somente quando ausente no cartão. |
+| `fetch_details` | Permite enriquecimento e verificação automática de detalhes (padrão `true`). `false` mantém os links para visita manual. |
+| `api.page_mode: single` | Uma requisição à URL exata, sem `page_param` obrigatório; `total_path` opcional confere a quantidade declarada. |
+| `kind: json` + `api` | Portal com API JSON pública (Gupy, Primeira Vaga Tech). `api.items` (caminho da lista), `page_param`/`page_mode` (`offset`, `page0`, `page1` ou `single`)/`page_size`/`size_param`, `workplace_param`/`state_param` (filtros de modelo e estado vindos do perfil), `strip_levels` e `fields` (mapeamento `title`, `company`, `url` ou `url_template`, `published`...). Um portal novo vira só configuração. |
 | `kind: rss` | Feed RSS público (Empregos Tech, 100% remoto). |
 
 ## Cobertura e integrações previstas
 
 A configuração habilitada em `config/sources.yaml` define o que a busca consulta;
 ter um adaptador ou um portal conhecido não garante cobertura completa. A pesquisa
-pública de 06/10/2026 orienta as próximas integrações abaixo, ainda não habilitadas
-nesta etapa:
+pública de 06/10/2026 orientou a ativação das quatro listagens InHire, CI&T e
+Greenhouse abaixo. As demais integrações mantêm os limites indicados:
 
 | Portal | Escopo e limite |
 |---|---|
@@ -740,3 +743,28 @@ Durante coleta ou verificação de links, a aplicação é recusada até a opera
 terminar. Falhas na aplicação restauram preferências, perfis e resultados
 anteriores; acompanhamento, notas, datas de observação e verificação dos links são
 preservados.
+
+### Novas listagens públicas por empresa
+
+O seletor de portais inclui **InHire — Programmers**, **InHire — Bionexo**,
+**CI&T** e **Greenhouse — AB InBev**. Cada entrada cobre a listagem pública da
+empresa indicada, sem prometer cobertura de todo o ATS. O radar aguarda os
+cartões renderizados do InHire e consulta a API pública Job Board da Greenhouse
+uma vez, com `content=true`, sem parâmetros de paginação não documentados.
+
+A CI&T oferece vagas globais; o idioma da página não determina o país da vaga.
+Os links de candidatura continuam acessíveis manualmente. A configuração
+`fetch_details: false` impede tanto enriquecimento como verificação automática
+de detalhes da CI&T, respeitando a restrição de robots. Também é usada nas
+novas fontes InHire (detalhes SPA) e Greenhouse (descrição já incluída na API).
+`default_company` preenche somente empresas ausentes no cartão, sem substituir
+uma empresa informada pela fonte.
+
+Datas de publicação ausentes continuam desconhecidas. Na Greenhouse, a publicação
+vem de `first_published`, não de `updated_at`. Um total declarado incompatível
+com os itens recebidos gera coleta parcial; estrutura ausente ou shell SPA sem
+cartões gera erro. Novos controles de carregar mais nas listagens pesquisadas
+sinalizam cobertura parcial até que a paginação seja validada.
+
+99Freelas continua separado como projetos freelance; Telegram depende de canais
+públicos informados pelo usuário. LinkedIn mantém pesquisa e importação manuais.

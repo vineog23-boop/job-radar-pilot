@@ -68,6 +68,8 @@ class SourceConfig:
     selectors: Mapping[str, str] = field(default_factory=dict)
     queries: tuple[str, ...] = ()
     default_country: str | None = None
+    default_company: str | None = None
+    fetch_details: bool = True
     adaptive: bool = True
     single_page: bool = False
     query_path: str | None = None

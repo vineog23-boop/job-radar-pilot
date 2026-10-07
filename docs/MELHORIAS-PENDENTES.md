@@ -31,7 +31,7 @@ o usuário perceber a mudança, e marcar aqui o que foi feito.
   abertura de exportações sem shell, setup e launcher macOS reexecutáveis.
 - [x] CI configurada em matriz Windows/macOS com Python 3.13, Scrapling 0.4.15,
   suíte offline, Ruff e pip check. A execução remota depende do próximo push/PR.
-- [ ] Ativar novas fontes após validação: InHire por empresa (Programmers/Bionexo),
+- [x] Ativar novas fontes após validação: InHire por empresa (Programmers/Bionexo),
   CI&T somente listagem/manual e Greenhouse por board (AB InBev). Pesquisa pública
   concluída; nenhuma cobertura global desses ATS é prometida.
 - [ ] 99Freelas em categoria freelance separada; Telegram depende de canais
@@ -270,3 +270,15 @@ no PC) → 4.2/4.1 (quebrar webapp.py e app.js).
   409 antes de persistir. Falhas restauram arquivos anteriores; links, acompanhamento
   e observação são preservados. Preferências editadas atualizam o perfil ativo.
 - Presets e sugestões preenchem principais sem apagar termos personalizados.
+
+### ✅ Fontes públicas por empresa — 07/10/2026
+
+- InHire — Programmers e Bionexo: páginas públicas renderizadas, UUID estável,
+  empresa explícita e data desconhecida quando ausente; sem acesso direto à API.
+- CI&T: listagem oficial global e links manuais; nenhum enriquecimento ou
+  verificação automática de detalhes proibidos pelo robots.
+- Greenhouse — AB InBev: API pública em chamada única, `first_published` e
+  conferência de `meta.total`, sem país ou foco tecnológico presumidos.
+- `fetch_details` e `default_company` validados; paginadores antigos preservados.
+- 99Freelas segue como projetos freelance; Telegram aguarda canais públicos;
+  LinkedIn segue manual. Não foram duplicadas fontes já existentes.

@@ -346,3 +346,81 @@ sources:
     query_path: "/{query}/jobs"
     queries: [onzze, sinqia, cadmus, topmind]
     selectors: {card: "table tr", title: "th a::all-text", url: "th a::attr(href)", location: "td span:first-child::all-text", summary: "::all-text"}
+
+  # Listagens públicas por empresa, não cobertura de todo o ATS InHire.
+  - code: inhire-programmers
+    kind: dynamic
+    start_url: https://programmers.inhire.app/vagas
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 3
+    requires_auth: false
+    adaptive: false
+    single_page: true
+    default_company: Programmers
+    fetch_details: false  # detalhe SPA não é enriquecido via HTTP estático
+    tech_focus: true
+    selectors:
+      card: "a[data-component-name='job-position-link'][href^='/vagas/']"
+      title: "::all-text"
+      url: "::attr(href)"
+
+  - code: inhire-bionexo
+    kind: dynamic
+    start_url: https://bionexo.inhire.app/vagas
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 3
+    requires_auth: false
+    adaptive: false
+    single_page: true
+    default_company: Bionexo
+    fetch_details: false
+    tech_focus: true
+    selectors:
+      card: "a[data-component-name='job-position-link'][href^='/vagas/']"
+      title: "::all-text"
+      url: "::attr(href)"
+
+  - code: ciandt
+    kind: generic
+    start_url: https://ciandt.com/br/pt-br/carreiras/oportunidades
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 3
+    requires_auth: false
+    adaptive: false
+    single_page: true
+    default_company: CI&T
+    fetch_details: false  # robots proíbe ?opportunity=; link somente manual
+    tech_focus: true
+    selectors:
+      card: ".opprtunity-item"
+      title: "h2::all-text"
+      url: "a[href*='?opportunity=']::attr(href)"
+      location: ".short-text-caption::all-text"
+      summary: "::all-text"
+
+  - code: greenhouse-abinbev
+    kind: json
+    start_url: https://boards-api.greenhouse.io/v1/boards/abinbev/jobs?content=true
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 3
+    requires_auth: false
+    adaptive: false
+    tech_focus: false
+    fetch_details: false  # content=true já traz a descrição
+    api:
+      page_mode: single
+      items: jobs
+      total_path: meta.total
+      fields:
+        id: id
+        title: title
+        url: absolute_url
+        company: company_name
+        city: location.name
+        published: first_published
+        deadline: application_deadline
+        description: content

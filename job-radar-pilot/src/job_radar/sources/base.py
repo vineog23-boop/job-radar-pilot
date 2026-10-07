@@ -88,6 +88,14 @@ def job_id_from_url(url: str) -> str | None:
         return None
     parsed = urlsplit(url)
     query = parse_qs(parsed.query)
+    if (parsed.hostname or "").endswith(".inhire.app"):
+        match = re.match(r"/vagas/([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})(?:/|$)", parsed.path)
+        if match:
+            return match.group(1).lower()
+    if parsed.hostname == "ciandt.com":
+        opportunity = query.get("opportunity", [""])[0]
+        if re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", opportunity):
+            return opportunity.lower()
     for key in ("jk", "jobId", "job_id"):
         values = query.get(key)
         if values and values[0]:
@@ -445,7 +453,7 @@ def make_record(
         source_job_id=source_job_id,
         canonical_url=canonical_url,
         title=title,
-        company=extract_value(card, company_selector),
+        company=extract_value(card, company_selector) or config.default_company,
         description_summary=clean_description(extract_value(card, description_selector)),
         location=_clean_source_location(
             config,
@@ -557,3 +565,20 @@ def _is_excluded_card(config: SourceConfig, card: object) -> bool:
 
 def adaptive_card_allowed(config: SourceConfig, card: object) -> bool:
     return not _is_excluded_card(config, card)
+
+
+def public_list_has_more(page: object, config: SourceConfig) -> bool:
+    """Sinaliza novos controles de limite nas listagens públicas pesquisadas."""
+    if config.code not in {"inhire-programmers", "inhire-bionexo", "ciandt"}:
+        return False
+    for control in page.css("button, a, [role='button']"):
+        attributes = getattr(control, "attrib", {})
+        if "disabled" in attributes or attributes.get("aria-disabled") == "true":
+            continue
+        text = extract_value(control, "::all-text") or ""
+        label = f"{text} {attributes.get('aria-label', '')}".casefold()
+        if attributes.get("rel") == "next" or re.search(
+            r"carregar mais|mostrar mais|ver mais vagas|load more|show more|próxima página|next page", label
+        ):
+            return True
+    return False

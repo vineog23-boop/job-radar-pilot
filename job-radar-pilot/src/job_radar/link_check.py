@@ -171,6 +171,8 @@ def check_canonical_url(
 ) -> str:
     """Busca ``url`` agora (sem navegador pesado) e classifica o resultado."""
 
+    if not source.fetch_details:
+        return LINK_UNKNOWN
     static_source = replace(source, kind=SourceKind.GENERIC, adaptive=False)
     try:
         fetched = fetcher.fetch(url, static_source)
@@ -289,6 +291,7 @@ def verify_records(
                 source is None
                 or not source.enabled
                 or source.requires_auth
+                or not source.fetch_details
                 or record.source in _SKIP_SOURCES
             ):
                 status = LINK_UNKNOWN

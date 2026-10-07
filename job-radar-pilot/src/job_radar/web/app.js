@@ -1,5 +1,13 @@
 "use strict";
 
+const PUBLIC_SOURCE_NAMES = {
+  "inhire-programmers": "InHire — Programmers",
+  "inhire-bionexo": "InHire — Bionexo",
+  "ciandt": "CI&T",
+  "greenhouse-abinbev": "Greenhouse — AB InBev",
+};
+function sourceLabel(code) { return PUBLIC_SOURCE_NAMES[code] || code || "—"; }
+
 const elements = {
   verifyLinksButton: document.querySelector("#verify-links-button"),
   verificationStatus: document.querySelector("#verification-status"),
@@ -799,7 +807,7 @@ function renderTable() {
     row.appendChild(locationCell);
 
     const sourceCell = document.createElement("td");
-    sourceCell.appendChild(textElement("span", "source-pill", job.source || "—"));
+    sourceCell.appendChild(textElement("span", "source-pill", sourceLabel(job.source)));
     row.appendChild(sourceCell);
 
     const matchCell = document.createElement("td");
@@ -895,7 +903,7 @@ function updateSourceFilter() {
   const sources = new Set((dashboardState.jobs ?? []).map((job) => job.source).filter(Boolean));
   (dashboardState.report?.sources ?? []).forEach((source) => sources.add(source.source));
   const options = [new Option("Todos os portais", "")];
-  [...sources].sort().forEach((source) => options.push(new Option(source, source)));
+  [...sources].sort().forEach((source) => options.push(new Option(sourceLabel(source), source)));
   elements.sourceFilter.replaceChildren(...options);
   elements.sourceFilter.value = sources.has(selected) ? selected : "";
 }
@@ -967,7 +975,7 @@ function renderSources() {
     row.className = "source-row";
     const copy = document.createElement("div");
     copy.append(
-      textElement("strong", "", source.source || "Portal"),
+      textElement("strong", "", sourceLabel(source.source)),
       textElement(
         "small",
         "",
@@ -1266,7 +1274,7 @@ function renderSourcesPicker() {
       input.value = source.code;
       input.checked = selected === null || selected.has(source.code);
       input.addEventListener("change", savePickedSources);
-      label.append(input, ` ${source.code} `);
+      label.append(input, ` ${sourceLabel(source.code)} `);
       if (source.tech_focus) label.appendChild(textElement("span", "tech-tag", "TI"));
       return label;
     })
@@ -1483,7 +1491,7 @@ function showExport(show) {
   const sources = new Set((dashboardState.jobs ?? []).map((job) => job.source).filter(Boolean));
   elements.exportSource.replaceChildren(
     new Option("Todos os portais", ""),
-    ...[...sources].sort().map((source) => new Option(source, source))
+    ...[...sources].sort().map((source) => new Option(sourceLabel(source), source))
   );
   elements.exportSource.value = sources.has(selected) ? selected : "";
   refreshExportLinks();

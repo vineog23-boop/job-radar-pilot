@@ -232,3 +232,49 @@ def test_cli_serializes_final_tracking_snapshot_with_publication(tmp_path, monke
     assert updated.is_set()
     assert tracking.load()[URL]['note'] == 'Nota simultânea'
     assert jobs(output)[0]['canonical_url'] == URL
+
+
+@pytest.mark.parametrize('status', [CollectionStatus.SUCCESS, CollectionStatus.EMPTY])
+@pytest.mark.parametrize('during_collection', [False, True])
+@pytest.mark.parametrize(
+    ('broken_url', 'broken_entry'),
+    [
+        (URL, ['registro danificado']),
+        (URL, {'status': 'UNKNOWN'}),
+        ('javascript:alert(1)', {'status': 'SAVED'}),
+        (URL, {'status': 'SAVED', 'note': False}),
+    ],
+)
+def test_full_collection_preserves_all_payloads_with_structurally_corrupt_tracking(
+    tmp_path, monkeypatch, capsys, status, during_collection, broken_url, broken_entry,
+):
+    output = tmp_path / 'out'
+    previous = (
+        replace(record(), match_labels=('FIT:EXCLUDE',), published_at=OLD),
+        replace(record('https://example.com/jobs/2'), match_labels=('FIT:EXCLUDE',)),
+    )
+    write_outputs(result(previous), output)
+    before = {job['canonical_url']: job for job in jobs(output)}
+    path = tmp_path / 'tracking.json'
+    tracking = TrackingStore(path)
+    corrupt = json.dumps({'version': 1, 'jobs': {
+        'https://example.com/jobs/2': {'status': 'SAVED'}, broken_url: broken_entry,
+    }})
+    if not during_collection:
+        path.write_text(corrupt, encoding='utf-8')
+    monkeypatch.setattr(cli, 'TrackingStore', lambda: tracking)
+
+    def collect(*args, **kwargs):
+        if during_collection:
+            path.write_text(corrupt, encoding='utf-8')
+        new = replace(record('https://example.com/jobs/3'), match_labels=('FIT:EXCLUDE',))
+        return result((new,) if status == CollectionStatus.SUCCESS else (), status=status)
+
+    monkeypatch.setattr(cli, '_run_pipeline', collect)
+    assert cli.main(['collect', '--no-history', '--no-export', '--max-age-days', '1',
+                     '--output', str(output)]) == 0
+    after = {job['canonical_url']: job for job in jobs(output)}
+    assert {url: after.get(url) for url in before} == before
+    assert len(after) == (3 if status == CollectionStatus.SUCCESS else 2)
+    assert path.read_bytes() == corrupt.encode('utf-8')
+    assert 'acompanhamento' in capsys.readouterr().err

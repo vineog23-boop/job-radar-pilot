@@ -47,7 +47,10 @@ def tracking_path() -> Path:
 def _validated_url(url: object) -> str:
     if not isinstance(url, str) or not url or len(url) > _MAX_URL_LENGTH:
         raise TrackingError("URL da vaga invalida.")
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError as exc:
+        raise TrackingError("URL da vaga invalida.") from exc
     if parts.scheme not in {"http", "https"} or not parts.netloc:
         raise TrackingError("URL da vaga deve ser http(s).")
     return url
@@ -71,6 +74,13 @@ class TrackingStore:
             yield self
 
     def load(self) -> dict[str, dict[str, str]]:
+        """Lê o arquivo inteiro ou recusa, sem filtrar/normalizar entradas.
+
+        Cada chave é uma URL http(s) válida; a entrada é um objeto com status
+        conhecido e todos os valores são texto. Datas e nota são opcionais.
+        Qualquer violação impede o snapshot e toda reescrita do acompanhamento.
+        """
+
         if not self._path.exists():
             return {}
         try:
@@ -82,11 +92,20 @@ class TrackingStore:
         entries = data.get("jobs") if isinstance(data, dict) else None
         if not isinstance(entries, dict):
             raise TrackingError("Arquivo de acompanhamento com formato inesperado.")
-        return {
-            url: {key: str(value) for key, value in entry.items()}
-            for url, entry in entries.items()
-            if isinstance(entry, dict) and entry.get("status") in TRACKING_STATUSES
-        }
+        validated: dict[str, dict[str, str]] = {}
+        for url, entry in entries.items():
+            try:
+                _validated_url(url)
+            except TrackingError as exc:
+                raise TrackingError("Arquivo de acompanhamento com URL invalida.") from exc
+            if (
+                not isinstance(entry, dict)
+                or entry.get("status") not in TRACKING_STATUSES
+                or any(not isinstance(value, str) for value in entry.values())
+            ):
+                raise TrackingError("Arquivo de acompanhamento com entrada invalida.")
+            validated[url] = dict(entry)
+        return validated
 
     def set_status(
         self,

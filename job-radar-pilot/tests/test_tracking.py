@@ -65,3 +65,34 @@ def test_corrupted_file_is_not_overwritten(tmp_path: Path) -> None:
 def test_default_path_lives_under_local_app_data(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     assert tracking_path() == tmp_path / "JobRadar" / "tracking.json"
+
+
+@pytest.mark.parametrize(
+    ('broken_url', 'broken_entry'),
+    [
+        (URL, ['registro danificado']),
+        (URL, {'status': 'UNKNOWN'}),
+        ('javascript:alert(1)', {'status': 'SAVED'}),
+        (URL, {'status': 'SAVED', 'note': False}),
+        (URL, {'status': 'SAVED', 'saved_at': 123}),
+        (URL, {'status': ['SAVED']}),
+        ('https://[endereco-invalido', {'status': 'SAVED'}),
+    ],
+)
+def test_structurally_corrupt_tracking_refuses_load_and_rewrite(
+    tmp_path, broken_url, broken_entry,
+):
+    import json
+
+    path = tmp_path / 'tracking.json'
+    path.write_text(json.dumps({'version': 1, 'jobs': {
+        'https://example.com/vagas/valida': {'status': 'APPLIED', 'note': 'Nota válida'},
+        broken_url: broken_entry,
+    }}), encoding='utf-8')
+    before = path.read_bytes()
+    store = TrackingStore(path)
+    with pytest.raises(TrackingError):
+        store.load()
+    with pytest.raises(TrackingError):
+        store.set_status('https://example.com/vagas/nova', 'SAVED', now=NOW)
+    assert path.read_bytes() == before

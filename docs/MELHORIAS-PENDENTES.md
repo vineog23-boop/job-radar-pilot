@@ -139,13 +139,36 @@ Texto original:
   que só gastam tempo (ex.: o que trouxer quase só `OFF_TOPIC`).
 
 ### 2.4 Pendências antigas ainda abertas
-- Nube/Infojobs: restringir à área de TI na URL de partida.
 - Paginação não verificada: estagiotrainee (Wix, lazy load), ciee, mytechjobs (`?page=N` sem link
-  "próxima" → opção `page_param` incremental), trampos, coodesh; programathor marca `PARTIAL` mesmo
-  no fim legítimo; busca vazia no Infojobs vira timeout em vez de `EMPTY`.
+  "próxima" → opção `page_param` incremental), trampos, coodesh; busca vazia no Infojobs vira
+  timeout em vez de `EMPTY`.
 - Candidatas não testadas: APInfo, ABRE, IEL, Universia. **Descartadas, não readicionar**:
   GeekHunter (exceto o que já existe), TalenTI, eu.dev.br, ViUmaVaga, Super Estágios, Futura
   Estágios, Glassdoor, GitHub `backend-br/vagas`, Catho, Revelo, LinkedIn (scraping).
+
+#### Investigado em 07/10/2026 (não mexer sem reabrir a discussão)
+
+- **Nube — 0 úteis em 1.218 registros**: não é bug de URL. `/estudantes/vagas` é um board
+  generalista (5.973 vagas de todas as áreas: engenharia, vendas, administrativo etc.); o filtro
+  por área ("Tecnologia da Informação") só existe no JavaScript do cliente, lido de uma API JSON
+  pública (`/api/portal/buscar_listagem_vagas?offset=&limite=`) sem parâmetro de categoria na URL.
+  Medido ao vivo: de ~3.292 vagas lidas dessa API, só 15 eram de TI (~0,5%) — extrapolando para as
+  5.973 totais, são ~27 vagas de TI no site inteiro, a maioria com título genérico
+  ("Tecnologia da Informação - <id>", sem stack). Corrigir direito exigiria migrar o adaptador de
+  `dynamic` para `json` e estender `sources/json_api.py` (hoje só lê listas; a API do Nube devolve
+  `dict_por_id_vaga`, um dicionário por ID) — mudança em código compartilhado com outros portais
+  `json`, para um ganho de poucas dezenas de vagas genéricas. **Recomendação**: não vale o risco;
+  o aviso "este portal rende pouco" já existe no painel (`app.js` `renderSources`, quando
+  `useful === 0` e `records >= 5`) e cobre o caso — deixar o usuário desmarcar Nube se quiser.
+- **Programathor — `PARTIAL` mesmo "no fim legítimo"**: confirmado ao vivo que a busca
+  `jobs-java` fica vazia a partir da página 6, mas o próprio site mostra um link "Last » page=230"
+  na paginação (provavelmente o total do site inteiro, não da busca filtrada) e nenhuma página
+  exibe texto de "nenhum resultado". Como não há sinal textual confiável de fim de busca, o
+  adaptador genérico (`sources/base.py`, `EMPTY_PAGE_AFTER_RECORDS`) está certo em marcar
+  `PARTIAL` em vez de supor `SUCCESS` — essa lógica é compartilhada por todos os portais
+  `generic`, então "corrigi-la" para aceitar uma página vazia como fim legítimo arriscaria
+  declarar coleta completa em portais que na verdade sofreram bloqueio temporário.
+  **Recomendação**: manter como está; não é regressão, é limite real do portal.
 
 ---
 

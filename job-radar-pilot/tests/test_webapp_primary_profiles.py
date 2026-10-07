@@ -213,3 +213,21 @@ def test_terms_builder_uses_explicit_primary_over_complementary_technologies(tmp
             assert 'Python' in page.locator('#terms-groups h4').all_text_contents()
             assert 'Java / Spring' not in page.locator('#terms-groups h4').all_text_contents()
             browser.close()
+
+
+def test_missing_primary_is_warning_not_satisfied_criterion(tmp_path):
+    from playwright.sync_api import sync_playwright
+
+    with _api(tmp_path) as (_, _, base):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(base)
+            facts = page.evaluate("""() => [...detailRow({match_labels: [
+                "FIT:AMBIGUOUS", "PRIMARY_TECH_MISSING:Java", "TECH_MATCH:SQL"
+            ]}).querySelectorAll('.detail-facts li')].map(li => li.textContent)""")
+            criteria = next(fact for fact in facts if fact.startswith('Critérios atendidos'))
+            assert 'Tecnologia: SQL' in criteria
+            assert 'principal' not in criteria.lower()
+            assert any('Atenção' in fact and 'stack principal não confirmada' in fact for fact in facts)
+            browser.close()

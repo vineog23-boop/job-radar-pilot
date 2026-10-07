@@ -137,7 +137,7 @@ senioridade, tecnologias, data de publicação, fonte, URL e nota.
 
 - **Publicada em** vem só do portal (campo estruturado ou texto "Publicada em"); a data de coleta (`observed_at`) nunca a substitui.
 - **Prazo** (`application_deadline`) vem do `validThrough` da página oficial. Só a data vale até 23:59 de Brasília.
-- O painel abre em **Últimos 30 dias** (também 7 e 15). Vaga sem data de publicação ou com prazo vencido fica fora dessas janelas e aparece em **Qualquer data**; nada é apagado.
+- O painel abre em **Últimos 30 dias** (também 7 e 15). Vaga sem data de publicação fica fora dessas janelas e aparece em **Qualquer data**; nada é apagado. Prazo vencido afeta a **Situação**, não o período: uma vaga encerrada pode aparecer em **Últimos 30 dias** ao selecionar **Encerradas**. Os atalhos de melhores vagas continuam excluindo encerradas.
 - **Período personalizado:** em "Personalizado…" informe data inicial e/ou final; os dois dias entram (horário de Brasília). Vaga sem data de publicação continua de fora.
 - **Situação** (derivada, nunca gravada): *ativa* quando há prazo oficial em aberto com publicação ou detalhe confirmado nos últimos 7 dias; *listada na última busca* quando observada há até 7 dias; *encerrada* por prazo vencido ou HTTP 404/410 recente comprovado; *não comprovada* quando falta evidência. Listagem recente não confirma que o formulário ainda aceita candidatura. O painel abre em "Ativas", incluindo ativas e listadas; registros antigos preservados viram "não comprovada".
 - A coleta não abre a página de detalhe de vaga fora da janela ou com prazo vencido (`enrich_max_age_days`, padrão 30).

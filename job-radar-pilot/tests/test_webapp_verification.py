@@ -238,3 +238,42 @@ def test_failing_mutation_releases_controller_reservation(tmp_path):
     assert controller.start()
     assert controller.wait(2)
     assert controller.snapshot()['status'] == 'DONE'
+
+
+def test_external_output_lock_rejects_search_without_changing_control_or_state(tmp_path):
+    from job_radar.run_control import CONTROL_FILE_NAME
+
+    entered = Event()
+    def runner(output, *_):
+        entered.set()
+        with OutputLock(output):
+            return 0
+
+    controller = SearchController(tmp_path / "output", runner=runner)
+    controller.output_dir.mkdir()
+    control = controller.output_dir / CONTROL_FILE_NAME
+    control.write_bytes(b"pause")
+    with _api(tmp_path, controller) as api:
+        before = controller.snapshot()
+        with OutputLock(controller.output_dir):
+            assert api("/api/search", {}, "POST")[0] == 409
+            assert not entered.is_set()
+            assert control.read_bytes() == b"pause"
+            assert controller.snapshot() == before
+        assert api("/api/search", {}, "POST")[0] == 202
+        assert controller.wait(2)
+        assert entered.is_set()
+        assert controller.snapshot()["status"] == "DONE"
+
+
+def test_instance_identity_reports_serving_process_and_workspace(tmp_path):
+    import os
+    from pathlib import Path
+    import sys
+
+    controller = SearchController(tmp_path / "output", runner=lambda *_: 0)
+    with _api(tmp_path, controller) as api:
+        status, identity = api("/api/instance")
+        assert status == 200
+        assert identity == {"pid": os.getpid(), "venv": str(Path(sys.prefix).resolve()),
+                            "project_root": str(Path(__file__).resolve().parents[1])}

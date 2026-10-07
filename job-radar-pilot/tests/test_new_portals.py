@@ -59,7 +59,7 @@ def html_result(code, html=None):
     html = (
         html
         if html is not None
-        else (FIXTURES / (name + "-sanitized.html")).read_text()
+        else (FIXTURES / (name + "-sanitized.html")).read_text(encoding="utf-8")
     )
     fetcher = Fetcher(page(html, config.start_url))
     return adapter_for(config).collect(config, fetcher)
@@ -69,7 +69,7 @@ def greenhouse(payload=None, config=None):
     config = config or source("greenhouse-abinbev")
     if payload is None:
         payload = json.loads(
-            (FIXTURES / "greenhouse-abinbev-sanitized.json").read_text()
+            (FIXTURES / "greenhouse-abinbev-sanitized.json").read_text(encoding="utf-8")
         )
     fetcher = Fetcher(SimpleNamespace(body=json.dumps(payload).encode()))
     return adapter_for(config).collect(config, fetcher), fetcher
@@ -119,7 +119,7 @@ def test_rendered_cards_have_stable_ids_and_explicit_company(code, company):
 
 def test_inhire_slug_and_title_changes_keep_identity():
     first = html_result("inhire-bionexo").records[0]
-    html = (FIXTURES / "inhire-bionexo-rendered-sanitized.html").read_text()
+    html = (FIXTURES / "inhire-bionexo-rendered-sanitized.html").read_text(encoding="utf-8")
     changed = html_result(
         "inhire-bionexo",
         html.replace("desenvolvedor-java-junior", "novo-slug").replace(
@@ -135,7 +135,7 @@ def test_inhire_shell_is_error_and_observed_load_more_is_partial(code):
         html_result(code, '<main><div id="root"></div></main>').status
         is CollectionStatus.ERROR
     )
-    html = (FIXTURES / (code + "-rendered-sanitized.html")).read_text()
+    html = (FIXTURES / (code + "-rendered-sanitized.html")).read_text(encoding="utf-8")
     result = html_result(code, html + "<button>Carregar mais vagas</button>")
     assert result.status is CollectionStatus.PARTIAL and result.has_more
 
@@ -192,7 +192,7 @@ def test_greenhouse_single_exact_request_fields_and_schema():
     assert record.published_at == "2026-07-23T13:54:52-04:00"
     assert record.application_deadline is None
     validator = Draft202012Validator(
-        json.loads((PROJECT / "schemas/vagas.schema.json").read_text()),
+        json.loads((PROJECT / "schemas/vagas.schema.json").read_text(encoding="utf-8")),
         format_checker=FormatChecker(),
     )
     validator.validate(_record_payload(record))
@@ -223,7 +223,7 @@ def test_single_api_truthful_status(payload, status, reason):
 
 @pytest.mark.parametrize("total", [0, 2, None, "1", True])
 def test_single_api_inconsistent_total_is_partial(total):
-    payload = json.loads((FIXTURES / "greenhouse-abinbev-sanitized.json").read_text())
+    payload = json.loads((FIXTURES / "greenhouse-abinbev-sanitized.json").read_text(encoding="utf-8"))
     payload["meta"]["total"] = total
     result, _ = greenhouse(payload)
     assert (
@@ -281,7 +281,7 @@ def test_default_company_does_not_replace_card_company():
 
 def test_single_api_without_total_and_with_incomplete_items():
     config = source("greenhouse-abinbev")
-    payload = json.loads((FIXTURES / "greenhouse-abinbev-sanitized.json").read_text())
+    payload = json.loads((FIXTURES / "greenhouse-abinbev-sanitized.json").read_text(encoding="utf-8"))
     item = payload["jobs"][0]
     item["content"] = "<p>Java &amp; Spring</p>"
     item["application_deadline"] = "2026-11-01"
@@ -324,3 +324,15 @@ def test_new_source_defaults_and_total_path_validation():
     )
     with pytest.raises(ConfigError):
         _load_source(raw, 0)
+
+
+def test_utf8_fixtures_preserve_accents_under_windows_locale(monkeypatch):
+    original = Path.read_text
+
+    def windows_read_text(path, encoding=None, errors=None, **kwargs):
+        return original(path, encoding=encoding or "cp1252", errors=errors, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", windows_read_text)
+    result, _ = greenhouse()
+    assert result.records[0].location == "São Paulo, Brazil"
+    assert any("Híbrido" in record.title for record in html_result("inhire-bionexo").records)

@@ -332,7 +332,6 @@ function focusResults(match) {
 }
 
 const CRITERIA_LABELS = [
-  ["PRIMARY_TECH_MISSING:", "Stack principal não confirmada"],
   ["TECH_MATCH:", "Tecnologia"],
   ["SENIORITY_MATCH:", "Nível"],
   ["LOCATION_MATCH:", "Local"],
@@ -532,8 +531,8 @@ function searchValues(value) {
   return [value];
 }
 
-// Período de publicação: sem data comprovada ou com prazo vencido, a vaga não
-// entra numa janela de dias; "Qualquer data" mostra tudo.
+// Período considera apenas publicação; sem data comprovada, a vaga aparece
+// somente em "Qualquer data". Prazo vencido é tratado pelo filtro de situação.
 // Espelha job_radar/activity.py: situação derivada dos dados salvos.
 const LISTING_FRESH_MS = 7 * 86400000;
 function activityState(job) {

@@ -22,7 +22,7 @@ from job_radar.dates import parse_iso_datetime
 from job_radar.activity import CLOSED, activity_state
 from job_radar.export_document import build_markdown_report
 from job_radar.fit import fit_name, fit_reasons, fit_state, is_off_topic, job_technologies
-from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock
+from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock, is_output_locked
 from job_radar.text_cleaning import spreadsheet_safe
 from job_radar.tracking import (
     IN_PROGRESS_STATUSES,
@@ -526,6 +526,7 @@ class SearchController:
                 self._status == "RUNNING"
                 or self._verification["status"] == "RUNNING"
                 or self._output_mutation_active
+                or is_output_locked(self._output_dir)
             ):
                 return False
             self._status = "RUNNING"
@@ -1112,6 +1113,10 @@ def _dashboard_handler(
         def _route_get(self) -> None:
             request_url = urlsplit(self.path)
             path = request_url.path
+            if path == "/api/instance":
+                self._json(200, {"pid": os.getpid(), "venv": str(Path(sys.prefix).resolve()),
+                                 "project_root": str(_project_root().resolve())})
+                return
             if path == "/api/state":
                 query = parse_qs(request_url.query)
                 since = query.get("since", [None])[-1]

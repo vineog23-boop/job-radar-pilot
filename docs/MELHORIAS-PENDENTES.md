@@ -331,7 +331,21 @@ real desde então (07/10) rodou de verdade e revelou duas falhas que só aparece
 - 3 testes Playwright liam a tabela sem esperar a primeira linha renderizar; no Windows do CI
   (mais lento) a leitura corria antes do primeiro `/api/state` terminar.
 
-Ainda não confirmado: se `test_own_tracking_change_keeps_status_keyboard_focus` (Windows) foi
-uma falha de timing isolada ou um bug real de foco perdido durante o re-render da tabela — a
-asserção já usa `expect(...).to_be_focused()` (que já espera/repete), então não é o mesmo tipo de
-problema dos outros três. Acompanhar a próxima execução do CI antes de mexer no código de foco.
+#### `test_own_tracking_change_keeps_status_keyboard_focus` — investigado, sem correção (07/10)
+
+Falhou **duas vezes seguidas** no Windows do CI, sempre a mesma asserção (`to_be_focused()`).
+Não é flakiness aleatória entre testes — é sempre o mesmo. Investigado a fundo sem achar bug:
+- 15 execuções locais seguidas: todas passaram.
+- Testei direto no Chromium (Playwright isolado) se `select.disabled = true` tira o foco do
+  elemento focado: **não tira** — hipótese inicial (achar que o próprio código desfocava o
+  `<select>` ao desabilitá-lo durante o `fetch`) estava errada.
+- Tracing completo de `renderTable()`/`refreshState()`: a captura de foco lê
+  `document.activeElement` no topo de toda chamada de `renderTable()`, de forma síncrona (sem
+  `await` no meio) — mesmo com o polling de `/api/state` podendo disparar um segundo
+  `renderTable()` concorrente, cada chamada deveria recapturar o foco correto já restaurado pela
+  anterior.
+- Não apliquei nenhum remendo sem confirmar a causa (reproduzir antes de corrigir). Hipótese mais
+  provável: peculiaridade do `<select>` nativo do Windows no Playwright/Chromium (a lista do
+  `<select>` usa UI nativa do SO no Windows, diferente de macOS/Linux), não um bug no app.js.
+- Próximo passo se repetir: pegar o `trace`/vídeo do Playwright na própria execução do CI
+  (`--tracing` ou artefato de falha) em vez de tentar reproduzir às cegas localmente.

@@ -236,6 +236,7 @@ def test_browser_future_publication_gets_no_recency_bonus(tmp_path):
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(base)
+        page.locator('#jobs-table-body tr').first.wait_for()
         page.locator('#age-filter').select_option('')
         page.locator('#activity-filter').select_option('all')
         page.locator('#jobs-table-body .title-cell').click()
@@ -256,6 +257,7 @@ def test_browser_score_breakdown_names_each_criterion(tmp_path):
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(base)
+        page.locator('#jobs-table-body tr').first.wait_for()
         page.locator('#age-filter').select_option('')
         page.locator('#activity-filter').select_option('all')
         page.locator('#jobs-table-body .title-cell').click()
@@ -275,6 +277,7 @@ def test_browser_future_publication_is_outside_dated_window(tmp_path, window):
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(base)
+        page.locator('#jobs-table-body tr').first.wait_for()
         page.locator('#age-filter').select_option('')
         page.locator('#activity-filter').select_option('all')
         assert page.locator('#jobs-table-body .job-title').all_inner_texts() == ['Vaga atual', 'Vaga futura']

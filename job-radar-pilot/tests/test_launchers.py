@@ -15,8 +15,14 @@ def test_cli_launcher_prioritizes_workspace_source_over_existing_pythonpath(
     tmp_path: Path,
 ) -> None:
     powershell = shutil.which("pwsh")
-    if powershell is None:
-        pytest.skip("PowerShell 7 nao disponivel neste ambiente.")
+    if powershell is None or os.name != "nt":
+        # run-job-radar.ps1 resolve o python da venv num caminho Windows
+        # (job-radar-pilot\.venv\Scripts\python.exe) de propósito — é um
+        # launcher do PC do usuário, não deve virar multiplataforma (CLAUDE.md).
+        # Noutro SO o pwsh pode existir (ex.: macOS do CI) mas a venv real
+        # fica em .venv/bin/python, então o script sempre acharia "ambiente
+        # isolado ausente" mesmo com tudo certo.
+        pytest.skip("run-job-radar.ps1 e so para Windows (caminho da venv e fixo).")
 
     shadow_root = tmp_path / "shadow"
     shadow_package = shadow_root / "job_radar"

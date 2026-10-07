@@ -273,3 +273,28 @@ def test_redirect_to_named_home_does_not_confirm_job():
                 body=b'Vaga Java requisitos responsabilidades candidate-se agora.' * 8,
                 url='https://x.com.br/home'))
     assert check_canonical_url('https://x.com.br/jobs/1', _source(), Fetcher()) == LINK_UNKNOWN
+
+
+def test_redirect_to_nested_listings_does_not_confirm_card_identity():
+    from job_radar.link_check import check_canonical_url
+    class Fetcher:
+        def __init__(self, final_url):
+            self.final_url = final_url
+        def fetch(self, url, source):
+            return FetchResult(status=CollectionStatus.SUCCESS, response=SimpleNamespace(
+                status=200, url=self.final_url,
+                body=b'<article>Java Junior vaga requisitos responsabilidades candidate-se agora.</article><article>Python Junior vaga requisitos candidate-se.</article>'))
+    for path in ('/pt-BR/jobs', '/jobs/search'):
+        assert check_canonical_url('https://x.com.br/jobs/123', _source(),
+            Fetcher('https://x.com.br' + path), expected_title='Java Junior') == LINK_UNKNOWN
+
+
+def test_redirect_to_localized_job_detail_keeps_matching_identity():
+    from job_radar.link_check import check_canonical_url
+    class Fetcher:
+        def fetch(self, url, source):
+            return FetchResult(status=CollectionStatus.SUCCESS, response=SimpleNamespace(
+                status=200, url='https://x.com.br/pt-BR/jobs/123',
+                body=b'Java Junior vaga requisitos responsabilidades candidate-se agora.'))
+    assert check_canonical_url('https://x.com.br/jobs/123', _source(), Fetcher(),
+        expected_title='Java Junior') == LINK_LIVE

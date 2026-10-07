@@ -484,6 +484,7 @@ class SearchController:
         self._verification = {"status": "IDLE", "checked": 0, "total": 0, "error": None,
                               "counts": {"LINK:LIVE": 0, "LINK:DEAD": 0, "LINK:UNKNOWN": 0}}
         self._lock = Lock()
+        self._output_mutation_active = False
         self._thread: Thread | None = None
         self._status = "IDLE"
         self._exit_code: int | None = None
@@ -523,7 +524,11 @@ class SearchController:
 
     def start(self, sources: list[str] | None = None) -> bool:
         with self._lock:
-            if self._status == "RUNNING" or self._verification["status"] == "RUNNING":
+            if (
+                self._status == "RUNNING"
+                or self._verification["status"] == "RUNNING"
+                or self._output_mutation_active
+            ):
                 return False
             self._status = "RUNNING"
             self._exit_code = None
@@ -553,18 +558,31 @@ class SearchController:
     def output_mutation(self):
         """Reserva a saída sem brecha entre o estado do painel e a trava."""
         with self._lock:
-            if self._status == "RUNNING" or self._verification["status"] == "RUNNING":
+            if (
+                self._status == "RUNNING"
+                or self._verification["status"] == "RUNNING"
+                or self._output_mutation_active
+            ):
                 raise OutputBusyError("Espere a busca ou verificação terminar.")
             output_lock = OutputLock(self._output_dir)
             output_lock.__enter__()
+            self._output_mutation_active = True
         try:
             yield
         finally:
-            output_lock.__exit__(None, None, None)
+            with self._lock:
+                try:
+                    output_lock.__exit__(None, None, None)
+                finally:
+                    self._output_mutation_active = False
 
     def start_verification(self) -> bool:
         with self._lock:
-            if self._status == "RUNNING" or self._verification["status"] == "RUNNING":
+            if (
+                self._status == "RUNNING"
+                or self._verification["status"] == "RUNNING"
+                or self._output_mutation_active
+            ):
                 return False
             output_lock = OutputLock(self._output_dir)
             try:

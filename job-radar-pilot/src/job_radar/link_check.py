@@ -200,10 +200,15 @@ def check_canonical_url(
         "jobs",
         "vagas",
     }
-    if (
-        original.path.rstrip("/") != final.path.rstrip("/")
-        and final.path.strip("/").casefold() in home_paths
-    ):
+    final_segments = [
+        segment.casefold() for segment in final.path.split("/") if segment
+    ]
+    listing_destination = (
+        not final_segments
+        or final_segments[-1] in home_paths
+        or bool({"search", "busca"} & set(final_segments))
+    )
+    if original.path.rstrip("/") != final.path.rstrip("/") and listing_destination:
         return LINK_UNKNOWN
     text = _visible_response_text(response)
     status = classify_page_text(text, expected_title)

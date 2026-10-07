@@ -204,3 +204,37 @@ def test_external_output_lock_rejects_verification_without_stale_running_status(
         with OutputLock(controller.output_dir):
             assert api("/api/verify-links", {}, "POST")[0] == 409
         assert api("/api/state")[1]["verification"]["status"] == "IDLE"
+
+
+def test_search_rejects_reserved_mutation_and_starts_after_its_release(tmp_path):
+    def runner(output, sources, workers, on_line):
+        # Reproduz a aquisição da CLI; o controller não deve adquirir outra trava.
+        with OutputLock(output):
+            return 0
+
+    controller = SearchController(tmp_path / 'output', runner=runner)
+    try:
+        with _api(tmp_path, controller) as api:
+            with controller.output_mutation():
+                assert api('/api/search', {}, 'POST')[0] == 409
+                assert api('/api/verify-links', {}, 'POST')[0] == 409
+                assert api('/api/state')[1]['status'] == 'IDLE'
+            assert api('/api/search', {}, 'POST')[0] == 202
+            assert controller.wait(2)
+            assert api('/api/state')[1]['status'] == 'DONE'
+    finally:
+        controller.wait(2)
+
+
+def test_failing_mutation_releases_controller_reservation(tmp_path):
+    def runner(output, sources, workers, on_line):
+        with OutputLock(output):
+            return 0
+
+    controller = SearchController(tmp_path / 'output', runner=runner)
+    with pytest.raises(ValueError, match='Falha isolada'):
+        with controller.output_mutation():
+            raise ValueError('Falha isolada')
+    assert controller.start()
+    assert controller.wait(2)
+    assert controller.snapshot()['status'] == 'DONE'

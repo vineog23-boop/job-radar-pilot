@@ -95,8 +95,13 @@ repositório e do funil canônico; a chave é a URL da vaga. Estados: **Salva**,
 data em que foi alcançado (`applied_at`, `interview_at`...) e uma nota curta que
 não se perde ao mudar o estado. A faixa **Seu funil** acima da tabela conta as
 vagas em cada etapa (clique para filtrar) e **Em processo** junta aplicadas,
-entrevistas e ofertas. **Exportar CSV** e **Baixar relatório**
-respeitam exatamente os filtros ativos, inclusive o de acompanhamento. O CSV
+entrevistas e ofertas. Em **Exportar vagas → Exportar a tabela**, CSV, relatório,
+planilha e texto para IA respeitam todos os filtros ativos (incluindo remoto,
+período, atividade e acompanhamento) e a ordem da tabela, inclusive além das
+300 primeiras linhas. Uma tabela vazia gera um arquivo sem vagas. Se a saída
+mudar após carregar a tabela, o download avisa para atualizar e tentar de novo.
+Esses downloads usam somente as URLs e a versão carregadas, com limite de
+20.000 vagas e corpo de 2 MiB. O CSV
 traz aderência, acompanhamento, cargo, empresa, local, modalidade,
 senioridade, tecnologias, data de publicação, fonte, URL e nota.
 
@@ -567,9 +572,15 @@ Score é calculado. Atalhos: **Melhores para mim** (só `FIT:READY`, score ≥ 7
 últimos 30 dias), **Compatíveis + a revisar**, **Novas desde a última coleta** e
 **Todas de TI**. Dá para refinar por score mínimo, período, nível, modelo,
 portal e acompanhamento; o painel mostra quantas vagas serão exportadas. Vagas
-fora da área de tecnologia nunca entram. O Score (0-100) soma 20 pontos por
+fora da área de tecnologia nunca entram. Os filtros deste painel são
+independentes dos filtros da tabela; seus downloads mantêm as rotas GET
+existentes. As seleções **Melhores para mim** e **Compatíveis + a revisar**, assim
+como a exportação automática das melhores vagas, excluem vagas encerradas mesmo
+sem limite de período. O Score (0-100) soma 20 pontos por
 critério atendido (tecnologia, nível, local, modelo), +10 se `FIT:READY` e até
-+10 pela recência. Os mesmos filtros valem para CSV e relatório (`.md`).
++10 pela recência, usando dias fracionários; datas futuras não recebem esse
+bônus nem entram em janelas de recência. Os mesmos filtros valem para CSV e
+relatório (`.md`).
 
 ## Verificar se os links ainda estão no ar (`verify-links`)
 

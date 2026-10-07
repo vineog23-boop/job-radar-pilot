@@ -303,3 +303,16 @@ def test_dashboard_auto_export_section(tmp_path: Path) -> None:
         thread.join(timeout=2)
 
     assert (folder / "ultima-busca.xlsx").exists()
+
+
+def test_automatic_best_excludes_expired_even_without_age_window(tmp_path: Path) -> None:
+    output = tmp_path / 'output'
+    _write_output(output)
+    closed = dict(JOBS[0], application_deadline='2026-10-01T08:29:59+00:00')
+    (output / 'vagas.jsonl').write_text(json.dumps(closed) + '\n' + json.dumps(JOBS[1]) + '\n', encoding='utf-8')
+    folder = tmp_path / 'exportacoes'
+    export_after_collection(output, AutoExportSettings(enabled=True, folder=folder), {}, now=NOW)
+    assert _xlsx_titles(folder / 'ultima-busca.xlsx') == ['Dev Java Pleno']
+    assert 'Dev Java Júnior' not in (folder / 'ultima-busca.md').read_text(encoding='utf-8-sig')
+    # A exportação completa de TI conserva também os registros encerrados.
+    assert 'Dev Java Júnior' in (folder / 'todas-de-ti-2026-10-01-0830.csv').read_text(encoding='utf-8-sig')

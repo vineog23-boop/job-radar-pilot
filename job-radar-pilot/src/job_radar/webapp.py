@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
 from job_radar.dates import parse_iso_datetime
+from job_radar.activity import CLOSED, activity_state
 from job_radar.export_document import build_markdown_report
 from job_radar.fit import fit_name, fit_reasons, fit_state, is_off_topic, job_technologies
 from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock
@@ -177,13 +178,15 @@ def build_jobs_ai_text(
     tracking: dict[str, dict[str, str]],
     filters: Sequence[tuple[str, str]] = (),
     now: datetime | None = None,
+    *,
+    preserve_order: bool = False,
 ) -> bytes:
     """Markdown enxuto, ordenado por score, para colar em outra IA revisar."""
 
     from job_radar.xlsx_export import WORKPLACE_NAMES, job_score, level_name
 
     now = now or datetime.now(timezone.utc)
-    ranked = sorted(jobs, key=lambda job: -job_score(job, now))
+    ranked = jobs if preserve_order else sorted(jobs, key=lambda job: -job_score(job, now))
     lines = [
         "# Vagas de TI para revisão",
         "",
@@ -254,11 +257,10 @@ def _passes_extra_filters(
     if max_age_days is not None:
         published = parse_iso_datetime(job.get("published_at"))
         # Sem data publicada não dá para provar que é recente: fica de fora.
-        if published is None or (now - published).days > max_age_days:
+        if published is None or published > now or (now - published).total_seconds() / 86400 > max_age_days:
             return False
         # Prazo vencido na página oficial: a vaga já não aceita candidatura.
-        deadline = parse_iso_datetime(job.get("application_deadline"))
-        if deadline is not None and deadline < now:
+        if activity_state(job, now) == CLOSED:
             return False
     return True
 
@@ -282,6 +284,8 @@ def filter_jobs_for_export(
     now = now or datetime.now(timezone.utc)
     result: list[dict[str, Any]] = []
     for job in jobs:
+        if match in {"ready", "fit"} and activity_state(job, now) == CLOSED:
+            continue
         if source and job.get("source") != source:
             continue
         if not _passes_extra_filters(job, min_score, levels, workplaces, max_age_days, now):
@@ -619,6 +623,46 @@ class SearchController:
             return True
         thread.join(timeout=timeout)
         return not thread.is_alive()
+
+    def export_selection(
+        self,
+        format_name: str,
+        urls: Sequence[str],
+        expected_version: str,
+        tracking: dict[str, dict[str, str]],
+    ) -> bytes:
+        """Resolve a seleção na saída local, preservando ordem e versão da tabela."""
+
+        from job_radar.xlsx_export import build_jobs_xlsx
+
+        with OutputLock(self._output_dir):
+            if output_version(self._output_dir) != expected_version:
+                raise OutputBusyError("A saída mudou. Atualize a tabela e exporte novamente.")
+            output = load_output(self._output_dir)
+            if output["read_error"]:
+                raise OutputReadError(f"Não foi possível ler a saída local: {output['read_error']}")
+            if output_version(self._output_dir) != expected_version:
+                raise OutputBusyError("A saída mudou. Atualize a tabela e exporte novamente.")
+            by_url = {job.get("canonical_url"): job for job in output["jobs"]}
+            if any(url not in by_url for url in urls):
+                raise OutputBusyError("A seleção contém vaga ausente. Atualize a tabela e exporte novamente.")
+            jobs = [by_url[url] for url in urls]
+            filters = [("Seleção", "Filtros e ordem da tabela")]
+            if format_name == "csv":
+                return build_jobs_csv(jobs, tracking)
+            if format_name == "xlsx":
+                return build_jobs_xlsx(jobs, tracking, filters=filters, reasons_for=fit_reasons, preserve_order=True)
+            if format_name == "ai":
+                return build_jobs_ai_text(jobs, tracking, filters, preserve_order=True)
+            report = output["report"] if isinstance(output["report"], dict) else {}
+            sources = report.get("sources", [])
+            return build_markdown_report(
+                jobs,
+                generated_at=datetime.now().astimezone().strftime("%d/%m/%Y %H:%M"),
+                sources=sources if isinstance(sources, list) else [],
+                applied_filters={"seleção": "filtros e ordem da tabela"},
+                preserve_order=True,
+            ).encode("utf-8-sig")
 
     def export_markdown(
         self,
@@ -1413,8 +1457,46 @@ def _dashboard_handler(
                 return
             self._json(200, result)
 
+        def _post_export_selection(self, format_name: str) -> None:
+            try:
+                payload = self._read_json_body(limit=2 * 1024 * 1024)
+                urls = payload.get("urls")
+                version = payload.get("output_version")
+                if not isinstance(urls, list) or len(urls) > 20_000:
+                    raise ValueError("urls deve ser uma lista com no máximo 20000 entradas.")
+                if not isinstance(version, str) or not version.strip():
+                    raise ValueError("output_version deve identificar a versão carregada da tabela.")
+                for url in urls:
+                    if not isinstance(url, str) or any(char.isspace() or ord(char) < 32 for char in url):
+                        raise ValueError("URL inválida na seleção.")
+                    parsed = urlsplit(url)
+                    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                        raise ValueError("URL inválida na seleção.")
+                if len(set(urls)) != len(urls):
+                    raise ValueError("A seleção contém URLs duplicadas.")
+                document = controller.export_selection(format_name, urls, version, tracking_store.load())
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
+            except (OutputReadError, TrackingError) as exc:
+                self._json(500, {"error": str(exc)})
+                return
+            content_type, filename = {
+                "csv": ("text/csv; charset=utf-8", "vagas.csv"),
+                "markdown": ("text/markdown; charset=utf-8", "relatorio-vagas.md"),
+                "ai": ("text/markdown; charset=utf-8", "vagas-para-ia.md"),
+                "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "vagas-" + datetime.now().strftime("%Y-%m-%d") + ".xlsx"),
+            }[format_name]
+            self._write(200, content_type, document, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
         def _route_post(self) -> None:
             path = self.path.split("?", maxsplit=1)[0]
+            if path in {"/api/export/csv", "/api/export/markdown", "/api/export/xlsx", "/api/export/ai"}:
+                self._post_export_selection(path.rsplit("/", 1)[-1])
+                return
             if path == "/api/cleanup/undo":
                 self._post_cleanup_undo()
                 return

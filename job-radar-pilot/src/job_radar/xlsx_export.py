@@ -149,9 +149,9 @@ def job_score(job: Mapping[str, Any], now: datetime | None = None) -> int:
     score = points * 20 + (10 if state == "READY" else 0) + boost_points(job)
     published = parse_iso_datetime(job.get("published_at"))
     if published is not None:
-        age = ((now or datetime.now(timezone.utc)) - published).days
+        age = ((now or datetime.now(timezone.utc)) - published).total_seconds() / 86400
         for limit, bonus in ((3, 10), (7, 7), (14, 4), (30, 2)):
-            if age <= limit:
+            if 0 <= age <= limit:
                 score += bonus
                 break
     return min(100, max(0, score))
@@ -275,17 +275,17 @@ def build_jobs_xlsx(
     filters: Sequence[tuple[str, str]] = (),
     reasons_for: Any = None,
     now: datetime | None = None,
+    preserve_order: bool = False,
 ) -> bytes:
     """Planilha com as vagas (melhor score primeiro) e uma aba com os filtros usados."""
 
     now = now or datetime.now(timezone.utc)
-    scored = sorted(
-        ((job_score(job, now), job) for job in jobs),
-        key=lambda item: (
+    scored = [(job_score(job, now), job) for job in jobs]
+    if not preserve_order:
+        scored.sort(key=lambda item: (
             -item[0],
             -(parse_iso_datetime(item[1].get("published_at")) or datetime.min.replace(tzinfo=timezone.utc)).timestamp(),
-        ),
-    )
+        ))
     header = [(name, _S_HEADER) for name, _ in COLUMNS]
     rows: list[list[tuple[Any, int]]] = [header]
     links: dict[str, str] = {}

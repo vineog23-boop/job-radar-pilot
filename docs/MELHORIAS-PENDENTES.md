@@ -13,6 +13,14 @@ o usuário perceber a mudança, e marcar aqui o que foi feito.
 
 ---
 
+### Radar confiável — 06/10/2026
+
+- [x] Exportação exata da tabela em CSV, Markdown, XLSX e texto para IA: seleção
+  completa, ordem e versão carregada, sem fallback quando vazia; downloads do
+  painel de exportação continuam com filtros independentes.
+- [x] Melhores vagas e exportação automática excluem vagas encerradas sem exigir
+  janela temporal; recência calculada com dias fracionários e sem datas futuras.
+
 ## Dados reais para trabalhar sem acessar os portais
 
 `job-radar-pilot/tests/fixtures/amostra-real-2026-10-01.jsonl` — **300 vagas reais** da coleta de

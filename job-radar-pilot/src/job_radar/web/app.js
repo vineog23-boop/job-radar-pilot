@@ -14,6 +14,9 @@ const elements = {
   ageTo: document.querySelector("#age-to"),
   trackingFilter: document.querySelector("#tracking-filter"),
   downloadCsv: document.querySelector("#download-csv"),
+  downloadXlsx: document.querySelector("#download-xlsx"),
+  downloadAi: document.querySelector("#download-ai"),
+  tableExportStatus: document.querySelector("#table-export-status"),
   tableBody: document.querySelector("#jobs-table-body"),
   emptyState: document.querySelector("#empty-state"),
   emptyTitle: document.querySelector("#empty-title"),
@@ -827,14 +830,35 @@ function renderTable() {
     ? "Confira o seu perfil em \"Configurar busca\" e clique em \"Buscar vagas agora\". A busca completa leva alguns minutos; a \"Busca rápida (TI)\" é mais curta."
     : "Nenhuma vaga combina com todos os filtros ativos. Limpe os filtros ou faça uma nova busca.";
   elements.emptyClear.hidden = noJobsYet || filtersAreDefault();
-  const reportParameters = new URLSearchParams();
-  if (elements.textFilter.value.trim()) reportParameters.set("text", elements.textFilter.value.trim());
-  if (elements.sourceFilter.value) reportParameters.set("source", elements.sourceFilter.value);
-  if (elements.matchFilter.value) reportParameters.set("match", elements.matchFilter.value);
-  if (elements.trackingFilter.value) reportParameters.set("tracked", elements.trackingFilter.value);
-  const reportQuery = reportParameters.toString();
-  elements.downloadReport.href = `/api/export/markdown${reportQuery ? `?${reportQuery}` : ""}`;
-  elements.downloadCsv.href = `/api/export/csv${reportQuery ? `?${reportQuery}` : ""}`;
+}
+
+async function downloadTableExport(format) {
+  const urls = filteredJobs().map((job) => job.canonical_url);
+  const version = outputVersion;
+  elements.tableExportStatus.textContent = "Preparando exportação da tabela…";
+  try {
+    const response = await fetch(`/api/export/${format}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls, output_version: version }),
+    });
+    if (!response.ok) {
+      const payload = await response.json();
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || "vagas";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    elements.tableExportStatus.textContent = `${urls.length} vagas exportadas na ordem da tabela.`;
+  } catch (error) {
+    elements.tableExportStatus.textContent = `Não foi possível exportar a tabela: ${error.message}`;
+  }
 }
 
 function updateSourceFilter() {
@@ -2384,6 +2408,13 @@ elements.linkedinButton.addEventListener("click", async () => {
 });
 elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
 elements.exportButton.addEventListener("click", () => showExport(elements.exportPanel.hidden));
+[
+  [elements.downloadCsv, "csv"], [elements.downloadReport, "markdown"],
+  [elements.downloadXlsx, "xlsx"], [elements.downloadAi, "ai"],
+].forEach(([link, format]) => link.addEventListener("click", (event) => {
+  event.preventDefault();
+  downloadTableExport(format);
+}));
 elements.autoExportEnabled.addEventListener("change", saveAutoExport);
 elements.autoExportSave.addEventListener("click", saveAutoExport);
 elements.autoExportRun.addEventListener("click", runAutoExport);

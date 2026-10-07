@@ -732,9 +732,7 @@ def test_dashboard_saves_preferences_without_starting_search(tmp_path) -> None:
             page.get_by_role("button", name="Buscar vagas agora").click()
             page.wait_for_function("() => document.querySelector('#search-button').disabled === false")
             assert searches == [None]
-            assert page.locator("#download-report").get_attribute("href") == (
-                "/api/export/markdown?tracked=active"
-            )
+            assert page.locator("#download-report").get_attribute("href") == "#"
             browser.close()
     finally:
         server.shutdown()
@@ -878,9 +876,7 @@ def test_dashboard_browser_filters_jobs_by_text(tmp_path) -> None:
             assert page.locator("#jobs-table-body tr").count() == 1
             assert page.locator("#visible-count").inner_text() == "1 vaga"
             assert "Desenvolvedor Java Junior" in page.locator("#jobs-table-body").inner_text()
-            assert page.locator("#download-report").get_attribute("href") == (
-                "/api/export/markdown?text=java&tracked=active"
-            )
+            assert page.locator("#download-report").get_attribute("href") == "#"
             browser.close()
     finally:
         server.shutdown()
@@ -1298,7 +1294,12 @@ def test_dashboard_browser_marks_jobs_and_hides_discarded(tmp_path) -> None:
             page.locator("#tracking-filter").select_option("applied")
             titles = page.locator("#jobs-table-body .job-title").all_inner_texts()
             assert titles == ["Java Júnior; Remoto"]
-            assert "tracked=applied" in page.locator("#download-csv").get_attribute("href")
+            page.locator("#export-button").click()
+            with page.expect_download() as download_info:
+                page.locator("#download-csv").click()
+            csv_text = Path(download_info.value.path()).read_text(encoding="utf-8-sig")
+            assert "Java Júnior; Remoto" in csv_text
+            assert "Estágio Backend" not in csv_text
 
             page.reload()
             page.wait_for_selector("#jobs-table-body tr")

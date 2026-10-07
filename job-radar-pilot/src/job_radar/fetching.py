@@ -13,6 +13,7 @@ import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 from urllib.robotparser import RobotFileParser
 
+from job_radar.user_paths import user_data_dir
 from job_radar.models import CollectionStatus, SourceConfig, SourceKind
 
 
@@ -106,10 +107,7 @@ class FetchResult:
 
 
 def default_profile_root() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if not local_app_data:
-        raise RuntimeError("LOCALAPPDATA indisponivel para perfis autenticados")
-    return Path(local_app_data) / "JobRadar" / "profiles"
+    return user_data_dir() / "profiles"
 
 
 def _profile_directory(source_code: str, profile_root: Path | None = None) -> Path:

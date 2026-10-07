@@ -16,6 +16,7 @@ import tempfile
 from typing import Callable, Iterator
 from urllib.parse import urlsplit
 
+from job_radar.user_paths import user_data_dir
 from job_radar.output_lock import FileLock
 
 
@@ -40,9 +41,7 @@ class TrackingError(ValueError):
 
 
 def tracking_path() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    root = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
-    return root / "JobRadar" / "tracking.json"
+    return user_data_dir() / "tracking.json"
 
 
 def _validated_url(url: object) -> str:

@@ -65,6 +65,8 @@ def test_adaptive_db_path_uses_local_app_data_and_safe_fallback(
     assert adaptive_db_path() == local / "JobRadar" / "adaptive" / "adaptive.db"
 
     monkeypatch.delenv("LOCALAPPDATA")
+    # Contrato legado Windows, mesmo quando a suíte roda no macOS.
+    monkeypatch.setattr("job_radar.user_paths.sys.platform", "win32")
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
 
     assert adaptive_db_path() == (

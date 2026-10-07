@@ -21,6 +21,24 @@ o usuário perceber a mudança, e marcar aqui o que foi feito.
 - [x] Melhores vagas e exportação automática excluem vagas encerradas sem exigir
   janela temporal; recência calculada com dias fracionários e sem datas futuras.
 
+- [x] Acompanhamento protegido na coleta e limpeza, falha segura diante de
+  corrupção e transações que preservam mudanças concorrentes.
+- [x] Disponibilidade com evidências: detalhe confirmado, listagem recente,
+  encerrada e não comprovada; verificação em segundo plano com progresso e trava.
+- [x] Perfis normalizados e reaplicação atômica; conflito retorna 409 sem salvar
+  configuração parcial. Seletores de Salvas/Em processo expõem também histórico.
+- [x] Dados locais nativos Windows/macOS/Linux, prioridade de LOCALAPPDATA,
+  abertura de exportações sem shell, setup e launcher macOS reexecutáveis.
+- [x] CI configurada em matriz Windows/macOS com Python 3.13, Scrapling 0.4.15,
+  suíte offline, Ruff e pip check. A execução remota depende do próximo push/PR.
+- [ ] Ativar novas fontes após validação: InHire por empresa (Programmers/Bionexo),
+  CI&T somente listagem/manual e Greenhouse por board (AB InBev). Pesquisa pública
+  concluída; nenhuma cobertura global desses ATS é prometida.
+- [ ] 99Freelas em categoria freelance separada; Telegram depende de canais
+  públicos fornecidos. LinkedIn permanece exclusivamente pesquisa/importação manual.
+- [ ] Coordenador: revisão completa, validação visual e instalação do launcher
+  no ambiente do usuário; esta etapa mantém o atalho instalado sem alterações.
+
 ## Dados reais para trabalhar sem acessar os portais
 
 `job-radar-pilot/tests/fixtures/amostra-real-2026-10-01.jsonl` — **300 vagas reais** da coleta de

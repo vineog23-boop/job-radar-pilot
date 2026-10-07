@@ -110,6 +110,24 @@ def page(radar):
         browser.close()
 
 
+@pytest.mark.production_filters
+def test_fresh_dashboard_uses_production_age_and_activity_defaults(radar):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            context = browser.new_context()
+            page = context.new_page()
+            page.goto(radar[0])
+            page.wait_for_function("outputVersion !== ''")
+            assert page.evaluate("sessionStorage.getItem('age-any-seeded')") is None
+            assert page.locator('#age-filter').input_value() == '30'
+            assert page.locator('#activity-filter').input_value() == 'active'
+            assert page.locator('#jobs-table-body .job-title').all_inner_texts() == ['Java 1']
+        finally:
+            browser.close()
+
+
 def test_saved_shortcut_exposes_old_closed_history_and_allows_refinement(page):
     assert page.locator('#age-filter').input_value() == '30'
     assert page.locator('#activity-filter').input_value() == 'active'

@@ -6,7 +6,7 @@ estruturado que outra IA possa ler e filtrar. O projeto usa o Scrapling
 
 ## Uso rapido
 
-**Sem terminal:** dê dois cliques em **`Radar de Vagas.cmd`** na raiz da pasta.
+**No Windows, sem terminal:** dê dois cliques em **`Radar de Vagas.cmd`** na raiz da pasta.
 Na primeira vez ele instala o ambiente sozinho (precisa de Python 3.13 e Git
 instalados) e depois abre o painel no navegador. Para ter um ícone na área de
 trabalho, dê dois cliques uma única vez em **`Criar atalho na area de
@@ -17,6 +17,28 @@ Pelo PowerShell, o equivalente é:
 ```powershell
 .\abrir-interface.ps1
 ```
+
+**No macOS:** abra **`Radar de Vagas.command`** na raiz do workspace. Ele usa
+sua própria localização, prepara a venv quando ausente e abre o mesmo painel.
+Instale antes Python **3.13** e Git; o Finder pode exigir permitir a abertura
+nas configurações de segurança. Para executar no Terminal:
+
+```bash
+bash ./scripts/setup-mac.sh
+./"Radar de Vagas.command"
+```
+
+O setup pode ser repetido sem apagar preferências ou vagas. Confere o Python,
+a tag e o commit do Scrapling **0.4.15**, instala somente em
+`job-radar-pilot/.venv` e mantém os launchers Windows. Para usar outro executável
+Python 3.13, defina `JOBRADAR_PYTHON` com o caminho completo. Uma venv existente
+com versão errada é recusada; recrie somente `.venv` após conferir o backup.
+O launcher reutiliza somente o processo do painel iniciado com a mesma venv;
+se a porta **8765** pertencer a outro processo, informa o conflito sem encerrá-lo.
+O log fica em `~/Library/Application Support/JobRadar/logs/interface.log`
+(ou em `LOCALAPPDATA/JobRadar/logs/interface.log` quando definido).
+Feche com **Ctrl+C** no Terminal. Não copie o launcher isolado para outra pasta;
+um atalho deve chamar o arquivo que permanece na raiz do workspace.
 
 O painel abre em `http://127.0.0.1:8765`, mostra os resultados existentes e
 permite:
@@ -80,7 +102,8 @@ O topo do painel mostra o fluxo em três passos:
 3. **Exportar** — ao fim de cada busca (inclusive a agendada) o Radar grava em
    **Documentos\Radar de Vagas**: `melhores-vagas-AAAA-MM-DD-HHMM.xlsx` (mais
    compatíveis + a revisar, sem descartadas, ordenadas pelo Score),
-   `todas-de-ti-AAAA-MM-DD-HHMM.csv` e `ultima-busca.xlsx` (sempre a mais recente,
+   `melhores-vagas-AAAA-MM-DD-HHMM.md`, `todas-de-ti-AAAA-MM-DD-HHMM.csv`
+   e as cópias `ultima-busca.xlsx` / `ultima-busca.md` (sempre a mais recente,
    bom para fixar um atalho). Em **Exportar vagas → Exportação automática** dá para
    desligar, trocar a pasta, **Abrir pasta** ou **Exportar agora**. Na linha de
    comando, `collect --no-export` pula a exportação de uma coleta.
@@ -89,13 +112,18 @@ No celular a tabela vira cartões (sem rolagem para os lados).
 
 ## Acompanhamento e exportação
 
-O estado de cada vaga fica em `%LOCALAPPDATA%\JobRadar\tracking.json`, fora do
-repositório e do funil canônico; a chave é a URL da vaga. Estados: **Salva**,
+O estado de cada vaga fica em `tracking.json`, na pasta de dados locais descrita
+abaixo, fora do repositório e do funil canônico; a chave é a URL da vaga. Estados: **Salva**,
 **Aplicada**, **Entrevista**, **Oferta**, **Recusada** e **Descartada**, cada um com a
 data em que foi alcançado (`applied_at`, `interview_at`...) e uma nota curta que
 não se perde ao mudar o estado. A faixa **Seu funil** acima da tabela conta as
 vagas em cada etapa (clique para filtrar) e **Em processo** junta aplicadas,
-entrevistas e ofertas. Em **Exportar vagas → Exportar a tabela**, CSV, relatório,
+entrevistas e ofertas. **Salvas** e **Em processo** abrem também registros antigos,
+sem publicação ou encerrados, removendo os filtros de período e atividade; você
+pode refinar a seleção depois. Salvar ou se candidatar a uma vaga protege seu
+registro na coleta e na limpeza, mas não comprova disponibilidade. Acompanhar
+em outra aba atualiza o painel sem perder o foco; o histórico continua na saída.
+Em **Exportar vagas → Exportar a tabela**, CSV, relatório,
 planilha e texto para IA respeitam todos os filtros ativos (incluindo remoto,
 período, atividade e acompanhamento) e a ordem da tabela, inclusive além das
 300 primeiras linhas. Uma tabela vazia gera um arquivo sem vagas. Se a saída
@@ -111,13 +139,13 @@ senioridade, tecnologias, data de publicação, fonte, URL e nota.
 - **Prazo** (`application_deadline`) vem do `validThrough` da página oficial. Só a data vale até 23:59 de Brasília.
 - O painel abre em **Últimos 30 dias** (também 7 e 15). Vaga sem data de publicação ou com prazo vencido fica fora dessas janelas e aparece em **Qualquer data**; nada é apagado.
 - **Período personalizado:** em "Personalizado…" informe data inicial e/ou final; os dois dias entram (horário de Brasília). Vaga sem data de publicação continua de fora.
-- **Situação** (derivada, nunca gravada): *ativa (prazo em aberto)*, *listada na última busca* (vista há até 7 dias, sem prazo), *encerrada* (prazo vencido) ou *não comprovada*. O painel abre em "Ativas"; registros antigos preservados de coletas passadas viram "não comprovada" em vez de parecerem ativos.
+- **Situação** (derivada, nunca gravada): *ativa* quando há prazo oficial em aberto com publicação ou detalhe confirmado nos últimos 7 dias; *listada na última busca* quando observada há até 7 dias; *encerrada* por prazo vencido ou HTTP 404/410 recente comprovado; *não comprovada* quando falta evidência. Listagem recente não confirma que o formulário ainda aceita candidatura. O painel abre em "Ativas", incluindo ativas e listadas; registros antigos preservados viram "não comprovada".
 - A coleta não abre a página de detalhe de vaga fora da janela ou com prazo vencido (`enrich_max_age_days`, padrão 30).
 - **Gupy:** a API anônima (`gupy-api`) retornou 404 e está desativada; a fonte `gupy` usa a busca pública do portal, respeitando robots.txt, sem login. É cobertura parcial, sem garantia de disponibilidade.
 
 ## Limites de segurança
 
-- Não acessa SQLite, Notion, RADAR, `pipeline-state.json` nem a pasta
+- Não acessa o SQLite de outros projetos, Notion, RADAR, `pipeline-state.json` nem a pasta
   `Vagas Dev`.
 - Não automatiza nem raspa o LinkedIn, preenche formulários ou envia candidaturas.
 - LinkedIn: o botão **Pesquisar no LinkedIn** gera, para cada termo do perfil, um
@@ -156,7 +184,8 @@ No PowerShell, a partir da raiz deste workspace:
 .\scripts\setup.ps1
 ```
 
-O comando usa exclusivamente Python 3.13 em `job-radar-pilot\.venv`, instala o
+No macOS, use `bash ./scripts/setup-mac.sh` na raiz.
+O comando usa exclusivamente Python 3.13 em `job-radar-pilot/.venv`, instala o
 clone oficial em modo editável com os fetchers e baixa os navegadores exigidos.
 Nada é instalado no Python global.
 
@@ -367,10 +396,28 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 | `kind: json` + `api` | Portal com API JSON pública (Gupy, Primeira Vaga Tech). `api.items` (caminho da lista), `page_param`/`page_mode` (`offset`, `page0`, `page1`)/`page_size`/`size_param`, `workplace_param`/`state_param` (filtros de modelo e estado vindos do perfil), `strip_levels` e `fields` (mapeamento `title`, `company`, `url` ou `url_template`, `published`...). Um portal novo vira só configuração. |
 | `kind: rss` | Feed RSS público (Empregos Tech, 100% remoto). |
 
+## Cobertura e integrações previstas
+
+A configuração habilitada em `config/sources.yaml` define o que a busca consulta;
+ter um adaptador ou um portal conhecido não garante cobertura completa. A pesquisa
+pública de 06/10/2026 orienta as próximas integrações abaixo, ainda não habilitadas
+nesta etapa:
+
+| Portal | Escopo e limite |
+|---|---|
+| InHire | Páginas públicas **por empresa**, inicialmente Programmers e Bionexo; não existe cobertura global demonstrada de todos os clientes do ATS. SPA exige renderização. |
+| CI&T | Somente a listagem oficial; detalhes com `?opportunity=` são restritos por robots.txt. Links de candidatura ficam para visita manual, sem enriquecimento nem confirmação automática desses detalhes. |
+| Greenhouse | API pública de **um board cadastrado**, inicialmente AB InBev; cada empresa requer sua própria fonte. Nenhum acesso à API privada Harvest ou envio de candidatura. |
+| 99Freelas | Projetos **freelance**, separados de vagas CLT/estágio; integração opcional pendente da categoria/contrato adequado. |
+| Telegram | Pendente dos URLs de canais públicos indicados pelo usuário; sem descoberta inventada ou leitura de grupos privados. |
+| LinkedIn | Somente links oficiais de pesquisa e importação manual do conteúdo colado. |
+
 ## Fontes com API/feed (mais vagas, mais compatíveis)
 
-`gupy-api`, `primeiravagatech` e `empregostec` leem dados estruturados (data,
-empresa, modelo de trabalho, local) em vez de interpretar HTML. No Gupy, cada
+`primeiravagatech` e `empregostec` leem dados estruturados (data,
+empresa, modelo de trabalho, local) em vez de interpretar HTML. `gupy-api`
+continua desativada após HTTP 404; o comportamento de sua configuração abaixo
+se aplica somente se houver validação futura do endpoint. No Gupy API, cada
 termo do perfil vira consultas por modelo (`remote`/`hybrid`/`on-site`) e por
 estado das localidades escolhidas, com os níveis (júnior, pleno...) tirados do
 termo porque o filtro de nível é feito pelo classificador. O limite é de 40
@@ -385,9 +432,9 @@ estrutural sanitizada do card e usá-la para relocalizar cards quando somente o
 layout mudar. `adaptive: false` desliga tanto a leitura quanto a atualização
 dessa memória para a fonte.
 
-A memória fica em `%LOCALAPPDATA%\JobRadar\adaptive\adaptive.db` (ou
-`~/AppData/Local/JobRadar/adaptive/adaptive.db` sem `LOCALAPPDATA`), nunca no
-repositório. Ela contém apenas estrutura necessária à relocalização: não grava
+A memória fica em `adaptive/adaptive.db` na pasta de dados locais do sistema
+(ver **Dados locais e backup**), nunca no repositório. Ela contém apenas
+estrutura necessária à relocalização: não grava
 texto ou HTML da vaga, URL/`href` da vaga, cookie, token ou segredo.
 
 Uma relocalização não é tratada como cobertura integral: a fonte retorna no
@@ -419,11 +466,40 @@ endereços globais, e mudanças de origem na resposta também invalidam o
 diagnóstico. A saída informa `card`, `title`, `url`, cards encontrados e a
 validação dos campos; revise o YAML antes de aplicá-lo manualmente.
 
+## Dados locais e backup
+
+A raiz compartilhada de preferências, histórico, acompanhamento, perfis de busca,
+sessões de navegador e cache adaptativo fica fora do repositório:
+
+| Sistema | Pasta padrão |
+|---|---|
+| Windows | `%LOCALAPPDATA%\JobRadar` (fallback `~/AppData/Local/JobRadar`) |
+| macOS | `~/Library/Application Support/JobRadar` |
+| Linux | `$XDG_DATA_HOME/job-radar` ou `~/.local/share/job-radar` |
+
+Um `LOCALAPPDATA` explícito tem prioridade em qualquer sistema, preservando
+instalações e testes antigos. Caminhos explícitos passados às APIs continuam
+valendo. O setup não migra nem remove automaticamente dados da antiga pasta
+`~/AppData/Local/JobRadar` no Mac: com o painel fechado, faça backup e copie o
+conteúdo para a pasta nativa caso já tenha usado a instalação antiga.
+
+Para backup, feche o painel e as coletas e copie a pasta de dados locais,
+`job-radar-pilot/output/` e a pasta de exportações. `tracking.json` guarda estados
+por URL; `history.json` guarda primeiras observações e histórico de contagens;
+`profiles/*.json` são perfis de busca nomeados e `profiles/<fonte>/` são sessões de
+navegador que podem conter cookies. `auto-export.json`, `cleanup-rules.json` e
+`custom-stacks.json` ficam ao lado das preferências. Trate o backup dos perfis de
+navegador como privado. A exportação padrão fica em `~/Documents/Radar de Vagas`
+(Documentos no Windows); `JOB_RADAR_EXPORT_DIR` altera esse padrão e a pasta
+escolhida no painel continua sendo respeitada. **Abrir pasta** usa Finder no
+macOS, Explorador no Windows e `xdg-open` no Linux, sem comandos de shell.
+Nenhum desses arquivos deve entrar no Git.
+
 ## Preferências de busca
 
 Use **Configurar busca** na interface. Os valores ficam em
-`%LOCALAPPDATA%\JobRadar\search-preferences.json`, fora do repositório. As
-consultas personalizadas são aplicadas às fontes que oferecem busca por texto;
+`search-preferences.json` na pasta de dados locais do sistema, fora do
+repositório. As consultas personalizadas são aplicadas às fontes que oferecem busca por texto;
 nível, modalidade e localidade também participam da classificação das vagas.
 
 Uma modalidade desconhecida nunca é apresentada como correspondência
@@ -441,7 +517,7 @@ automaticamente a vaga aplicável sem evidência suficiente.
 
 Conclua senha, CAPTCHA ou 2FA diretamente na janela do navegador e feche-a
 quando o comando orientar. O piloto não solicita nem grava senhas. Cookies da
-sessão ficam em `%LOCALAPPDATA%\JobRadar\profiles`, fora do repositório e das
+sessão ficam em `profiles/<fonte>/` na pasta de dados locais do sistema, fora do repositório e das
 saídas. Salvar o perfil não prova que o login terminou: a confirmação acontece
 na coleta seguinte. A descoberta atual usa as páginas públicas; login só deve
 ser usado quando um portal realmente o exigir.
@@ -466,6 +542,15 @@ O Radar não é só para Java júnior. No painel, em **Configurar busca**:
 4. **Modelo de trabalho e localidades** — remoto/híbrido/presencial; use "Cidade UF", um estado, `brasil` ou `remoto-brasil`.
 5. **Tecnologias** — campo de etiquetas (Enter ou vírgula adiciona, × remove, colar uma lista adiciona várias). Abaixo aparecem as tecnologias que mais se repetem nas suas vagas de TI e ainda não estão no perfil: um clique adiciona.
 6. **Salvar como perfil** — guarde vários perfis (ex.: "Python pleno remoto", "Java júnior SP") e alterne entre eles no seletor; o perfil ativo é o que a próxima coleta usa.
+
+Salvar ou ativar um perfil reaplica a classificação às vagas existentes sem
+nova consulta aos portais. Tecnologias antigas explícitas no formulário não
+herdam a stack do YAML: escolher Python com tecnologias preenchidas usa esse
+perfil. Ao selecionar um nível, exclusões contraditórias daquele nível são
+normalizadas; níveis fora da seleção continuam excluídos. Se a coleta, uma
+verificação ou outra alteração da saída estiver em andamento, a operação recusa
+com aviso de ocupação (HTTP 409) e preserva o perfil anterior. `STATUS:NEW`,
+origem, evidências de disponibilidade e acompanhamento não viram classificação.
 
 ### Palavras-chave e filtros finos
 

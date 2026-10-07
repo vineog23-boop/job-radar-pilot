@@ -8,6 +8,7 @@ import tempfile
 from typing import Iterable, Mapping
 import unicodedata
 
+from job_radar.user_paths import user_data_dir
 from job_radar.models import SearchProfile, WorkplaceModel
 
 
@@ -211,9 +212,7 @@ def _validated_workplace_models(values: object) -> tuple[WorkplaceModel, ...]:
 
 
 def preferences_path() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    base = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
-    return base / "JobRadar" / "search-preferences.json"
+    return user_data_dir() / "search-preferences.json"
 
 
 def preferences_from_dict(payload: Mapping[str, object]) -> SearchPreferences:

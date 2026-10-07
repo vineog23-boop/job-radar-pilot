@@ -1482,13 +1482,13 @@ def _dashboard_handler(
             from job_radar.auto_export import load_settings
 
             folder = load_settings(self._resolved_preferences_path()).resolved_folder
-            opener = getattr(os, "startfile", None)
-            if opener is None:
-                self._json(501, {"error": f"Abra a pasta manualmente: {folder}", "folder": str(folder)})
-                return
             try:
                 folder.mkdir(parents=True, exist_ok=True)
-                opener(str(folder))  # Windows: abre no Explorador de Arquivos
+                if sys.platform == "win32":
+                    os.startfile(str(folder))
+                else:
+                    command = "open" if sys.platform == "darwin" else "xdg-open"
+                    subprocess.Popen([command, str(folder)])
             except OSError as exc:
                 self._json(500, {"error": f"Não foi possível abrir {folder}: {exc}"})
                 return

@@ -1470,6 +1470,11 @@ def _dashboard_handler(
                     if not isinstance(url, str) or any(char.isspace() or ord(char) < 32 for char in url):
                         raise ValueError("URL inválida na seleção.")
                     parsed = urlsplit(url)
+                    # hostname não valida a porta; acessar port rejeita texto/fora da faixa.
+                    try:
+                        parsed.port
+                    except ValueError as exc:
+                        raise ValueError("Porta inválida na URL da seleção.") from exc
                     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
                         raise ValueError("URL inválida na seleção.")
                 if len(set(urls)) != len(urls):

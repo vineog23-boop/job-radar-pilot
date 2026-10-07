@@ -249,7 +249,8 @@ function passesQuickFilters(job) {
   if (levels.length && !levels.some((level) => hasLevel(job, level))) return false;
   if (quickFilters.has("recent")) {
     const published = publishedTime(job);
-    if (published === -Infinity || Date.now() - published > 7 * 86400000) return false;
+    const age = Date.now() - published;
+    if (published === -Infinity || age < 0 || age > 7 * 86400000) return false;
   }
   return true;
 }
@@ -346,7 +347,7 @@ function jobScore(job) {
   const published = publishedTime(job);
   if (published !== -Infinity) {
     const days = (Date.now() - published) / 86400000;
-    const bonus = days <= 3 ? 10 : days <= 7 ? 7 : days <= 14 ? 4 : days <= 30 ? 2 : 0;
+    const bonus = days < 0 ? 0 : days <= 3 ? 10 : days <= 7 ? 7 : days <= 14 ? 4 : days <= 30 ? 2 : 0;
     score += bonus;
   }
   return Math.min(100, score);
@@ -556,7 +557,7 @@ function syncAgeCustom() {
 // Intervalo personalizado: datas inicial e final inclusivas, em horário de Brasília.
 function inCustomRange(job, from, to) {
   const published = publishedTime(job);
-  if (published === -Infinity) return false;
+  if (published === -Infinity || published > Date.now()) return false;
   if (from && published < Date.parse(`${from}T00:00:00-03:00`)) return false;
   if (to && published > Date.parse(`${to}T23:59:59.999-03:00`)) return false;
   return true;
@@ -569,7 +570,8 @@ function passesAgeFilter(job) {
   const days = Number(elements.ageFilter.value);
   if (!days) return true;
   const published = publishedTime(job);
-  if (published === -Infinity || Date.now() - published > days * 86400000) return false;
+  const age = Date.now() - published;
+  if (published === -Infinity || age < 0 || age > days * 86400000) return false;
   const deadline = Date.parse(job.application_deadline ?? "");
   return Number.isNaN(deadline) || deadline >= Date.now();
 }

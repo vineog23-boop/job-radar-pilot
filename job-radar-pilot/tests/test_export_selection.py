@@ -214,3 +214,55 @@ def test_future_publication_is_not_recent_or_rewarded():
     job = _job(1, published_at=(NOW + timedelta(seconds=1)).isoformat(), match_labels=['FIT:READY', 'FIT_SCORE:2'])
     assert filter_jobs_for_export([job], max_age_days=7, now=NOW) == []
     assert job_score(job, NOW) == 50
+
+
+@pytest.mark.parametrize('port', ['70000', 'abc', '-1'])
+def test_selection_rejects_invalid_url_port_before_local_lookup(tmp_path, port):
+    with _serve(tmp_path, [_job(1)]) as (base, controller):
+        status, body, _ = _post(base, 'csv', {
+            'urls': [f'https://example.com:{port}/jobs/1'],
+            'output_version': controller.snapshot()['output_version'],
+        })
+    assert status == 400
+    assert json.loads(body)['error']
+
+
+def test_browser_future_publication_gets_no_recency_bonus(tmp_path):
+    from playwright.sync_api import sync_playwright
+    live = datetime.now(timezone.utc)
+    future = _job('futura', published_at=(live + timedelta(days=1)).isoformat(),
+                  observed_at=live.isoformat(), match_labels=['FIT:READY', 'FIT_SCORE:2'])
+    with _serve(tmp_path, [future]) as (base, _), sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(base)
+        page.locator('#age-filter').select_option('')
+        page.locator('#activity-filter').select_option('all')
+        page.locator('#jobs-table-body .title-cell').click()
+        assert 'Score 50/100' in page.locator('.job-detail').inner_text()
+        browser.close()
+
+
+@pytest.mark.parametrize('window', ['days', 'custom', 'quick'])
+def test_browser_future_publication_is_outside_dated_window(tmp_path, window):
+    from playwright.sync_api import sync_playwright
+    live = datetime.now(timezone.utc)
+    jobs = [_job('atual', published_at=(live - timedelta(hours=1)).isoformat(), observed_at=live.isoformat()),
+            _job('futura', published_at=(live + timedelta(days=1)).isoformat(), observed_at=live.isoformat())]
+    with _serve(tmp_path, jobs) as (base, _), sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(base)
+        page.locator('#age-filter').select_option('')
+        page.locator('#activity-filter').select_option('all')
+        assert page.locator('#jobs-table-body .job-title').all_inner_texts() == ['Vaga atual', 'Vaga futura']
+        if window == 'days':
+            page.locator('#age-filter').select_option('7')
+        elif window == 'custom':
+            page.locator('#age-filter').select_option('custom')
+            page.locator('#age-from').fill((live - timedelta(days=1)).date().isoformat())
+            page.locator('#age-to').fill((live + timedelta(days=2)).date().isoformat())
+        else:
+            page.locator('[data-quick="recent"]').click()
+        assert page.locator('#jobs-table-body .job-title').all_inner_texts() == ['Vaga atual']
+        browser.close()

@@ -96,3 +96,76 @@ def test_structurally_corrupt_tracking_refuses_load_and_rewrite(
     with pytest.raises(TrackingError):
         store.set_status('https://example.com/vagas/nova', 'SAVED', now=NOW)
     assert path.read_bytes() == before
+
+
+def test_presence_validation_and_write_hold_same_transaction(tmp_path):
+    """A publicação concorrente espera até SAVED já estar persistido."""
+    from threading import Event, Thread
+
+    store = TrackingStore(tmp_path / 'tracking.json')
+    validation = Event()
+    started = Event()
+    observed = []
+
+    def publish():
+        started.set()
+        with TrackingStore(store._path).transaction():
+            observed.append(TrackingStore(store._path).load())
+
+    def validate(url):
+        assert url == URL
+        validation.set()
+        worker.start()
+        assert started.wait(2)
+        assert observed == []
+
+    worker = Thread(target=publish)
+    entries = store.set_status(URL, 'SAVED', now=NOW, validate=validate)
+    worker.join(2)
+    assert not worker.is_alive()
+    assert validation.is_set()
+    assert observed == [entries]
+    assert observed[0][URL]['status'] == 'SAVED'
+
+
+def test_failed_presence_validation_does_not_write(tmp_path):
+    store = TrackingStore(tmp_path / 'tracking.json')
+    store.set_status(URL, 'APPLIED', now=NOW)
+    before = store._path.read_bytes()
+
+    def absent(url):
+        raise TrackingError('Vaga removida')
+
+    with pytest.raises(TrackingError, match='Vaga removida'):
+        store.set_status(URL, 'SAVED', now=NOW, validate=absent)
+    assert store._path.read_bytes() == before
+
+
+def test_snapshot_version_and_content_come_from_same_transaction(tmp_path):
+    from threading import Event, Thread
+
+    store = TrackingStore(tmp_path / 'tracking.json')
+    store.set_status(URL, 'SAVED', now=NOW)
+    original_load = store.load
+    started = Event()
+
+    def writer():
+        started.set()
+        TrackingStore(store._path).set_status(URL, 'APPLIED', now=NOW)
+
+    worker = Thread(target=writer)
+
+    def load_during_concurrent_write():
+        entries = original_load()
+        worker.start()
+        assert started.wait(2)
+        return entries
+
+    store.load = load_during_concurrent_write
+    entries, version = store.snapshot()
+    worker.join(2)
+    assert not worker.is_alive()
+    assert entries[URL]['status'] == 'SAVED'
+    updated, next_version = TrackingStore(store._path).snapshot()
+    assert updated[URL]['status'] == 'APPLIED'
+    assert next_version != version

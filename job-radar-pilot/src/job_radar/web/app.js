@@ -24,6 +24,7 @@ const elements = {
   emptyTitle: document.querySelector("#empty-title"),
   emptyText: document.querySelector("#empty-text"),
   emptyClear: document.querySelector("#empty-clear"),
+  showUndated: document.querySelector("#show-undated"),
   visibleCount: document.querySelector("#visible-count"),
   sourceStatuses: document.querySelector("#source-statuses"),
   toggleSources: document.querySelector("#toggle-sources"),
@@ -578,13 +579,13 @@ function passesAgeFilter(job) {
   if (elements.ageFilter.value === "custom") {
     return inCustomRange(job, elements.ageFrom.value, elements.ageTo.value);
   }
+  if (elements.ageFilter.value === "undated") return publishedTime(job) === -Infinity;
   const days = Number(elements.ageFilter.value);
   if (!days) return true;
   const published = publishedTime(job);
   const age = Date.now() - published;
   if (published === -Infinity || age < 0 || age > days * 86400000) return false;
-  const deadline = Date.parse(job.application_deadline ?? "");
-  return Number.isNaN(deadline) || deadline >= Date.now();
+  return true;
 }
 
 function filteredJobs() {
@@ -617,9 +618,10 @@ function filteredJobs() {
     const offTopic = isOffTopic(job);
     if (match === "offtopic") {
       if (!offTopic) return false;
-    } else if (match !== "all" && offTopic) {
+    } else if (match !== "all" && offTopic && (match || ["active", "new", ""].includes(tracked))) {
       return false;
     }
+    if (["ready", "fit"].includes(match) && activityState(job) === "CLOSED") return false;
     if (match === "ready" && state !== "READY") return false;
     if (match === "fit" && !["READY", "CONDITIONAL"].includes(state)) return false;
     if (match === "review" && !["CONDITIONAL", "AMBIGUOUS"].includes(state)) return false;
@@ -742,11 +744,17 @@ function textElement(tag, className, text) {
 const WORKPLACE_LABELS = { REMOTE: "Remoto", HYBRID: "Híbrido", ONSITE: "Presencial" };
 
 function renderTable() {
+  const active = document.activeElement;
+  const activeRow = active?.closest("[data-job-url]");
+  const focus = activeRow && { url: activeRow.dataset.jobUrl,
+    selector: active.classList.contains("tracking-select") ? ".tracking-select"
+      : active.classList.contains("title-cell") ? ".title-cell" : null };
   const jobs = filteredJobs();
   elements.tableBody.replaceChildren();
 
   jobs.slice(0, visibleRows).forEach((job) => {
     const row = document.createElement("tr");
+    row.dataset.jobUrl = job.canonical_url;
     const trackedStatus = trackingStatus(job);
     if (trackedStatus) row.className = `tracked-${trackedStatus.toLowerCase()}`;
     const titleCell = document.createElement("td");
@@ -828,6 +836,14 @@ function renderTable() {
     elements.tableBody.appendChild(row);
     if (expanded) elements.tableBody.appendChild(detailRow(job));
   });
+  if (focus?.selector) {
+    const row = [...elements.tableBody.querySelectorAll("[data-job-url]")]
+      .find((item) => item.dataset.jobUrl === focus.url);
+    row?.querySelector(focus.selector)?.focus({ preventScroll: true });
+  }
+  const undatedCount = (dashboardState.jobs ?? []).filter((job) => publishedTime(job) === -Infinity).length;
+  elements.showUndated.hidden = !undatedCount || !elements.ageFilter.value || elements.ageFilter.value === "undated";
+  elements.showUndated.textContent = `Ver ${undatedCount} ${undatedCount === 1 ? "vaga sem data de publicação" : "vagas sem data de publicação"}`;
   elements.clearFilters.hidden = filtersAreDefault();
 
   const shown = Math.min(jobs.length, visibleRows);
@@ -1000,12 +1016,14 @@ function renderRunState() {
   elements.searchSelected.disabled = busy;
   elements.verifyLinksButton.disabled = busy;
   if (verifying) {
-    elements.verificationStatus.textContent = `Verificando disponibilidade: ${verification.checked} de ${verification.total} vagas…`;
+    elements.verificationStatus.textContent = verification.total
+      ? `Verificando disponibilidade: ${verification.checked} de ${verification.total} páginas…`
+      : "Preparando verificação de disponibilidade…";
   } else if (verification.status === "ERROR") {
     elements.verificationStatus.textContent = `Verificação interrompida: ${verification.error}`;
   } else if (verification.status === "DONE") {
     const counts = verification.counts || {};
-    elements.verificationStatus.textContent = `Disponibilidade verificada: ${counts["LINK:LIVE"] || 0} ativa(s), ${counts["LINK:DEAD"] || 0} encerrada(s), ${counts["LINK:UNKNOWN"] || 0} não comprovada(s). Bloqueio, login ou falta de evidência impedem confirmação.`;
+    elements.verificationStatus.textContent = `Disponibilidade verificada: ${counts["LINK:LIVE"] || 0} página(s) de vaga confirmada(s), ${counts["LINK:DEAD"] || 0} página(s) encerrada(s), ${counts["LINK:UNKNOWN"] || 0} não comprovada(s). Uma página confirmada pode ter prazo vencido. Bloqueio, login ou falta de evidência impedem confirmação.`;
   }
   elements.searchButton.classList.toggle("running", running && !dashboardState.paused);
   elements.runControls.hidden = !running;
@@ -1027,6 +1045,11 @@ function renderRunState() {
       const read = finished.reduce((sum, source) => sum + (source.records ?? 0), 0);
       message = `Buscando… ${finished.length} ${finished.length === 1 ? "portal concluído" : "portais concluídos"}, ${read} vagas lidas até agora.`;
     }
+  }
+  if (running && dashboardState.progress && !dashboardState.paused && !dashboardState.stopping) {
+    const { finished, total } = dashboardState.progress;
+    const read = Object.values(dashboardState.sources ?? {}).reduce((sum, source) => sum + (source.records ?? 0), 0);
+    message = `Buscando… ${finished} de ${total} portais concluídos, ${read} vagas lidas até agora. As vagas serão salvas ao concluir.`;
   }
   if (running && dashboardState.stopping) {
     message = "Encerrando… terminando a consulta atual e salvando as vagas.";
@@ -1074,6 +1097,16 @@ const FUNNEL_STAGES = [
 ];
 
 function setTrackingFilter(value) {
+  elements.textFilter.value = "";
+  elements.sourceFilter.value = "";
+  elements.matchFilter.value = "";
+  elements.ageFilter.value = "";
+  elements.ageFrom.value = "";
+  elements.ageTo.value = "";
+  elements.activityFilter.value = "all";
+  quickFilters.clear();
+  syncAgeCustom();
+  syncQuickChips();
   elements.trackingFilter.value = value;
   saveFilters();
   visibleRows = ROW_PAGE_SIZE;
@@ -1147,20 +1180,28 @@ function render() {
   renderSummary();
   renderNews();
   renderTable();
+  renderFunnel();
   renderSources();
   renderRunState();
 }
 
 // Versão do vagas.jsonl já desenhada: o servidor só manda as vagas se ela mudou.
 let outputVersion = "";
+let trackingVersion = "";
 
 async function refreshState() {
   window.clearTimeout(refreshTimer);
   try {
-    const query = outputVersion ? `?since=${encodeURIComponent(outputVersion)}` : "";
+    const params = new URLSearchParams();
+    if (outputVersion) params.set("since", outputVersion);
+    if (trackingVersion) params.set("tracking_since", trackingVersion);
+    const query = params.size ? `?${params}` : "";
     const response = await fetch(`/api/state${query}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const fresh = await response.json();
+    const trackingChanged = Object.hasOwn(fresh, "tracking");
+    if (trackingChanged) trackingState = fresh.tracking;
+    trackingVersion = fresh.tracking_version || "";
     if (fresh.unchanged) {
       // Mesmas vagas: atualiza progresso e resumo sem recriar a tabela (mantém
       // o foco do teclado e as linhas expandidas).
@@ -1170,6 +1211,11 @@ async function refreshState() {
         report: dashboardState.report,
         read_error: dashboardState.read_error,
       };
+      if (trackingChanged) {
+        renderTable();
+        renderFunnel();
+        renderNews();
+      }
       renderSummary();
       renderSources();
       renderRunState();
@@ -1199,7 +1245,18 @@ async function loadConfiguredSources() {
   }
 }
 
+const SOURCES_KEY = "radar.selectedSources";
+
+function savePickedSources() {
+  try { localStorage.setItem(SOURCES_KEY, JSON.stringify(pickedSources())); } catch { /* Armazenamento indisponível. */ }
+}
+
 function renderSourcesPicker() {
+  let selected = null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(SOURCES_KEY) || "null");
+    if (Array.isArray(saved) && saved.every((code) => typeof code === "string")) selected = new Set(saved);
+  } catch { /* Preferência inválida: começa com todos os portais disponíveis. */ }
   elements.sourcesList.replaceChildren(
     ...configuredSources.map((source) => {
       const label = document.createElement("label");
@@ -1207,7 +1264,8 @@ function renderSourcesPicker() {
       const input = document.createElement("input");
       input.type = "checkbox";
       input.value = source.code;
-      input.checked = true;
+      input.checked = selected === null || selected.has(source.code);
+      input.addEventListener("change", savePickedSources);
       label.append(input, ` ${source.code} `);
       if (source.tech_focus) label.appendChild(textElement("span", "tech-tag", "TI"));
       return label;
@@ -1224,6 +1282,7 @@ function setPicked(predicate) {
     const source = configuredSources.find((item) => item.code === input.value);
     input.checked = Boolean(source) && predicate(source);
   });
+  savePickedSources();
 }
 
 async function showSourcesPicker(show) {
@@ -2515,6 +2574,17 @@ elements.linkedinImportButton.addEventListener("click", importLinkedinText);
 });
 elements.clearFilters.addEventListener("click", resetFilters);
 elements.emptyClear.addEventListener("click", resetFilters);
+elements.showUndated.addEventListener("click", () => {
+  elements.ageFilter.value = "undated";
+  elements.activityFilter.value = "all";
+  elements.matchFilter.value = "";
+  quickFilters.delete("recent");
+  syncAgeCustom();
+  syncQuickChips();
+  saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  renderTable();
+});
 elements.quickChips.forEach((chip) => chip.addEventListener("click", () => {
   const name = chip.dataset.quick;
   if (quickFilters.has(name)) quickFilters.delete(name);

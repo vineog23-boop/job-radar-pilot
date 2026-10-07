@@ -9,10 +9,11 @@ from __future__ import annotations
 from contextlib import ExitStack, contextmanager
 from datetime import datetime
 import json
+import hashlib
 import os
 from pathlib import Path
 import tempfile
-from typing import Iterator
+from typing import Callable, Iterator
 from urllib.parse import urlsplit
 
 from job_radar.output_lock import FileLock
@@ -107,6 +108,13 @@ class TrackingStore:
             validated[url] = dict(entry)
         return validated
 
+    def snapshot(self) -> tuple[dict[str, dict[str, str]], str]:
+        """Conteúdo e versão pertencem à mesma leitura protegida."""
+        with self.transaction():
+            entries = self.load()
+            content = json.dumps(entries, sort_keys=True, ensure_ascii=False).encode("utf-8")
+            return entries, hashlib.sha256(content).hexdigest()
+
     def set_status(
         self,
         url: object,
@@ -114,6 +122,7 @@ class TrackingStore:
         *,
         now: datetime,
         note: object = None,
+        validate: Callable[[str], None] | None = None,
     ) -> dict[str, dict[str, str]]:
         canonical = _validated_url(url)
         if status is not None and status not in TRACKING_STATUSES:
@@ -126,6 +135,8 @@ class TrackingStore:
 
         with self.transaction():
             entries = self.load()
+            if validate is not None:
+                validate(canonical)
             if status is None:
                 entries.pop(canonical, None)
             else:

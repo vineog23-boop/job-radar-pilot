@@ -169,7 +169,7 @@ def test_dashboard_verification_shows_progress_and_releases_buttons(tmp_path):
             release.set()
             assert controller.wait_verification(2)
             expect(page.locator("#verification-status")).to_contain_text(
-                "1 ativa", timeout=3000
+                "1 página(s) de vaga confirmada(s)", timeout=3000
             )
             expect(page.locator("#verification-status")).to_contain_text(
                 "1 não comprovada"

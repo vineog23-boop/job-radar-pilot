@@ -455,11 +455,12 @@
           </label>
           <label>
             <span class="sr-only">Período de publicação</span>
-            <select id="age-filter" title="Vagas sem data de publicação só aparecem em &quot;Qualquer data&quot;">
+            <select id="age-filter" title="Filtrar pela data de publicação informada no portal">
               <option value="7">Últimos 7 dias</option>
               <option value="15">Últimos 15 dias</option>
               <option value="30" selected>Últimos 30 dias</option>
               <option value="custom">Personalizado…</option>
+              <option value="undated">Sem data de publicação</option>
               <option value="">Qualquer data</option>
             </select>
           </label>
@@ -511,6 +512,7 @@
           <button type="button" class="chip" data-quick="recent" aria-pressed="false" title="Publicadas nos últimos 7 dias">Últimos 7 dias</button>
         </div>
 
+        <button id="show-undated" class="ghost-button" type="button" hidden>Ver vagas sem data de publicação</button>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Vaga</th><th>Empresa</th><th>Local</th><th>Origem</th><th>Aderência</th><th>Acompanhamento</th><th><span class="sr-only">Abrir</span></th></tr></thead>

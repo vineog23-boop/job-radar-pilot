@@ -1367,7 +1367,7 @@ def test_fit_reasons_explains_ambiguous_job_without_labels() -> None:
     assert fit_reasons({"match_labels": ["FIT:READY"]}) == []
 
 
-def test_export_filter_drops_expired_deadline_within_age_window() -> None:
+def test_export_period_includes_expired_deadline_within_age_window() -> None:
     from datetime import datetime, timezone
 
     from job_radar.webapp import filter_jobs_for_export
@@ -1379,4 +1379,4 @@ def test_export_filter_drops_expired_deadline_within_age_window() -> None:
     closed = {**base, "canonical_url": "https://x/2", "title": "vencida",
               "application_deadline": "2026-10-01T02:59:59+00:00"}
     kept = filter_jobs_for_export([open_job, closed], max_age_days=30, now=now)
-    assert [job["title"] for job in kept] == ["aberta"]
+    assert [job["title"] for job in kept] == ["aberta", "vencida"]

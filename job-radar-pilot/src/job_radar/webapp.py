@@ -259,9 +259,6 @@ def _passes_extra_filters(
         # Sem data publicada não dá para provar que é recente: fica de fora.
         if published is None or published > now or (now - published).total_seconds() / 86400 > max_age_days:
             return False
-        # Prazo vencido na página oficial: a vaga já não aceita candidatura.
-        if activity_state(job, now) == CLOSED:
-            return False
     return True
 
 
@@ -307,7 +304,7 @@ def filter_jobs_for_export(
         if match == "offtopic":
             if not off_topic:
                 continue
-        elif match != "all" and off_topic:
+        elif match != "all" and off_topic and (match or tracked in {"active", "new", ""}):
             continue
         if match == "ready" and state != "READY":
             continue
@@ -491,6 +488,7 @@ class SearchController:
         self._started_at: str | None = None
         self._finished_at: str | None = None
         self._error: str | None = None
+        self._progress: dict[str, int] | None = None
         self._sources: dict[str, dict[str, Any]] = {}
         self._logs: list[str] = []
         self._exports: list[str] = []
@@ -536,6 +534,7 @@ class SearchController:
             self._finished_at = None
             self._error = None
             self._sources = {}
+            self._progress = None
             self._logs = []
             self._exports = []
             self._control = "run"
@@ -661,10 +660,13 @@ class SearchController:
 
     def _on_line(self, line: str) -> None:
         progress = parse_progress_line(line)
+        total_progress = re.fullmatch(r"PROGRESS: (\d+)/(\d+) portais", line.strip())
         with self._lock:
             self._logs = [*self._logs[-79:], line]
             if line.startswith("EXPORT: "):
                 self._exports.append(line.removeprefix("EXPORT: ").strip())
+            if total_progress is not None:
+                self._progress = {"finished": int(total_progress[1]), "total": int(total_progress[2])}
             if progress is not None:
                 self._sources[progress["source"]] = progress
 
@@ -687,6 +689,7 @@ class SearchController:
                 "started_at": self._started_at,
                 "finished_at": self._finished_at,
                 "error": self._error,
+                "progress": dict(self._progress) if self._progress is not None else None,
                 "sources": dict(self._sources),
                 "logs": list(self._logs),
                 "exports": list(self._exports),
@@ -1110,8 +1113,18 @@ def _dashboard_handler(
             request_url = urlsplit(self.path)
             path = request_url.path
             if path == "/api/state":
-                since = parse_qs(request_url.query).get("since", [None])[-1]
-                self._json(200, controller.snapshot(since=since))
+                query = parse_qs(request_url.query)
+                since = query.get("since", [None])[-1]
+                try:
+                    entries, version = tracking_store.snapshot()
+                except TrackingError as exc:
+                    self._json(500, {"error": str(exc)})
+                    return
+                state = controller.snapshot(since=since)
+                state["tracking_version"] = version
+                if query.get("tracking_since", [None])[-1] != version:
+                    state["tracking"] = entries
+                self._json(200, state)
                 return
             if path == "/api/preferences":
                 try:
@@ -1522,30 +1535,30 @@ def _dashboard_handler(
                 if controller.is_running():
                     self._json(409, {"error": "Espere a busca terminar para limpar."})
                     return
-                try:
-                    tracked = tracking_store.load()
-                except TrackingError as exc:
-                    # Sem o acompanhamento não dá para proteger as vagas salvas.
-                    self._json(
-                        409,
-                        {"error": f"{exc} Corrija o arquivo de acompanhamento antes de limpar."},
-                    )
-                    return
-                remove_urls: set[str] = set()
-                if payload.get("remove_discarded") is True:
-                    remove_urls = {
-                        url for url, entry in tracked.items()
-                        if entry.get("status") == "DISCARDED"
-                    }
-                # A prévia só lê; a limpeza de verdade regrava o arquivo.
                 with nullcontext() if dry_run else controller.output_mutation():
-                    result = clean_output(
-                        controller.output_dir,
-                        keep_urls=set(tracked) - remove_urls,
-                        rules=rules,
-                        dry_run=dry_run,
-                        remove_urls=remove_urls,
-                    )
+                    with tracking_store.transaction():
+                        try:
+                            tracked = tracking_store.load()
+                        except TrackingError as exc:
+                            # Sem o acompanhamento não dá para proteger as vagas salvas.
+                            self._json(
+                                409,
+                                {"error": f"{exc} Corrija o arquivo de acompanhamento antes de limpar."},
+                            )
+                            return
+                        remove_urls: set[str] = set()
+                        if payload.get("remove_discarded") is True:
+                            remove_urls = {
+                                url for url, entry in tracked.items()
+                                if entry.get("status") == "DISCARDED"
+                            }
+                        result = clean_output(
+                            controller.output_dir,
+                            keep_urls=set(tracked) - remove_urls,
+                            rules=rules,
+                            dry_run=dry_run,
+                            remove_urls=remove_urls,
+                        )
             except OutputBusyError as exc:
                 self._json(409, {"error": str(exc)})
                 return
@@ -1683,6 +1696,14 @@ def _dashboard_handler(
                 return
             self._json(202, {"accepted": True})
 
+        def _validate_tracking_url(self, url: str) -> None:
+            from job_radar.cleanup import read_jobs_for_rewrite
+
+            path = controller.output_dir / "vagas.jsonl"
+            jobs = read_jobs_for_rewrite(path) if path.exists() else []
+            if not any(job.get("canonical_url") == url for job in jobs):
+                raise OutputBusyError("Esta vaga saiu da lista. Recarregue o painel antes de acompanhar.")
+
         def _route_put(self) -> None:
             path = self.path.split("?", maxsplit=1)[0]
             if path == "/api/preferences" and parse_qs(urlsplit(self.path).query).get("reapply", [""])[-1] == "1" and controller.is_running():
@@ -1696,7 +1717,11 @@ def _dashboard_handler(
                         payload.get("status"),
                         note=payload.get("note"),
                         now=datetime.now(timezone.utc),
+                        validate=self._validate_tracking_url,
                     )
+                except OutputBusyError as exc:
+                    self._json(409, {"error": str(exc)})
+                    return
                 except TypeError as exc:
                     self._json(415, {"error": str(exc)})
                     return

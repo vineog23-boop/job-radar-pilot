@@ -52,6 +52,7 @@ esac
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "dados"))
     monkeypatch.setenv("JOBRADAR_PYTHON", str(python))
     monkeypatch.setenv("RECORD", str(root / "calls.log"))
+    monkeypatch.setenv("JOBRADAR_SHORTCUT_DIR", str(tmp_path / "Mesa"))
     return root, python
 
 
@@ -73,6 +74,27 @@ def test_setup_is_reentrant_and_preserves_existing_user_data(workspace, tmp_path
     assert calls.count("-m pip check") == 2
     assert "-m venv" not in calls
     assert "Scrapling v0.4.15" in result.stdout
+
+
+def test_setup_installs_desktop_shortcut_that_runs_outside_workspace(workspace, tmp_path):
+    root, _ = workspace
+    setup = run(root, "scripts/setup-mac.sh")
+    assert setup.returncode == 0, setup.stderr
+
+    shortcut = tmp_path / "Mesa/Radar de Vagas.command"
+    assert shortcut.exists()
+    assert os.access(shortcut, os.X_OK)
+
+    result = subprocess.run(
+        ["/bin/bash", str(shortcut)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert f"Abrindo Radar em {root}" in result.stdout
+    assert "-u -m job_radar.webapp" in (root / "calls.log").read_text()
 
 
 @pytest.mark.parametrize("variable,value,message", [

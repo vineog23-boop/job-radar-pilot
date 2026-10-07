@@ -635,3 +635,23 @@ em `scripts/exportar_verificadas.py` (XLSX) e `scripts/exportar_csv_verificadas.
 - **Atalhos:** `/` foca a busca; `Esc` fecha painéis e limpa a busca.
 - **Exportar vagas:** um só botão com planilha `.xlsx`, CSV, relatório e **Texto para
   IA** (Markdown enxuto, ordenado por score, para outra IA revisar).
+
+### Stack principal e aplicação do perfil
+
+Em **Configurar busca**, defina a **Stack principal** (por exemplo, Java) e as
+**Tecnologias complementares** (Spring Boot, SQL, Docker). Para aparecer como
+"Mais compatível", a vaga precisa citar ao menos uma principal no texto ou nas
+tecnologias informadas pelo portal. Várias principais são alternativas: Java e
+Python aceitam evidência de qualquer uma. Sem principal explícita, as preferências
+antigas mantêm a classificação anterior. Uma vaga sem evidência recebe o motivo
+"stack principal não confirmada na vaga"; os filtros de nível, local e exclusões
+continuam valendo.
+
+Os presets preenchem escolhas de principais; sugestões acrescentam termos de busca
+sem apagar os já personalizados (até o limite de 20 termos). Salvar configurações,
+salvar um perfil ou ativá-lo reaplica o perfil às vagas da lista e atualiza os
+resultados imediatamente. Editar configurações atualiza também o perfil ativo.
+Durante coleta ou verificação de links, a aplicação é recusada até a operação
+terminar. Falhas na aplicação restauram preferências, perfis e resultados
+anteriores; acompanhamento, notas, datas de observação e verificação dos links são
+preservados.

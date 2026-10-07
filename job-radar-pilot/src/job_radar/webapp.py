@@ -1380,36 +1380,60 @@ def _dashboard_handler(
             path = self._resolved_preferences_path()
             return {"profiles": list_profiles(path), "active": active_profile(path)}
 
+        def _apply_profile(self, preferences: Any, name: str | None = None) -> dict[str, Any]:
+            from job_radar.preferences import save_preferences
+            from job_radar.profiles import (
+                _set_active, active_profile, profile_application, save_profile,
+            )
+            from job_radar.reclassify import reclassify_output
+
+            path = self._resolved_preferences_path()
+            # O chamador mantém output_mutation durante leitura e confirmação.
+            with tracking_store.transaction():
+                tracking_store.load()  # corrupção impede reescrita
+                with profile_application(path, controller.output_dir):
+                    profile, countries = self._profile_for(preferences)
+                    result = reclassify_output(
+                        controller.output_dir, profile, countries, rules=self._cleanup_rules(),
+                    )
+                    active = name if name is not None else active_profile(path)
+                    if active is not None:
+                        active = save_profile(path, active, preferences)
+                    save_preferences(preferences, path=path)
+                    _set_active(path, active)
+            return result
+
         def _post_profiles(self, action: str) -> None:
             from job_radar.preferences import PreferencesError, validate_preferences_payload
-            from job_radar.profiles import (
-                activate_profile,
-                delete_profile,
-                save_profile,
-            )
+            from job_radar.profiles import delete_profile, read_profile, _clean_name
 
             path = self._resolved_preferences_path()
             try:
-                payload = self._read_json_body(limit=65_536)
-                if action == "save":
-                    preferences = validate_preferences_payload(
-                        payload.get("preferences") or {}
-                    )
-                    name = save_profile(path, payload.get("name"), preferences)
-                    activate_profile(path, name)
-                elif action == "activate":
-                    activate_profile(path, payload.get("name"))
-                else:
-                    delete_profile(path, payload.get("name"))
+                with controller.output_mutation():
+                    payload = self._read_json_body(limit=65_536)
+                    result = None
+                    if action == "save":
+                        preferences = validate_preferences_payload(payload.get("preferences") or {})
+                        name = _clean_name(payload.get("name"))
+                        result = self._apply_profile(preferences, name)
+                    elif action == "activate":
+                        name, preferences = read_profile(path, payload.get("name"))
+                        result = self._apply_profile(preferences, name)
+                    else:
+                        delete_profile(path, payload.get("name"))
+                    body = self._profiles_payload()
+                    if action != "delete":
+                        body["preferences"] = self._load_preferences_payload()
+                        body["reapplied"] = result
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
                 return
-            except (PreferencesError, OSError, ValueError, json.JSONDecodeError) as exc:
+            except (PreferencesError, OSError, ValueError, RuntimeError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
-            body = self._profiles_payload()
-            if action != "delete":
-                body["preferences"] = self._load_preferences_payload()
             self._json(200, body)
 
         def _cleanup_rules(self) -> Any:
@@ -1702,47 +1726,22 @@ def _dashboard_handler(
                 self._json(404, {"error": "Recurso nao encontrado."})
                 return
             try:
-                from job_radar.preferences import (
-                    preferences_to_dict,
-                    save_preferences,
-                    validate_preferences_payload,
-                )
+                from job_radar.preferences import preferences_to_dict, validate_preferences_payload
 
-                payload = self._read_json_body(limit=65_536)
-                preferences = validate_preferences_payload(payload)
-                save_preferences(preferences, path=preferences_path)
+                with controller.output_mutation():
+                    payload = self._read_json_body(limit=65_536)
+                    preferences = validate_preferences_payload(payload)
+                    result = self._apply_profile(preferences)
+                    body = {**preferences_to_dict(preferences), "reapplied": result}
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
                 return
-            except (OSError, ValueError, json.JSONDecodeError) as exc:
+            except (OSError, ValueError, RuntimeError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
-            body: dict[str, Any] = dict(preferences_to_dict(preferences))
-            query = parse_qs(urlsplit(self.path).query)
-            if query.get("reapply", [""])[-1] == "1":
-                body["reapplied"] = None
-                if controller.is_running():
-                    self._json(409, {"error": "Espere a busca ou verificação terminar para reaplicar."})
-                    return
-                else:
-                    from job_radar.reclassify import reclassify_output
-
-                    try:
-                        profile, countries = self._profile_for(preferences)
-                        with controller.output_mutation():
-                            body["reapplied"] = reclassify_output(
-                                controller.output_dir,
-                                profile,
-                                countries,
-                                rules=self._cleanup_rules(),
-                            )
-                    except OutputBusyError as exc:
-                        if controller.is_running():
-                            self._json(409, {"error": str(exc)})
-                            return
-                        body["reapply_skipped"] = str(exc)
-                    except (OSError, ValueError, RuntimeError) as exc:
-                        body["reapply_skipped"] = f"Não foi possível reaplicar: {exc}"
             self._json(200, body)
 
         def log_message(self, format: str, *args: Any) -> None:

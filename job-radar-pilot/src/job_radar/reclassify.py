@@ -27,6 +27,7 @@ from job_radar.models import CollectionStatus, SearchProfile, VacancyRecord, Wor
 # Rótulos que o classificador recalcula; os demais (STATUS:NEW, ALSO_SEEN_IN:,
 # IMPORT:, EXTRACTION:, ENRICHED:, WORKPLACE_INFERRED:) são preservados.
 _CLASSIFIER_PREFIXES = (
+    "PRIMARY_TECH_MISSING:",
     "ELIGIBILITY_UNCLEAR:",
     "TECH_MATCH:",
     "SENIORITY_",

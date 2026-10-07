@@ -1109,3 +1109,60 @@ def test_it_title_is_not_off_topic_even_without_profile_keyword() -> None:
     )
 
     assert "RELEVANCE:OFF_TOPIC" not in classified.match_labels
+
+
+@pytest.mark.parametrize(('title', 'description', 'expected'), [
+    ('Desenvolvedor Java Junior', 'Spring Boot e SQL', 'READY'),
+    ('Desenvolvedor Python Junior', 'SQL e Spring Boot', 'OTHER_STACK'),
+    ('Desenvolvedor JavaScript Junior', 'Spring Boot', 'OTHER_STACK'),
+    ('Desenvolvedor Java Senior', 'Spring Boot', 'EXCLUDE'),
+    ('Desenvolvedor Junior', 'Spring Boot e SQL', 'AMBIGUOUS'),
+])
+def test_explicit_primary_requires_real_evidence(title, description, expected):
+    from dataclasses import replace
+    from job_radar.fit import fit_reasons
+
+    profile = replace(PROFILE, primary_technologies=('java',), positive_keywords=('spring boot', 'sql'))
+    record = _record(title=title, description_summary=description, evidence_snippets=())
+    classified = classify(record, profile)
+    assert f'FIT:{expected}' in classified.match_labels
+    if expected == 'READY':
+        assert 'TECH_MATCH:java' in classified.match_labels
+    elif expected != 'EXCLUDE':
+        assert 'PRIMARY_TECH_MISSING:java' in classified.match_labels
+        assert any('principal' in reason for reason in fit_reasons(classified.match_labels))
+
+
+@pytest.mark.parametrize(('primary', 'title'), [
+    (('java', 'python'), 'Desenvolvedor Python Junior'),
+    (('node.js',), 'Desenvolvedor NodeJS Junior'),
+    (('sql',), 'Analista SQL Junior'),
+])
+def test_explicit_primaries_are_alternatives_and_use_aliases(primary, title):
+    from dataclasses import replace
+
+    profile = replace(PROFILE, primary_technologies=primary, positive_keywords=())
+    result = classify(_record(title=title, description_summary='', evidence_snippets=()), profile)
+    assert 'FIT:READY' in result.match_labels
+
+
+def test_primary_evidence_can_come_from_source_technologies():
+    from dataclasses import replace
+
+    profile = replace(PROFILE, primary_technologies=('python',), positive_keywords=('sql',))
+    result = classify(_record(title='Desenvolvedor Junior', description_summary='SQL',
+                              evidence_snippets=(), technologies=('Python',)), profile)
+    assert 'FIT:READY' in result.match_labels
+
+
+def test_reapply_removes_previous_primary_missing_reason():
+    from dataclasses import replace
+    from job_radar.output import _record_payload
+    from job_radar.reclassify import reclassify_payloads
+
+    original = _record(title='Desenvolvedor Python Junior', description_summary='', evidence_snippets=())
+    first = classify(original, replace(PROFILE, primary_technologies=('java',)))
+    assert 'PRIMARY_TECH_MISSING:java' in first.match_labels
+    updated = reclassify_payloads([_record_payload(first)], replace(PROFILE, primary_technologies=('python',)))
+    assert 'FIT:READY' in updated[0]['match_labels']
+    assert not any(label.startswith('PRIMARY_TECH_MISSING:') for label in updated[0]['match_labels'])

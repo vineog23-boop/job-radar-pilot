@@ -794,3 +794,14 @@ def test_api_cleanup_refuses_when_tracking_is_unreadable(tmp_path: Path) -> None
     assert preview_status == 409 and "acompanhamento" in preview["error"]
     assert status == 409 and "acompanhamento" in result["error"]
     assert (tmp_path / "output" / "vagas.jsonl").read_text(encoding="utf-8") == before
+
+
+def test_preset_suggestions_include_coherent_alternative_primaries():
+    java = suggest(['java'], ['junior'])
+    assert java['primary_technologies'] == ['java']
+    assert 'java junior' in java['search_terms']
+    combined = suggest(['java', 'python'], ['junior'])
+    assert combined['primary_technologies'] == ['java', 'python']
+    assert {'java junior', 'python junior'} <= set(combined['search_terms'])
+    frontend = suggest(['frontend'], ['junior'])
+    assert frontend['primary_technologies'] == ['react', 'angular', 'vue']

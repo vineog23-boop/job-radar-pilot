@@ -41,6 +41,7 @@ const elements = {
   searchTerms: document.querySelector("#search-terms"),
   locationScopes: document.querySelector("#location-scopes"),
   technologies: document.querySelector("#technologies"),
+  primaryTechnologies: document.querySelector("#primary-technologies"),
   excludedTerms: document.querySelector("#excluded-terms"),
   requiredKeywords: document.querySelector("#required-keywords"),
   bonusKeywords: document.querySelector("#bonus-keywords"),
@@ -49,7 +50,6 @@ const elements = {
   favoriteCompanies: document.querySelector("#favorite-companies"),
   contractBoxes: [...document.querySelectorAll("#contract-clt, #contract-pj, #contract-freelance")],
   avoidEnglish: document.querySelector("#avoid-english"),
-  reapplySaved: document.querySelector("#reapply-saved"),
   previewPreferences: document.querySelector("#preview-preferences"),
   preferencesImpact: document.querySelector("#preferences-impact"),
   searchTermsCount: document.querySelector("#search-terms-count"),
@@ -323,6 +323,7 @@ function focusResults(match) {
 }
 
 const CRITERIA_LABELS = [
+  ["PRIMARY_TECH_MISSING:", "Stack principal não confirmada"],
   ["TECH_MATCH:", "Tecnologia"],
   ["SENIORITY_MATCH:", "Nível"],
   ["LOCATION_MATCH:", "Local"],
@@ -413,6 +414,7 @@ const ROW_PAGE_SIZE = 300;
 let visibleRows = ROW_PAGE_SIZE;
 let configuredSources = [];
 const REASON_LABELS = [
+  ["PRIMARY_TECH_MISSING:", "stack principal não confirmada na vaga"],
   ["RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"],
   ["SENIORITY_MISMATCH:", "nível acima do desejado"],
   ["LOCATION_MISMATCH:", "fora das localidades escolhidas"],
@@ -1631,6 +1633,12 @@ let termsState = { groups: [], recommended: [], limit: MAX_SEARCH_TERMS };
 const selectedTerms = new Set();
 
 function stacksForTerms() {
+  const primary = new Set(linesFrom(elements.primaryTechnologies).map(normalized));
+  if (primary.size) {
+    return (presetsState?.stacks ?? [])
+      .filter((stack) => (stack.primary_technologies ?? []).some((term) => primary.has(normalized(term))))
+      .map((stack) => stack.id);
+  }
   if (selectedStacks.size) return [...selectedStacks];
   // nenhuma stack marcada: deduz pelas tecnologias principais já preenchidas
   const techs = new Set(linesFrom(elements.technologies).map(normalized));
@@ -1682,7 +1690,7 @@ async function loadTermsBuilder() {
     selectedTerms.clear();
     renderTermsBuilder();
     elements.termsStatus.textContent =
-      "Marque ao menos uma stack acima (ou tenha a tecnologia principal dela em Tecnologias).";
+      "Informe uma stack principal conhecida ou marque uma stack acima para gerar termos.";
     return;
   }
   const query = new URLSearchParams({
@@ -1739,6 +1747,7 @@ function fillPreferencesForm(payload) {
   elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
   elements.locationScopes.value = (payload.location_scopes ?? []).join("\n");
   elements.technologies.value = (payload.technologies ?? []).join("\n");
+  elements.primaryTechnologies.value = (payload.primary_technologies ?? []).join("\n");
   elements.excludedTerms.value = (payload.excluded_terms ?? []).join("\n");
   elements.requiredKeywords.value = (payload.required_keywords ?? []).join("\n");
   elements.bonusKeywords.value = (payload.bonus_keywords ?? []).join("\n");
@@ -1787,7 +1796,8 @@ function updateProfileSummary() {
     payload.workplace_models.map((model) => MODEL_NAMES[model] || model).join(", ") || "qualquer modelo",
     listPreview(payload.location_scopes) || "sem localidade",
     `${payload.search_terms.length} ${payload.search_terms.length === 1 ? "termo" : "termos"} de busca`,
-    `${payload.technologies.length} tecnologias`,
+    payload.primary_technologies.length ? `principal: ${listPreview(payload.primary_technologies)}` : null,
+    `${payload.technologies.length} tecnologias complementares`,
   ].filter(Boolean);
   elements.profileSummary.textContent = `Você procura: ${parts.join(" · ")}`;
 }
@@ -1938,11 +1948,12 @@ async function applySuggestions() {
     if (!response.ok) throw new Error(suggestion.error || `HTTP ${response.status}`);
     if (elements.suggestMerge.checked) {
       mergeLines(elements.technologies, suggestion.technologies, 40);
-      mergeLines(elements.searchTerms, suggestion.search_terms, MAX_SEARCH_TERMS);
+      mergeLines(elements.primaryTechnologies, suggestion.primary_technologies, 40);
     } else {
       elements.technologies.value = suggestion.technologies.join("\n");
-      elements.searchTerms.value = suggestion.search_terms.join("\n");
+      elements.primaryTechnologies.value = suggestion.primary_technologies.join("\n");
     }
+    mergeLines(elements.searchTerms, suggestion.search_terms, MAX_SEARCH_TERMS);
     refreshTagInputs();
     updateSearchTermsCount();
     elements.preferencesStatus.textContent =
@@ -2002,6 +2013,7 @@ function currentPreferencesPayload() {
     ]),
     location_scopes: linesFrom(elements.locationScopes),
     technologies: linesFrom(elements.technologies),
+    primary_technologies: linesFrom(elements.primaryTechnologies),
     excluded_terms: linesFrom(elements.excludedTerms),
     required_keywords: linesFrom(elements.requiredKeywords),
     bonus_keywords: linesFrom(elements.bonusKeywords),
@@ -2093,7 +2105,9 @@ async function saveProfile() {
     renderProfiles(payload);
     linkedinLoaded = false;
     elements.profileName.value = "";
-    elements.preferencesStatus.textContent = `Perfil "${name}" salvo e ativado.`;
+    fillPreferencesForm(payload.preferences ?? {});
+    await refreshState();
+    elements.preferencesStatus.textContent = `Perfil "${name}" salvo e ativado. Perfil aplicado às vagas salvas.`;
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível salvar o perfil: ${error.message}`;
   }
@@ -2108,7 +2122,8 @@ async function switchProfile() {
     renderProfiles(payload);
     fillPreferencesForm(payload.preferences ?? {});
     linkedinLoaded = false;
-    elements.preferencesStatus.textContent = `Perfil "${name}" ativado. Clique em Buscar vagas agora.`;
+    await refreshState();
+    elements.preferencesStatus.textContent = `Perfil "${name}" ativado. Perfil aplicado às vagas salvas.`;
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível ativar: ${error.message}`;
   }
@@ -2317,8 +2332,7 @@ async function savePreferences(event) {
     return;
   }
   try {
-    const reapply = elements.reapplySaved.checked;
-    const response = await fetch(`/api/preferences${reapply ? "?reapply=1" : ""}`, {
+    const response = await fetch("/api/preferences", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -2327,14 +2341,11 @@ async function savePreferences(event) {
     if (!response.ok) throw new Error(saved.error || `HTTP ${response.status}`);
     preferencesLoaded = true;
     linkedinLoaded = false;
-    elements.preferencesStatus.textContent = "Configurações salvas. Clique em Buscar vagas agora quando quiser.";
+    elements.preferencesStatus.textContent = "Configurações salvas. Perfil aplicado às vagas salvas.";
     if (saved.reapplied) {
       elements.preferencesImpact.hidden = false;
       elements.preferencesImpact.textContent = impactText(saved.reapplied, "Reaplicado às vagas salvas:");
       await refreshState();
-    } else if (saved.reapply_skipped) {
-      elements.preferencesImpact.hidden = false;
-      elements.preferencesImpact.textContent = saved.reapply_skipped;
     }
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível salvar: ${error.message}`;
@@ -2383,6 +2394,14 @@ elements.stackChips.addEventListener("click", () => window.setTimeout(updateProf
 elements.applySuggestions.addEventListener("click", applySuggestions);
 document.querySelectorAll("textarea.tag-source").forEach(setupTagInput);
 elements.searchTerms.addEventListener("input", updateSearchTermsCount);
+elements.primaryTechnologies.addEventListener("input", () => {
+  const levels = checkedValues(SENIORITY_BOXES());
+  const terms = linesFrom(elements.primaryTechnologies).flatMap((primary) =>
+    levels.length ? levels.map((level) => `${primary} ${level}`) : [primary]
+  );
+  mergeLines(elements.searchTerms, terms, MAX_SEARCH_TERMS);
+  updateSearchTermsCount();
+});
 elements.previewPreferences.addEventListener("click", previewPreferences);
 elements.termsBuilderToggle.addEventListener("click", () => showTermsBuilder(elements.termsBuilder.hidden));
 elements.termsRecommended.addEventListener("click", () => {

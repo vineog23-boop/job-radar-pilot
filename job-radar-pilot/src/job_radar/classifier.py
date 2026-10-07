@@ -125,6 +125,8 @@ MAX_OTHER_STACK_LABELS = 3
 def _core_terms(profile: SearchProfile) -> set[str]:
     """Stack principal do perfil: tecnologias que não são apoio nem função genérica."""
 
+    if profile.primary_technologies:
+        return {_canonical_term(term) for term in profile.primary_technologies}
     candidates = {
         canonical
         for canonical in (_canonical_term(keyword) for keyword in profile.positive_keywords)
@@ -137,7 +139,9 @@ def _core_terms(profile: SearchProfile) -> set[str]:
 def _other_stacks(profile: SearchProfile, searchable_text: str) -> list[str]:
     """Stacks citadas na vaga que não são do perfil (na ordem de _STACK_SIGNALS)."""
 
-    own = {_canonical_term(keyword) for keyword in profile.positive_keywords}
+    own = {_canonical_term(keyword) for keyword in (
+        profile.primary_technologies or profile.positive_keywords
+    )}
     found: list[str] = []
     for name, aliases in _STACK_SIGNALS.items():
         if own.intersection({_canonical_term(alias) for alias in (name, *aliases)}):
@@ -580,7 +584,7 @@ def classify(
     ):
         labels.add("ELIGIBILITY_UNCLEAR:restricted_audience")
 
-    for keyword in profile.positive_keywords:
+    for keyword in (*profile.primary_technologies, *profile.positive_keywords):
         canonical = _canonical_term(keyword)
         if canonical and _contains_term(searchable_text, canonical):
             labels.add(f"TECH_MATCH:{canonical}")
@@ -693,6 +697,8 @@ def classify(
     has_core_technology = any(
         label == f"TECH_MATCH:{term}" for label in labels for term in core_terms
     )
+    if profile.primary_technologies and not has_core_technology:
+        labels.add(f"PRIMARY_TECH_MISSING:{','.join(sorted(core_terms))}")
     has_seniority = any(label.startswith("SENIORITY_MATCH:") for label in labels)
     has_seniority_mismatch = any(
         label.startswith("SENIORITY_MISMATCH:") for label in labels

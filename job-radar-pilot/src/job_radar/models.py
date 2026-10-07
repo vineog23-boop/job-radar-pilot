@@ -53,6 +53,7 @@ class SearchProfile:
     favorite_companies: tuple[str, ...] = ()
     contract_types: tuple[str, ...] = ()  # CLT, PJ, FREELANCE; vazio = qualquer
     avoid_advanced_english: bool = False
+    primary_technologies: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

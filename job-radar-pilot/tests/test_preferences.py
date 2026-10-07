@@ -66,6 +66,7 @@ def test_save_is_atomic_and_round_trips_only_allowed_fields(tmp_path: Path) -> N
         "workplace_models": ["REMOTE", "HYBRID"],
         "location_scopes": ["remoto-brasil", "minas-gerais"],
         "technologies": [],
+        "primary_technologies": [],
         "excluded_terms": [],
         "required_keywords": [],
         "bonus_keywords": [],
@@ -304,3 +305,31 @@ def test_stacks_and_exclusions_have_limits(field: str) -> None:
 
     with pytest.raises(PreferencesError, match=field):
         preferences_from_dict(payload)
+
+
+def test_primary_preferences_roundtrip_and_apply_without_legacy_technology_fallback(tmp_path):
+    from job_radar.preferences import apply_preferences, preferences_from_dict, preferences_to_dict
+
+    payload = {'search_terms': ['python junior'], 'seniority_levels': ['junior'],
+               'workplace_models': [], 'location_scopes': ['brasil'],
+               'primary_technologies': [' Python ', 'python'], 'technologies': []}
+    preferences = preferences_from_dict(payload)
+    path = tmp_path / 'prefs.json'
+    save_preferences(preferences, path)
+    loaded = load_preferences(default_profile=PROFILE, default_search_terms=(), path=path)
+    assert preferences_to_dict(loaded)['primary_technologies'] == ['python']
+    applied = apply_preferences(PROFILE, loaded)
+    assert applied.primary_technologies == ('python',)
+    assert applied.positive_keywords == ('python',)
+    payload.pop('primary_technologies')
+    assert preferences_from_dict(payload).primary_technologies == ()
+
+
+@pytest.mark.parametrize('value', ['java', [12], [''], ['x'] * 41])
+def test_primary_preferences_validate_like_technologies(value):
+    from job_radar.preferences import preferences_from_dict
+
+    with pytest.raises(PreferencesError):
+        preferences_from_dict({'search_terms': ['java'], 'seniority_levels': ['junior'],
+                               'workplace_models': [], 'location_scopes': ['brasil'],
+                               'primary_technologies': value})

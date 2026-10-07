@@ -243,3 +243,12 @@ no PC) → 4.2/4.1 (quebrar webapp.py e app.js).
   mantendo `observed_at`; JSONL anterior ilegível impede publicação.
 - [x] Acompanhamento com leitura-modificação-gravação serializada entre processos
   e threads; snapshot final da coleta sob a mesma transação.
+
+### ✅ Stack principal e perfil coerente — 07/10/2026
+
+- Principal explícita com alternativas e complementares; campo vazio mantém a
+  classificação legada. Ausência de evidência recebe motivo visível.
+- Salvar/ativar aplica o perfil às vagas sob a trava compartilhada; ocupado retorna
+  409 antes de persistir. Falhas restauram arquivos anteriores; links, acompanhamento
+  e observação são preservados. Preferências editadas atualizam o perfil ativo.
+- Presets e sugestões preenchem principais sem apagar termos personalizados.

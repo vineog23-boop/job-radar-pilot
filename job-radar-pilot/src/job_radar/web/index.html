@@ -339,8 +339,13 @@
             </span>
           </label>
           <div class="wide-field tag-field">
-            <label for="technologies-entry"><strong>6 · Tecnologias que pesam na aderência</strong></label>
-            <small>Digite e tecle Enter (ou vírgula); cole uma lista para adicionar várias. A vaga precisa citar ao menos uma tecnologia principal para ser "Mais compatível". Em branco usa o perfil padrão.</small>
+            <label for="primary-technologies-entry"><strong>6 · Stack principal</strong></label>
+            <small>A vaga precisa citar ao menos uma principal para ser "Mais compatível". Várias principais são alternativas. Em branco mantém a classificação anterior.</small>
+            <textarea id="primary-technologies" class="tag-source" rows="2" maxlength="2440" aria-label="Stack principal" data-placeholder="ex.: java"></textarea>
+          </div>
+          <div class="wide-field tag-field">
+            <label for="technologies-entry"><strong>Tecnologias complementares</strong></label>
+            <small>Ajudam a avaliar a vaga, mas não substituem a principal. Digite e tecle Enter (ou vírgula).</small>
             <textarea id="technologies" class="tag-source" rows="3" maxlength="2440" aria-label="Tecnologias" data-placeholder="ex.: java, spring boot, sql"></textarea>
             <div id="tech-insights" class="insights" hidden>
               <small>Aparecem muito nas vagas de TI que você já tem — clique para adicionar:</small>
@@ -401,7 +406,7 @@
             </div>
           </details>
           <div class="preferences-footer">
-            <label class="check-option"><input id="reapply-saved" type="checkbox" checked> Reaplicar às vagas já salvas</label>
+            <small>Salvar ou ativar um perfil também aplica as preferências às vagas já salvas.</small>
             <button id="preview-preferences" class="ghost-button" type="button" title="Mostra quantas vagas da lista ficariam compatíveis, sem salvar">Ver impacto</button>
             <p id="preferences-status" class="preferences-status" aria-live="polite"></p>
             <button id="save-preferences" class="primary-button compact-button" type="submit">Salvar configurações</button>

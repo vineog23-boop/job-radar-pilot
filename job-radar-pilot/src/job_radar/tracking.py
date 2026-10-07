@@ -6,12 +6,16 @@ canônico; guarda somente URL, estado, data e uma nota curta do usuário.
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 from datetime import datetime
 import json
 import os
 from pathlib import Path
 import tempfile
+from typing import Iterator
 from urllib.parse import urlsplit
+
+from job_radar.output_lock import FileLock
 
 
 # Funil de candidatura, na ordem em que a pessoa avança.
@@ -53,6 +57,19 @@ class TrackingStore:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or tracking_path()
 
+    @contextmanager
+    def transaction(self) -> Iterator["TrackingStore"]:
+        """Mantém o snapshot final da coleta estável até sua publicação."""
+
+        with ExitStack() as held:
+            try:
+                held.enter_context(FileLock(self._path))
+            except OSError as exc:
+                raise TrackingError(
+                    f"Nao foi possivel travar o acompanhamento em {self._path}."
+                ) from exc
+            yield self
+
     def load(self) -> dict[str, dict[str, str]]:
         if not self._path.exists():
             return {}
@@ -88,22 +105,23 @@ class TrackingStore:
         if len(cleaned_note) > _MAX_NOTE_LENGTH:
             raise TrackingError(f"Nota excede {_MAX_NOTE_LENGTH} caracteres.")
 
-        entries = self.load()
-        if status is None:
-            entries.pop(canonical, None)
-        else:
-            previous = entries.get(canonical, {})
-            # Datas de cada etapa já alcançada (applied_at, interview_at...) ficam.
-            entry = {key: value for key, value in previous.items() if key.endswith("_at")}
-            entry.update({"status": str(status), "updated_at": now.isoformat()})
-            entry.setdefault(f"{str(status).lower()}_at", now.isoformat())
-            # Sem nota no pedido (ex.: mudar o estado pelo painel), a nota antiga fica.
-            kept_note = cleaned_note if note is not None else previous.get("note", "")
-            if kept_note:
-                entry["note"] = kept_note
-            entries[canonical] = entry
-        self._write(entries)
-        return entries
+        with self.transaction():
+            entries = self.load()
+            if status is None:
+                entries.pop(canonical, None)
+            else:
+                previous = entries.get(canonical, {})
+                # Datas de cada etapa já alcançada (applied_at, interview_at...) ficam.
+                entry = {key: value for key, value in previous.items() if key.endswith("_at")}
+                entry.update({"status": str(status), "updated_at": now.isoformat()})
+                entry.setdefault(f"{str(status).lower()}_at", now.isoformat())
+                # Sem nota no pedido (ex.: mudar o estado pelo painel), a nota antiga fica.
+                kept_note = cleaned_note if note is not None else previous.get("note", "")
+                if kept_note:
+                    entry["note"] = kept_note
+                entries[canonical] = entry
+            self._write(entries)
+            return entries
 
     def _write(self, entries: dict[str, dict[str, str]]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

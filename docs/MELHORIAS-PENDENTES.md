@@ -228,3 +228,10 @@ Achados da auditoria e o que foi corrigido (um commit por item, branch
 Próximos passos sugeridos: preencher o gabarito (1.4) → 1.3 (aprender com salvas/descartadas) →
 2.1 (fixtures por portal, gerar no PC) → 2.2 (APIs Greenhouse/Lever por empresa, verificar ao vivo
 no PC) → 4.2/4.1 (quebrar webapp.py e app.js).
+
+## Radar confiável — 06/10/2026
+
+- [x] Preservação na coleta completa de vagas acompanhadas e fontes incompletas,
+  mantendo `observed_at`; JSONL anterior ilegível impede publicação.
+- [x] Acompanhamento com leitura-modificação-gravação serializada entre processos
+  e threads; snapshot final da coleta sob a mesma transação.

@@ -14,7 +14,7 @@ from uuid import uuid4
 from jsonschema import Draft202012Validator, FormatChecker
 
 from job_radar.identity import canonicalize_url
-from job_radar.models import VacancyRecord
+from job_radar.models import CollectionStatus, VacancyRecord
 from job_radar.pipeline import PipelineResult
 from job_radar.text_cleaning import spreadsheet_safe
 
@@ -115,8 +115,8 @@ def validate_jsonl(path: Path, schema_path: Path) -> ValidationResult:
     errors: list[str] = []
     line_count = 0
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeError) as exc:
         return ValidationResult(False, 0, (f"Nao foi possivel ler {path.name}: {exc}",))
     for number, line in enumerate(lines, start=1):
         if not line.strip():
@@ -136,24 +136,26 @@ def _temp_path(output_dir: Path, name: str) -> Path:
     return output_dir / f".{name}.{uuid4().hex}.tmp"
 
 
-def _previous_payloads(path: Path, refreshed: set[str]) -> list[dict[str, Any]]:
-    """Registros da coleta anterior de fontes que NÃO foram refeitas agora."""
+def _previous_payloads(
+    path: Path, refreshed: set[str] | None = None
+) -> list[dict[str, Any]]:
+    """Lê a coleta anterior integralmente; corrupção impede qualquer publicação."""
 
-    try:
-        lines = path.read_text(encoding="utf-8-sig").splitlines()
-    except OSError:
+    from job_radar.cleanup import CleanupError, read_jobs_for_rewrite
+
+    if not path.exists():
         return []
-    kept: list[dict[str, Any]] = []
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict) and payload.get("source") not in refreshed:
-            kept.append(payload)
-    return kept
+    validation = validate_jsonl(path, _schema_path())
+    if not validation.valid:
+        raise OutputError(
+            "Coleta anterior rejeitada pelo schema; nada foi alterado: "
+            + "; ".join(validation.errors)
+        )
+    try:
+        payloads = read_jobs_for_rewrite(path)
+    except (CleanupError, OSError, UnicodeError) as exc:
+        raise OutputError(f"Coleta anterior ilegível; nada foi alterado: {exc}") from exc
+    return [payload for payload in payloads if payload.get("source") not in (refreshed or set())]
 
 
 def _previous_report_sources(path: Path, refreshed: set[str]) -> list[dict[str, Any]]:
@@ -164,11 +166,11 @@ def _previous_report_sources(path: Path, refreshed: set[str]) -> list[dict[str, 
     sources = previous.get("sources") if isinstance(previous, dict) else None
     if not isinstance(sources, list):
         return []
-    return [
-        item
-        for item in sources
-        if isinstance(item, dict) and item.get("source") not in refreshed
-    ]
+    unique = {}
+    for item in sources:
+        if isinstance(item, dict) and item.get("source") not in refreshed:
+            unique.setdefault(item.get("source"), item)
+    return list(unique.values())
 
 
 def _csv_text(payloads: Any) -> str:
@@ -216,18 +218,22 @@ def _discarded_to_keep(
 
     from job_radar.cleanup import job_identity, read_discarded
 
-    carried: list[dict[str, Any]] = []
-    if merge_unrefreshed:
-        refreshed = {source.source_code for source in result.source_results}
-        seen_now = {job_identity(job) for job in (*kept, *pruned_jobs)}
-        carried = [
-            job
-            for job in read_discarded(output_dir)
-            if job.get("source") not in refreshed - partial
-            and job_identity(job) not in seen_now
-        ]
+    refreshed = {source.source_code for source in result.source_results}
+    seen_now = {job_identity(job) for job in (*kept, *pruned_jobs)}
+    carried = [
+        job
+        for job in read_discarded(output_dir)
+        if (job.get("source") in partial
+            or (merge_unrefreshed and job.get("source") not in refreshed))
+        and job_identity(job) not in seen_now
+    ]
     kept_ids = {job_identity(job) for job in kept}
-    return [job for job in (*pruned_jobs, *carried) if job_identity(job) not in kept_ids]
+    unique = {}
+    for job in (*pruned_jobs, *carried):
+        identity = job_identity(job)
+        if identity not in kept_ids:
+            unique.setdefault(identity, job)
+    return list(unique.values())
 
 
 def rewrite_payloads(output_dir: Path, payloads: list[dict[str, Any]]) -> None:
@@ -289,7 +295,8 @@ def write_outputs(
     Com ``merge_unrefreshed`` (busca parcial), preserva as vagas e o status das
     fontes que não foram consultadas agora, para não apagar a coleta anterior.
     Com ``prune``, vagas inúteis (fora da área, fora do perfil, vencidas) nem
-    entram no arquivo; as marcadas em ``keep_urls`` são sempre mantidas.
+    entram no arquivo; as marcadas em ``keep_urls`` são sempre mantidas. Vagas acompanhadas e
+    vagas de fontes incompletas são preservadas também na busca completa.
     """
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -301,37 +308,47 @@ def write_outputs(
     temp_report = _temp_path(output_dir, final_report.name)
     temporary_files = (temp_jsonl, temp_csv, temp_report)
     payloads_list = [_record_payload(record) for record in result.records]
-    carried_sources: list[dict[str, Any]] = []
-    carried_count = 0
-    partial = set(partial_sources)
-    if merge_unrefreshed:
-        refreshed = {source.source_code for source in result.source_results}
-        carried = _previous_payloads(final_jsonl, refreshed - partial)
-        if partial:
-            # Portal interrompido no meio: as vagas antigas que a coleta parcial
-            # não reencontrou continuam na lista.
-            new_urls = {payload.get("canonical_url") for payload in payloads_list}
-            carried = [
-                payload
-                for payload in carried
-                if payload.get("source") not in partial
-                or payload.get("canonical_url") not in new_urls
-            ]
-        carried_count = len(carried)
-        payloads_list.extend(carried)
-        carried_sources = _previous_report_sources(final_report, refreshed)
+    from job_radar.cleanup import job_identity
+
+    keep_urls = frozenset(keep_urls)
+    refreshed = {source.source_code for source in result.source_results}
+    partial = set(partial_sources) | {
+        source.source_code
+        for source in result.source_results
+        if source.status not in {CollectionStatus.SUCCESS, CollectionStatus.EMPTY}
+    }
+    seen = {job_identity(payload) for payload in payloads_list}
+    carried = []
+    for payload in _previous_payloads(final_jsonl):
+        preserve = (
+            payload.get("canonical_url") in keep_urls
+            or payload.get("source") in partial
+            or (merge_unrefreshed and payload.get("source") not in refreshed)
+        )
+        identity = job_identity(payload)
+        if preserve and identity not in seen:
+            carried.append(payload)
+            seen.add(identity)
+    carried_count = len(carried)
+    payloads_list.extend(carried)
+    carried_sources = (
+        _previous_report_sources(final_report, refreshed) if merge_unrefreshed else []
+    )
     discarded: dict[str, int] = {}
     pruned_jobs: list[dict[str, Any]] = []
     if prune:
         from job_radar.cleanup import prune_payloads
 
-        payloads_list, discarded = prune_payloads(
-            payloads_list,
+        protected = {id(payload) for payload in carried if payload.get("source") in partial}
+        _, discarded = prune_payloads(
+            (payload for payload in payloads_list if id(payload) not in protected),
             keep_urls=keep_urls,
             max_age_days=max_age_days,
             rules=rules,
             removed_jobs=pruned_jobs,
         )
+        removed = {id(payload) for payload in pruned_jobs}
+        payloads_list = [payload for payload in payloads_list if id(payload) not in removed]
     payloads = tuple(payloads_list)
     yield_by_source = _yield_by_source(payloads, pruned_jobs)
     discarded_jobs = _discarded_to_keep(

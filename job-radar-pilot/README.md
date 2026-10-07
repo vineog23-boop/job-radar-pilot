@@ -505,7 +505,7 @@ Todo o resto da limpeza fica no menu próprio **Limpeza** (botão no topo do pai
 2. **Limpar o que já está salvo** — ao abrir o menu, a prévia já mostra quantas vagas seriam removidas, por motivo, com exemplos (título, empresa, portal). Há uma opção para remover também as vagas que você marcou como *descartadas*.
 3. **Desfazer** — antes de limpar, as vagas removidas vão para `vagas.antes-da-limpeza.jsonl`; o botão *Desfazer última limpeza* devolve todas (a cópia vale para a última limpeza).
 
-Vagas que você marcou como salva ou aplicada nunca são apagadas. Se o arquivo de acompanhamento (`tracking.json`) estiver ilegível, a limpeza do painel recusa e a coleta grava tudo sem descartar, para não apagar justamente as vagas que você salvou. Se o `vagas.jsonl` tiver uma linha estragada, limpar, desfazer e reaplicar recusam e avisam em vez de regravar o arquivo sem ela.
+Vagas que você marcou como salva ou aplicada nunca são apagadas. Se o arquivo de acompanhamento (`tracking.json`) estiver ilegível, a limpeza do painel recusa e a coleta grava tudo sem descartar, para não apagar justamente as vagas que você salvou. A coleta preserva também vagas acompanhadas que não reapareceram e as vagas anteriores dos portais bloqueados ou incompletos, mantendo a data em que foram observadas. Se o acompanhamento ficar ilegível durante a busca, todas as vagas anteriores são preservadas. Gravações simultâneas do acompanhamento mantêm as URLs, notas e datas de cada etapa. Se o `vagas.jsonl` tiver uma linha estragada, coletar, limpar, desfazer e reaplicar recusam e avisam em vez de regravar o arquivo sem ela.
 ## Rotina diária e portais de tecnologia
 
 - `collect --tech-only` consulta apenas portais marcados com `tech_focus: true` em `config/sources.yaml`.

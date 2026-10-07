@@ -1161,6 +1161,24 @@ def _dashboard_handler(
                     return
                 self._json(200, payload)
                 return
+            if path == "/api/tracking/insights":
+                from job_radar.preferences import preferences_from_dict
+                from job_radar.reclassify import read_payloads, tracking_insights
+
+                try:
+                    profile, _ = self._profile_for(
+                        preferences_from_dict(self._load_preferences_payload())
+                    )
+                    payload = tracking_insights(
+                        read_payloads(controller.output_dir),
+                        tracking_store.load(),
+                        profile,
+                    )
+                except (OSError, ValueError, TrackingError) as exc:
+                    self._json(500, {"error": str(exc)})
+                    return
+                self._json(200, payload)
+                return
             if path == "/api/presets/terms":
                 from job_radar.presets import (
                     MAX_SEARCH_TERMS,

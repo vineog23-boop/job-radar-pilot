@@ -92,12 +92,19 @@ Texto original:
 - Pronto quando: teste com cada alias casando nos dois sentidos, sem falso positivo ("js" não
   casa com "jsp"; "go" não casa com "google" nem com "go-live").
 
-### 1.3 Aprender com o que o usuário salva e descarta
-- O acompanhamento (`tracking.json`: SAVED/APPLIED/DISCARDED) é um rótulo humano grátis. Gerar
-  sugestões: termos/empresas muito mais frequentes nas descartadas do que nas salvas →
-  "Proibidas"/"Empresas a evitar"; o inverso → "Diferenciais"/"Favoritas". Só sugerir; o usuário
-  clica para aplicar (mesmo estilo dos chips de "Aparecem muito nas suas vagas").
-- Pronto quando: teste com tracking simulado gera sugestões coerentes e nada é aplicado sozinho.
+### ✅ 1.3 Aprender com o que o usuário salva e descarta — FEITO em 07/10/2026
+- Feito: `reclassify.tracking_insights()` cruza `vagas.jsonl` com `tracking.json`
+  (salva/aplicada/entrevista/oferta = sinal positivo; descartada = negativo; recusada pela
+  empresa não conta para nenhum lado) e sugere empresas/tecnologias só quando o sinal é claro
+  (aparece pelo menos `min_count` vezes de um lado e menos vezes do outro; empate não sugere).
+  Nunca aplica sozinho: `/api/tracking/insights` devolve a evidência (contagem dos dois lados) e
+  o painel mostra chips — igual ao padrão já usado em "Aparecem muito nas suas vagas" — perto de
+  Diferenciais, Proibidas, Empresas a evitar e Empresas favoritas; o clique é que adiciona.
+- Testado: 7 testes novos da função pura (`tests/test_tracking_insights.py`) + 1 teste de API
+  (`test_api_tracking_insights`); suíte inteira (1093 testes) e Ruff continuam verdes.
+- **Não verificado visualmente** no painel real: havia um processo já rodando com dados reais do
+  usuário na porta 8765, e reiniciá-lo para testar exigiria derrubar o painel que ele pode estar
+  usando. Reabra pelo atalho (mata o processo antigo e carrega o `app.js` novo) para ver os chips.
 
 ### ✅ 1.4 Medir o classificador — FEITO em 01/10/2026 (falta o gabarito humano)
 - Feito: `job-radar avaliar` (`src/job_radar/evaluation.py`) com `--salvar`/`--base` e
@@ -227,8 +234,8 @@ Texto original:
 
 ## Ordem sugerida
 
-~~1.4 → 1.1 → 1.2 → 4.4 → 4.5~~ (feitos) → gabarito humano do 1.4 → 1.3 → 3.1 → 2.3 → 4.2 →
-4.1 → 2.2 → restante.
+~~1.4 → 1.1 → 1.2 → 4.4 → 4.5~~ (feitos) → gabarito humano do 1.4 (pendente do usuário) →
+~~1.3~~ (feito) → 3.1 → 2.3 → 4.2 → 4.1 → 2.2 → restante.
 
 ## Já feito (não refazer)
 

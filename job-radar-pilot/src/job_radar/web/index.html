@@ -369,11 +369,19 @@
                 <label for="bonus-keywords-entry"><h4>Diferenciais</h4></label>
                 <small>Não excluem nada: sobem a vaga no ranking e no score.</small>
                 <textarea id="bonus-keywords" class="tag-source" rows="2" aria-label="Diferenciais" data-placeholder="ex.: microsserviços, aws, kafka"></textarea>
+                <div id="tracking-favorite-keywords" class="insights" hidden>
+                  <small>Aparecem muito nas vagas que você salvou/aplicou e não nas que descartou:</small>
+                  <div id="tracking-favorite-keywords-chips" class="chip-row"></div>
+                </div>
               </div>
               <div class="exclusion-block tag-field">
                 <label for="blocked-keywords-entry"><h4>Proibidas na vaga</h4></label>
                 <small>Em qualquer parte (cargo ou descrição) tiram a vaga do perfil.</small>
                 <textarea id="blocked-keywords" class="tag-source" rows="2" aria-label="Palavras proibidas na vaga" data-placeholder="ex.: cnh, viagens, comissão"></textarea>
+                <div id="tracking-avoid-keywords" class="insights" hidden>
+                  <small>Aparecem muito nas vagas que você descartou e não nas que salvou:</small>
+                  <div id="tracking-avoid-keywords-chips" class="chip-row"></div>
+                </div>
               </div>
               <div class="exclusion-block tag-field">
                 <label for="excluded-terms-entry"><h4>Proibidas no cargo</h4></label>
@@ -384,12 +392,20 @@
                 <label for="excluded-companies-entry"><h4>Empresas a evitar</h4></label>
                 <small>Vagas dessas empresas ficam fora do perfil.</small>
                 <textarea id="excluded-companies" class="tag-source" rows="2" aria-label="Empresas a evitar" data-placeholder="nome da empresa"></textarea>
+                <div id="tracking-avoid-companies" class="insights" hidden>
+                  <small>Você descartou várias vagas dessas empresas e não salvou nenhuma:</small>
+                  <div id="tracking-avoid-companies-chips" class="chip-row"></div>
+                </div>
               </div>
               <div class="exclusion-block tag-field">
                 <label for="favorite-companies-entry"><h4>Empresas favoritas</h4></label>
                 <small>Sobem no ranking quando aparecem.</small>
                 <textarea id="favorite-companies" class="tag-source" rows="2" aria-label="Empresas favoritas" data-placeholder="nome da empresa"></textarea>
                 <div id="company-insights" class="chip-row insights-row"></div>
+                <div id="tracking-favorite-companies" class="insights" hidden>
+                  <small>Você salvou/aplicou em várias vagas dessas empresas e não descartou nenhuma:</small>
+                  <div id="tracking-favorite-companies-chips" class="chip-row"></div>
+                </div>
               </div>
               <fieldset class="exclusion-block">
                 <legend>Tipo de contrato</legend>

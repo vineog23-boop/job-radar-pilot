@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from threading import Thread
@@ -31,6 +32,8 @@ from job_radar.presets import (
     suggest,
 )
 from job_radar.reclassify import insights, reclassify_output, reclassify_payloads
+
+_NOW = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc)
 
 PROFILE = SearchProfile(
     positive_keywords=("java", "spring boot"),
@@ -366,6 +369,26 @@ def test_api_stacks_preview_reapply_and_insights(tmp_path: Path) -> None:
     assert preview_status == 200 and preview["dry_run"] is True and preview["exclude"] == 1
     assert save_status == 200 and saved["reapplied"]["exclude"] == 1
     assert {"technologies", "companies"} <= set(insight)
+
+
+def test_api_tracking_insights(tmp_path: Path) -> None:
+    from job_radar.tracking import TrackingStore
+
+    _write(_saved_records(), tmp_path / "output")
+    store = TrackingStore(tmp_path / "tracking.json")
+    store.set_status("https://ats.test/1", "SAVED", now=_NOW)
+    store.set_status("https://ats.test/2", "DISCARDED", now=_NOW)
+    server, thread, base = _server(tmp_path)
+    try:
+        status, payload = _call(f"{base}/api/tracking/insights")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status == 200
+    assert payload["sample"] == {"saved": 1, "discarded": 1}
+    assert {"companies_avoid", "companies_favorite", "keywords_avoid", "keywords_favorite"} <= set(payload)
 
 
 def test_dashboard_custom_stack_tags_and_impact(tmp_path: Path) -> None:

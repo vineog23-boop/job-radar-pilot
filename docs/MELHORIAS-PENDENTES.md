@@ -192,7 +192,11 @@ Texto original:
 - ◐ 3.4 (PARCIAL 01/10: celular em cartões sem rolagem horizontal, foco visível; falta auditoria
   WCAG completa) **Acessibilidade e mobile**: auditoria WCAG AA (contraste, foco visível, navegação por
   teclado nos chips/etiquetas, `aria-pressed`/`aria-live`), e layout em tela estreita.
-- 3.5 Explicar o score na tabela (tooltip com os pontos de cada critério e diferenciais).
+- ✅ 3.5 (FEITO 07/10: `scoreBreakdown()` no `app.js` separa os 20 pontos de cada critério
+  confirmado — Tecnologia/Nível/Local/Modelo —, +10 de "Mais compatível", diferenciais/empresa
+  favorita e o bônus de recência; o total nunca diverge do score real, mesmo em vagas antigas
+  sem os rótulos individuais) **Explicar o score na tabela**: pontos de cada critério e
+  diferenciais, visível ao abrir o detalhe da vaga.
 
 ---
 

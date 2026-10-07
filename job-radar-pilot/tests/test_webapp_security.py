@@ -139,7 +139,7 @@ def test_post_with_foreign_origin_is_refused(dashboard) -> None:
     assert dashboard["controller"].run_flags()["stopping"] is False
 
 
-@pytest.mark.parametrize("path", ["/api/tracking", "/api/state", "/api/export/csv", "/"])
+@pytest.mark.parametrize("path", ["/api/tracking", "/api/state", "/api/instance", "/api/export/csv", "/"])
 def test_rebinding_host_cannot_read_anything(dashboard, path: str) -> None:
     status, body = _request(
         f"{dashboard['base']}{path}",

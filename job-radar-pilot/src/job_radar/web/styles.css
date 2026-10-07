@@ -403,3 +403,6 @@ details.refine > summary small { flex-basis: 100%; color: var(--muted); font-siz
 .age-custom { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .age-custom[hidden] { display: none; }
 .age-custom label { display: inline-flex; align-items: center; gap: 4px; }
+
+input[type="checkbox"] { width: 17px; height: 17px; flex: 0 0 17px; accent-color: var(--accent); }
+input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

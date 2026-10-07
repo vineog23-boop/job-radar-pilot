@@ -11,7 +11,9 @@ se o processo morrer, o próprio sistema a solta, então não sobra trava presa.
 
 from __future__ import annotations
 
+import errno
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -92,3 +94,48 @@ def is_output_locked(output_dir: Path) -> bool:
             return False
     except OutputBusyError:
         return True
+
+
+class FileLock:
+    """Serializa leitura-modificação-gravação de um arquivo, com espera.
+
+    A trava usa um arquivo auxiliar estável: substituir o JSON atomicamente
+    não troca o arquivo que o sistema operacional está travando.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path.with_name(path.name + ".lock")
+        self._file: Any | None = None
+
+    def __enter__(self) -> "FileLock":
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        handle = self._path.open("a+b")
+        try:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"0")
+                handle.flush()
+            while True:
+                handle.seek(0)
+                try:
+                    _lock(handle)
+                    break
+                except OSError as error:
+                    if error.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                        raise
+                    time.sleep(0.02)
+        except BaseException:
+            handle.close()
+            raise
+        self._file = handle
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        if self._file is None:
+            return
+        try:
+            self._file.seek(0)
+            _unlock(self._file)
+        finally:
+            self._file.close()
+            self._file = None

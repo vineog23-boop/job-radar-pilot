@@ -9,35 +9,42 @@ permissions:
 
 jobs:
   pytest:
-    # Windows: é a plataforma real do projeto e os launchers .ps1 esperam .venv\Scripts.
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            python: job-radar-pilot/.venv/Scripts/python.exe
+          - os: macos-latest
+            python: job-radar-pilot/.venv/bin/python
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     defaults:
       run:
-        shell: pwsh
+        shell: bash
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
-        id: python
         with:
           python-version: "3.13"
-
       - name: Clonar Scrapling fixado em v0.4.15
         run: git clone --depth 1 --branch v0.4.15 https://github.com/D4Vinci/Scrapling vendor/Scrapling
-
-      - name: Criar venv isolada (mesmo local do setup.ps1)
+      - name: Criar venv isolada
         run: |
-          & "${{ steps.python.outputs.python-path }}" -m venv job-radar-pilot\.venv
-          $py = "job-radar-pilot\.venv\Scripts\python.exe"
-          & $py -m pip install --upgrade pip
-          & $py -m pip install -e "vendor/Scrapling[fetchers]" -e "job-radar-pilot[test]"
-          & $py -m playwright install chromium
-
+          python -m venv job-radar-pilot/.venv
+          "${{ matrix.python }}" -m pip install --upgrade pip
+          "${{ matrix.python }}" -m pip install -e "vendor/Scrapling[fetchers]" -e "job-radar-pilot[test]"
+          "${{ matrix.python }}" -m playwright install chromium
+      - name: Conferir dependências
+        run: '"${{ matrix.python }}" -m pip check'
+      - name: Conferir sintaxe dos launchers macOS
+        if: runner.os == 'macOS'
+        run: |
+          bash -n scripts/setup-mac.sh
+          bash -n "Radar de Vagas.command"
       - name: Lint (ruff: erros reais, sem estilo)
-        run: job-radar-pilot\.venv\Scripts\python.exe -m ruff check job-radar-pilot/src job-radar-pilot/tests --config job-radar-pilot/pyproject.toml
-
+        run: '"${{ matrix.python }}" -m ruff check job-radar-pilot/src job-radar-pilot/tests --config job-radar-pilot/pyproject.toml'
       - name: Rodar testes (sem rede para os portais)
         env:
           PYTHONPATH: job-radar-pilot/src
-        run: job-radar-pilot\.venv\Scripts\python.exe -m pytest job-radar-pilot/tests -q
+        run: '"${{ matrix.python }}" -m pytest job-radar-pilot/tests -q -p no:cacheprovider'

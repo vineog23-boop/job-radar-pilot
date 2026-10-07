@@ -54,12 +54,15 @@
           <div class="action-group" role="group" aria-labelledby="group-list">
             <span id="group-list" class="action-group-title">Lista</span>
             <div class="secondary-actions">
+              <button id="verify-links-button" class="ghost-button action-button" type="button" title="Verifica até 80 vagas compatíveis; login, bloqueio ou ausência de evidência ficam não comprovados">Verificar disponibilidade</button>
               <button id="cleanup-button" class="ghost-button action-button" type="button" aria-expanded="false" aria-controls="cleanup-panel">Limpeza</button>
               <button id="export-button" class="ghost-button action-button export-button" type="button" aria-expanded="false" aria-controls="export-panel">Exportar vagas</button>
             </div>
           </div>
         </div>
       </section>
+
+      <p id="verification-status" class="live-status" aria-live="polite"></p>
 
       <div id="news-banner" class="news-banner" role="status" hidden>
         <span class="news-dot" aria-hidden="true"></span>
@@ -88,7 +91,7 @@
           <div><p class="eyebrow">EXPORTAR</p><h2 id="export-title">Exportar só as melhores vagas</h2></div>
           <button id="close-export" class="ghost-button" type="button">Fechar</button>
         </div>
-        <p class="panel-copy">Escolha um atalho e ajuste se quiser. A planilha sai ordenada pelo Score (aderência ao seu perfil + recência), com filtros, cores e links clicáveis, e só com vagas de tecnologia.</p>
+        <p class="panel-copy">Esta exportação usa os filtros deste painel, independentemente dos filtros da tabela. Escolha um atalho e ajuste se quiser. A planilha sai ordenada pelo Score (aderência ao seu perfil + recência), com filtros, cores e links clicáveis, e só com vagas de tecnologia. As melhores vagas excluem as encerradas, mesmo sem limite de período.</p>
         <div class="export-presets" role="group" aria-label="Atalhos de exportação">
           <button type="button" class="chip" data-preset="best" aria-pressed="true">Melhores para mim</button>
           <button type="button" class="chip" data-preset="fit" aria-pressed="false">Compatíveis + a revisar</button>
@@ -146,9 +149,12 @@
           <a id="export-md" class="ghost-button" href="/api/export/markdown" download>Relatório (.md)</a>
           <a id="export-xlsx" class="primary-button compact-button" href="/api/export/xlsx" download>Baixar planilha (.xlsx)</a>
         </div>
-        <p class="export-table-note">Prefere exportar exatamente o que está na tabela agora, com os filtros dela?
-          <a id="download-report" href="/api/export/markdown" download>Relatório (.md)</a> ·
-          <a id="download-csv" href="/api/export/csv?tracked=active" download>CSV</a></p>
+        <p class="export-table-note">Exportar a tabela: todos os resultados dos filtros atuais, na mesma ordem, inclusive as linhas ainda não exibidas.
+          <a id="download-report" href="#" download>Relatório da tabela (.md)</a> ·
+          <a id="download-csv" href="#" download>CSV da tabela</a> ·
+          <a id="download-xlsx" href="#" download>Planilha da tabela (.xlsx)</a> ·
+          <a id="download-ai" href="#" download>Texto da tabela para IA</a></p>
+        <p id="table-export-status" class="preferences-status" aria-live="polite"></p>
         <section class="auto-export" aria-labelledby="auto-export-title">
           <h3 id="auto-export-title">Exportação automática</h3>
           <p class="panel-copy">Ao fim de cada busca (inclusive a agendada) o Radar salva nesta pasta a planilha das melhores vagas e um CSV com todas as de TI. O arquivo <strong>ultima-busca.xlsx</strong> é sempre o mais recente.</p>
@@ -333,8 +339,13 @@
             </span>
           </label>
           <div class="wide-field tag-field">
-            <label for="technologies-entry"><strong>6 · Tecnologias que pesam na aderência</strong></label>
-            <small>Digite e tecle Enter (ou vírgula); cole uma lista para adicionar várias. A vaga precisa citar ao menos uma tecnologia principal para ser "Mais compatível". Em branco usa o perfil padrão.</small>
+            <label for="primary-technologies-entry"><strong>6 · Stack principal</strong></label>
+            <small>A vaga precisa citar ao menos uma principal para ser "Mais compatível". Várias principais são alternativas. Em branco mantém a classificação anterior.</small>
+            <textarea id="primary-technologies" class="tag-source" rows="2" maxlength="2440" aria-label="Stack principal" data-placeholder="ex.: java"></textarea>
+          </div>
+          <div class="wide-field tag-field">
+            <label for="technologies-entry"><strong>Tecnologias complementares</strong></label>
+            <small>Ajudam a avaliar a vaga, mas não substituem a principal. Digite e tecle Enter (ou vírgula).</small>
             <textarea id="technologies" class="tag-source" rows="3" maxlength="2440" aria-label="Tecnologias" data-placeholder="ex.: java, spring boot, sql"></textarea>
             <div id="tech-insights" class="insights" hidden>
               <small>Aparecem muito nas vagas de TI que você já tem — clique para adicionar:</small>
@@ -395,7 +406,7 @@
             </div>
           </details>
           <div class="preferences-footer">
-            <label class="check-option"><input id="reapply-saved" type="checkbox" checked> Reaplicar às vagas já salvas</label>
+            <small>Salvar ou ativar um perfil também aplica as preferências às vagas já salvas.</small>
             <button id="preview-preferences" class="ghost-button" type="button" title="Mostra quantas vagas da lista ficariam compatíveis, sem salvar">Ver impacto</button>
             <p id="preferences-status" class="preferences-status" aria-live="polite"></p>
             <button id="save-preferences" class="primary-button compact-button" type="submit">Salvar configurações</button>
@@ -444,11 +455,12 @@
           </label>
           <label>
             <span class="sr-only">Período de publicação</span>
-            <select id="age-filter" title="Vagas sem data de publicação só aparecem em &quot;Qualquer data&quot;">
+            <select id="age-filter" title="Filtrar pela data de publicação informada no portal">
               <option value="7">Últimos 7 dias</option>
               <option value="15">Últimos 15 dias</option>
               <option value="30" selected>Últimos 30 dias</option>
               <option value="custom">Personalizado…</option>
+              <option value="undated">Sem data de publicação</option>
               <option value="">Qualquer data</option>
             </select>
           </label>
@@ -500,6 +512,7 @@
           <button type="button" class="chip" data-quick="recent" aria-pressed="false" title="Publicadas nos últimos 7 dias">Últimos 7 dias</button>
         </div>
 
+        <button id="show-undated" class="ghost-button" type="button" hidden>Ver vagas sem data de publicação</button>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Vaga</th><th>Empresa</th><th>Local</th><th>Origem</th><th>Aderência</th><th>Acompanhamento</th><th><span class="sr-only">Abrir</span></th></tr></thead>

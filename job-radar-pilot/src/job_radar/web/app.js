@@ -1,6 +1,16 @@
 "use strict";
 
+const PUBLIC_SOURCE_NAMES = {
+  "inhire-programmers": "InHire — Programmers",
+  "inhire-bionexo": "InHire — Bionexo",
+  "ciandt": "CI&T",
+  "greenhouse-abinbev": "Greenhouse — AB InBev",
+};
+function sourceLabel(code) { return PUBLIC_SOURCE_NAMES[code] || code || "—"; }
+
 const elements = {
+  verifyLinksButton: document.querySelector("#verify-links-button"),
+  verificationStatus: document.querySelector("#verification-status"),
   searchButton: document.querySelector("#search-button"),
   liveStatus: document.querySelector("#live-status"),
   textFilter: document.querySelector("#text-filter"),
@@ -14,11 +24,15 @@ const elements = {
   ageTo: document.querySelector("#age-to"),
   trackingFilter: document.querySelector("#tracking-filter"),
   downloadCsv: document.querySelector("#download-csv"),
+  downloadXlsx: document.querySelector("#download-xlsx"),
+  downloadAi: document.querySelector("#download-ai"),
+  tableExportStatus: document.querySelector("#table-export-status"),
   tableBody: document.querySelector("#jobs-table-body"),
   emptyState: document.querySelector("#empty-state"),
   emptyTitle: document.querySelector("#empty-title"),
   emptyText: document.querySelector("#empty-text"),
   emptyClear: document.querySelector("#empty-clear"),
+  showUndated: document.querySelector("#show-undated"),
   visibleCount: document.querySelector("#visible-count"),
   sourceStatuses: document.querySelector("#source-statuses"),
   toggleSources: document.querySelector("#toggle-sources"),
@@ -36,6 +50,7 @@ const elements = {
   searchTerms: document.querySelector("#search-terms"),
   locationScopes: document.querySelector("#location-scopes"),
   technologies: document.querySelector("#technologies"),
+  primaryTechnologies: document.querySelector("#primary-technologies"),
   excludedTerms: document.querySelector("#excluded-terms"),
   requiredKeywords: document.querySelector("#required-keywords"),
   bonusKeywords: document.querySelector("#bonus-keywords"),
@@ -44,7 +59,6 @@ const elements = {
   favoriteCompanies: document.querySelector("#favorite-companies"),
   contractBoxes: [...document.querySelectorAll("#contract-clt, #contract-pj, #contract-freelance")],
   avoidEnglish: document.querySelector("#avoid-english"),
-  reapplySaved: document.querySelector("#reapply-saved"),
   previewPreferences: document.querySelector("#preview-preferences"),
   preferencesImpact: document.querySelector("#preferences-impact"),
   searchTermsCount: document.querySelector("#search-terms-count"),
@@ -246,7 +260,8 @@ function passesQuickFilters(job) {
   if (levels.length && !levels.some((level) => hasLevel(job, level))) return false;
   if (quickFilters.has("recent")) {
     const published = publishedTime(job);
-    if (published === -Infinity || Date.now() - published > 7 * 86400000) return false;
+    const age = Date.now() - published;
+    if (published === -Infinity || age < 0 || age > 7 * 86400000) return false;
   }
   return true;
 }
@@ -343,7 +358,7 @@ function jobScore(job) {
   const published = publishedTime(job);
   if (published !== -Infinity) {
     const days = (Date.now() - published) / 86400000;
-    const bonus = days <= 3 ? 10 : days <= 7 ? 7 : days <= 14 ? 4 : days <= 30 ? 2 : 0;
+    const bonus = days < 0 ? 0 : days <= 3 ? 10 : days <= 7 ? 7 : days <= 14 ? 4 : days <= 30 ? 2 : 0;
     score += bonus;
   }
   return Math.min(100, score);
@@ -407,6 +422,7 @@ const ROW_PAGE_SIZE = 300;
 let visibleRows = ROW_PAGE_SIZE;
 let configuredSources = [];
 const REASON_LABELS = [
+  ["PRIMARY_TECH_MISSING:", "stack principal não confirmada na vaga"],
   ["RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"],
   ["SENIORITY_MISMATCH:", "nível acima do desejado"],
   ["LOCATION_MISMATCH:", "fora das localidades escolhidas"],
@@ -515,8 +531,8 @@ function searchValues(value) {
   return [value];
 }
 
-// Período de publicação: sem data comprovada ou com prazo vencido, a vaga não
-// entra numa janela de dias; "Qualquer data" mostra tudo.
+// Período considera apenas publicação; sem data comprovada, a vaga aparece
+// somente em "Qualquer data". Prazo vencido é tratado pelo filtro de situação.
 // Espelha job_radar/activity.py: situação derivada dos dados salvos.
 const LISTING_FRESH_MS = 7 * 86400000;
 function activityState(job) {
@@ -524,14 +540,21 @@ function activityState(job) {
   const published = Date.parse(job.published_at ?? "");
   const deadline = Date.parse(job.application_deadline ?? "");
   if (!Number.isNaN(deadline) && deadline < now) return "CLOSED";
-  if (Number.isNaN(published) || published > now) return "UNKNOWN";
-  if (!Number.isNaN(deadline)) return "ACTIVE_CONFIRMED";
+  const labels = job.match_labels || [];
+  const checkedLabel = labels.find((label) => label.startsWith("LINK_CHECKED_AT:"));
+  const checked = Date.parse(checkedLabel?.slice("LINK_CHECKED_AT:".length) || "");
+  if (!Number.isNaN(checked) && checked <= now && now - checked <= LISTING_FRESH_MS) {
+    if (labels.includes("LINK:DEAD")) return "CLOSED";
+    if (labels.includes("LINK:LIVE") && labels.includes("LINK_CHECK_METHOD:JOB_DETAIL_V2")) return "ACTIVE_CONFIRMED";
+  }
+  if (!Number.isNaN(published) && published > now) return "UNKNOWN";
+  if (!Number.isNaN(published) && !Number.isNaN(deadline)) return "ACTIVE_CONFIRMED";
   const observed = Date.parse(job.observed_at ?? "");
-  return !Number.isNaN(observed) && now - observed <= LISTING_FRESH_MS ? "ACTIVE_LISTED" : "UNKNOWN";
+  return !Number.isNaN(observed) && observed <= now && now - observed <= LISTING_FRESH_MS ? "ACTIVE_LISTED" : "UNKNOWN";
 }
 
 const ACTIVITY_LABELS = {
-  ACTIVE_CONFIRMED: "ativa (prazo em aberto)",
+  ACTIVE_CONFIRMED: "ativa (evidência recente ou prazo em aberto)",
   ACTIVE_LISTED: "listada na última busca",
   CLOSED: "encerrada",
   UNKNOWN: "situação não comprovada",
@@ -553,7 +576,7 @@ function syncAgeCustom() {
 // Intervalo personalizado: datas inicial e final inclusivas, em horário de Brasília.
 function inCustomRange(job, from, to) {
   const published = publishedTime(job);
-  if (published === -Infinity) return false;
+  if (published === -Infinity || published > Date.now()) return false;
   if (from && published < Date.parse(`${from}T00:00:00-03:00`)) return false;
   if (to && published > Date.parse(`${to}T23:59:59.999-03:00`)) return false;
   return true;
@@ -563,12 +586,13 @@ function passesAgeFilter(job) {
   if (elements.ageFilter.value === "custom") {
     return inCustomRange(job, elements.ageFrom.value, elements.ageTo.value);
   }
+  if (elements.ageFilter.value === "undated") return publishedTime(job) === -Infinity;
   const days = Number(elements.ageFilter.value);
   if (!days) return true;
   const published = publishedTime(job);
-  if (published === -Infinity || Date.now() - published > days * 86400000) return false;
-  const deadline = Date.parse(job.application_deadline ?? "");
-  return Number.isNaN(deadline) || deadline >= Date.now();
+  const age = Date.now() - published;
+  if (published === -Infinity || age < 0 || age > days * 86400000) return false;
+  return true;
 }
 
 function filteredJobs() {
@@ -601,9 +625,10 @@ function filteredJobs() {
     const offTopic = isOffTopic(job);
     if (match === "offtopic") {
       if (!offTopic) return false;
-    } else if (match !== "all" && offTopic) {
+    } else if (match !== "all" && offTopic && (match || ["active", "new", ""].includes(tracked))) {
       return false;
     }
+    if (["ready", "fit"].includes(match) && activityState(job) === "CLOSED") return false;
     if (match === "ready" && state !== "READY") return false;
     if (match === "fit" && !["READY", "CONDITIONAL"].includes(state)) return false;
     if (match === "review" && !["CONDITIONAL", "AMBIGUOUS"].includes(state)) return false;
@@ -726,11 +751,17 @@ function textElement(tag, className, text) {
 const WORKPLACE_LABELS = { REMOTE: "Remoto", HYBRID: "Híbrido", ONSITE: "Presencial" };
 
 function renderTable() {
+  const active = document.activeElement;
+  const activeRow = active?.closest("[data-job-url]");
+  const focus = activeRow && { url: activeRow.dataset.jobUrl,
+    selector: active.classList.contains("tracking-select") ? ".tracking-select"
+      : active.classList.contains("title-cell") ? ".title-cell" : null };
   const jobs = filteredJobs();
   elements.tableBody.replaceChildren();
 
   jobs.slice(0, visibleRows).forEach((job) => {
     const row = document.createElement("tr");
+    row.dataset.jobUrl = job.canonical_url;
     const trackedStatus = trackingStatus(job);
     if (trackedStatus) row.className = `tracked-${trackedStatus.toLowerCase()}`;
     const titleCell = document.createElement("td");
@@ -775,7 +806,7 @@ function renderTable() {
     row.appendChild(locationCell);
 
     const sourceCell = document.createElement("td");
-    sourceCell.appendChild(textElement("span", "source-pill", job.source || "—"));
+    sourceCell.appendChild(textElement("span", "source-pill", sourceLabel(job.source)));
     row.appendChild(sourceCell);
 
     const matchCell = document.createElement("td");
@@ -812,6 +843,14 @@ function renderTable() {
     elements.tableBody.appendChild(row);
     if (expanded) elements.tableBody.appendChild(detailRow(job));
   });
+  if (focus?.selector) {
+    const row = [...elements.tableBody.querySelectorAll("[data-job-url]")]
+      .find((item) => item.dataset.jobUrl === focus.url);
+    row?.querySelector(focus.selector)?.focus({ preventScroll: true });
+  }
+  const undatedCount = (dashboardState.jobs ?? []).filter((job) => publishedTime(job) === -Infinity).length;
+  elements.showUndated.hidden = !undatedCount || !elements.ageFilter.value || elements.ageFilter.value === "undated";
+  elements.showUndated.textContent = `Ver ${undatedCount} ${undatedCount === 1 ? "vaga sem data de publicação" : "vagas sem data de publicação"}`;
   elements.clearFilters.hidden = filtersAreDefault();
 
   const shown = Math.min(jobs.length, visibleRows);
@@ -827,14 +866,35 @@ function renderTable() {
     ? "Confira o seu perfil em \"Configurar busca\" e clique em \"Buscar vagas agora\". A busca completa leva alguns minutos; a \"Busca rápida (TI)\" é mais curta."
     : "Nenhuma vaga combina com todos os filtros ativos. Limpe os filtros ou faça uma nova busca.";
   elements.emptyClear.hidden = noJobsYet || filtersAreDefault();
-  const reportParameters = new URLSearchParams();
-  if (elements.textFilter.value.trim()) reportParameters.set("text", elements.textFilter.value.trim());
-  if (elements.sourceFilter.value) reportParameters.set("source", elements.sourceFilter.value);
-  if (elements.matchFilter.value) reportParameters.set("match", elements.matchFilter.value);
-  if (elements.trackingFilter.value) reportParameters.set("tracked", elements.trackingFilter.value);
-  const reportQuery = reportParameters.toString();
-  elements.downloadReport.href = `/api/export/markdown${reportQuery ? `?${reportQuery}` : ""}`;
-  elements.downloadCsv.href = `/api/export/csv${reportQuery ? `?${reportQuery}` : ""}`;
+}
+
+async function downloadTableExport(format) {
+  const urls = filteredJobs().map((job) => job.canonical_url);
+  const version = outputVersion;
+  elements.tableExportStatus.textContent = "Preparando exportação da tabela…";
+  try {
+    const response = await fetch(`/api/export/${format}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls, output_version: version }),
+    });
+    if (!response.ok) {
+      const payload = await response.json();
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] || "vagas";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    elements.tableExportStatus.textContent = `${urls.length} vagas exportadas na ordem da tabela.`;
+  } catch (error) {
+    elements.tableExportStatus.textContent = `Não foi possível exportar a tabela: ${error.message}`;
+  }
 }
 
 function updateSourceFilter() {
@@ -842,7 +902,7 @@ function updateSourceFilter() {
   const sources = new Set((dashboardState.jobs ?? []).map((job) => job.source).filter(Boolean));
   (dashboardState.report?.sources ?? []).forEach((source) => sources.add(source.source));
   const options = [new Option("Todos os portais", "")];
-  [...sources].sort().forEach((source) => options.push(new Option(source, source)));
+  [...sources].sort().forEach((source) => options.push(new Option(sourceLabel(source), source)));
   elements.sourceFilter.replaceChildren(...options);
   elements.sourceFilter.value = sources.has(selected) ? selected : "";
 }
@@ -914,7 +974,7 @@ function renderSources() {
     row.className = "source-row";
     const copy = document.createElement("div");
     copy.append(
-      textElement("strong", "", source.source || "Portal"),
+      textElement("strong", "", sourceLabel(source.source)),
       textElement(
         "small",
         "",
@@ -955,9 +1015,23 @@ function renderSources() {
 
 function renderRunState() {
   const running = dashboardState.status === "RUNNING";
-  elements.searchButton.disabled = running;
-  elements.quickSearchButton.disabled = running;
-  elements.searchSelected.disabled = running;
+  const verification = dashboardState.verification || { status: "IDLE" };
+  const verifying = verification.status === "RUNNING";
+  const busy = running || verifying;
+  elements.searchButton.disabled = busy;
+  elements.quickSearchButton.disabled = busy;
+  elements.searchSelected.disabled = busy;
+  elements.verifyLinksButton.disabled = busy;
+  if (verifying) {
+    elements.verificationStatus.textContent = verification.total
+      ? `Verificando disponibilidade: ${verification.checked} de ${verification.total} páginas…`
+      : "Preparando verificação de disponibilidade…";
+  } else if (verification.status === "ERROR") {
+    elements.verificationStatus.textContent = `Verificação interrompida: ${verification.error}`;
+  } else if (verification.status === "DONE") {
+    const counts = verification.counts || {};
+    elements.verificationStatus.textContent = `Disponibilidade verificada: ${counts["LINK:LIVE"] || 0} página(s) de vaga confirmada(s), ${counts["LINK:DEAD"] || 0} página(s) encerrada(s), ${counts["LINK:UNKNOWN"] || 0} não comprovada(s). Uma página confirmada pode ter prazo vencido. Bloqueio, login ou falta de evidência impedem confirmação.`;
+  }
   elements.searchButton.classList.toggle("running", running && !dashboardState.paused);
   elements.runControls.hidden = !running;
   elements.pauseButton.textContent = dashboardState.paused ? "▶ Retomar busca" : "⏸ Pausar busca";
@@ -978,6 +1052,11 @@ function renderRunState() {
       const read = finished.reduce((sum, source) => sum + (source.records ?? 0), 0);
       message = `Buscando… ${finished.length} ${finished.length === 1 ? "portal concluído" : "portais concluídos"}, ${read} vagas lidas até agora.`;
     }
+  }
+  if (running && dashboardState.progress && !dashboardState.paused && !dashboardState.stopping) {
+    const { finished, total } = dashboardState.progress;
+    const read = Object.values(dashboardState.sources ?? {}).reduce((sum, source) => sum + (source.records ?? 0), 0);
+    message = `Buscando… ${finished} de ${total} portais concluídos, ${read} vagas lidas até agora. As vagas serão salvas ao concluir.`;
   }
   if (running && dashboardState.stopping) {
     message = "Encerrando… terminando a consulta atual e salvando as vagas.";
@@ -1025,6 +1104,16 @@ const FUNNEL_STAGES = [
 ];
 
 function setTrackingFilter(value) {
+  elements.textFilter.value = "";
+  elements.sourceFilter.value = "";
+  elements.matchFilter.value = "";
+  elements.ageFilter.value = "";
+  elements.ageFrom.value = "";
+  elements.ageTo.value = "";
+  elements.activityFilter.value = "all";
+  quickFilters.clear();
+  syncAgeCustom();
+  syncQuickChips();
   elements.trackingFilter.value = value;
   saveFilters();
   visibleRows = ROW_PAGE_SIZE;
@@ -1098,20 +1187,28 @@ function render() {
   renderSummary();
   renderNews();
   renderTable();
+  renderFunnel();
   renderSources();
   renderRunState();
 }
 
 // Versão do vagas.jsonl já desenhada: o servidor só manda as vagas se ela mudou.
 let outputVersion = "";
+let trackingVersion = "";
 
 async function refreshState() {
   window.clearTimeout(refreshTimer);
   try {
-    const query = outputVersion ? `?since=${encodeURIComponent(outputVersion)}` : "";
+    const params = new URLSearchParams();
+    if (outputVersion) params.set("since", outputVersion);
+    if (trackingVersion) params.set("tracking_since", trackingVersion);
+    const query = params.size ? `?${params}` : "";
     const response = await fetch(`/api/state${query}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const fresh = await response.json();
+    const trackingChanged = Object.hasOwn(fresh, "tracking");
+    if (trackingChanged) trackingState = fresh.tracking;
+    trackingVersion = fresh.tracking_version || "";
     if (fresh.unchanged) {
       // Mesmas vagas: atualiza progresso e resumo sem recriar a tabela (mantém
       // o foco do teclado e as linhas expandidas).
@@ -1121,6 +1218,11 @@ async function refreshState() {
         report: dashboardState.report,
         read_error: dashboardState.read_error,
       };
+      if (trackingChanged) {
+        renderTable();
+        renderFunnel();
+        renderNews();
+      }
       renderSummary();
       renderSources();
       renderRunState();
@@ -1132,7 +1234,7 @@ async function refreshState() {
   } catch (error) {
     elements.liveStatus.textContent = `Interface sem conexão com o coletor: ${error.message}`;
   }
-  const delay = dashboardState.status === "RUNNING" ? 900 : 5000;
+  const delay = dashboardState.status === "RUNNING" || dashboardState.verification?.status === "RUNNING" ? 900 : 5000;
   refreshTimer = window.setTimeout(refreshState, delay);
 }
 
@@ -1150,7 +1252,18 @@ async function loadConfiguredSources() {
   }
 }
 
+const SOURCES_KEY = "radar.selectedSources";
+
+function savePickedSources() {
+  try { localStorage.setItem(SOURCES_KEY, JSON.stringify(pickedSources())); } catch { /* Armazenamento indisponível. */ }
+}
+
 function renderSourcesPicker() {
+  let selected = null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(SOURCES_KEY) || "null");
+    if (Array.isArray(saved) && saved.every((code) => typeof code === "string")) selected = new Set(saved);
+  } catch { /* Preferência inválida: começa com todos os portais disponíveis. */ }
   elements.sourcesList.replaceChildren(
     ...configuredSources.map((source) => {
       const label = document.createElement("label");
@@ -1158,8 +1271,9 @@ function renderSourcesPicker() {
       const input = document.createElement("input");
       input.type = "checkbox";
       input.value = source.code;
-      input.checked = true;
-      label.append(input, ` ${source.code} `);
+      input.checked = selected === null || selected.has(source.code);
+      input.addEventListener("change", savePickedSources);
+      label.append(input, ` ${sourceLabel(source.code)} `);
       if (source.tech_focus) label.appendChild(textElement("span", "tech-tag", "TI"));
       return label;
     })
@@ -1175,6 +1289,7 @@ function setPicked(predicate) {
     const source = configuredSources.find((item) => item.code === input.value);
     input.checked = Boolean(source) && predicate(source);
   });
+  savePickedSources();
 }
 
 async function showSourcesPicker(show) {
@@ -1375,7 +1490,7 @@ function showExport(show) {
   const sources = new Set((dashboardState.jobs ?? []).map((job) => job.source).filter(Boolean));
   elements.exportSource.replaceChildren(
     new Option("Todos os portais", ""),
-    ...[...sources].sort().map((source) => new Option(source, source))
+    ...[...sources].sort().map((source) => new Option(sourceLabel(source), source))
   );
   elements.exportSource.value = sources.has(selected) ? selected : "";
   refreshExportLinks();
@@ -1584,6 +1699,12 @@ let termsState = { groups: [], recommended: [], limit: MAX_SEARCH_TERMS };
 const selectedTerms = new Set();
 
 function stacksForTerms() {
+  const primary = new Set(linesFrom(elements.primaryTechnologies).map(normalized));
+  if (primary.size) {
+    return (presetsState?.stacks ?? [])
+      .filter((stack) => (stack.primary_technologies ?? []).some((term) => primary.has(normalized(term))))
+      .map((stack) => stack.id);
+  }
   if (selectedStacks.size) return [...selectedStacks];
   // nenhuma stack marcada: deduz pelas tecnologias principais já preenchidas
   const techs = new Set(linesFrom(elements.technologies).map(normalized));
@@ -1635,7 +1756,7 @@ async function loadTermsBuilder() {
     selectedTerms.clear();
     renderTermsBuilder();
     elements.termsStatus.textContent =
-      "Marque ao menos uma stack acima (ou tenha a tecnologia principal dela em Tecnologias).";
+      "Informe uma stack principal conhecida ou marque uma stack acima para gerar termos.";
     return;
   }
   const query = new URLSearchParams({
@@ -1692,6 +1813,7 @@ function fillPreferencesForm(payload) {
   elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
   elements.locationScopes.value = (payload.location_scopes ?? []).join("\n");
   elements.technologies.value = (payload.technologies ?? []).join("\n");
+  elements.primaryTechnologies.value = (payload.primary_technologies ?? []).join("\n");
   elements.excludedTerms.value = (payload.excluded_terms ?? []).join("\n");
   elements.requiredKeywords.value = (payload.required_keywords ?? []).join("\n");
   elements.bonusKeywords.value = (payload.bonus_keywords ?? []).join("\n");
@@ -1740,7 +1862,8 @@ function updateProfileSummary() {
     payload.workplace_models.map((model) => MODEL_NAMES[model] || model).join(", ") || "qualquer modelo",
     listPreview(payload.location_scopes) || "sem localidade",
     `${payload.search_terms.length} ${payload.search_terms.length === 1 ? "termo" : "termos"} de busca`,
-    `${payload.technologies.length} tecnologias`,
+    payload.primary_technologies.length ? `principal: ${listPreview(payload.primary_technologies)}` : null,
+    `${payload.technologies.length} tecnologias complementares`,
   ].filter(Boolean);
   elements.profileSummary.textContent = `Você procura: ${parts.join(" · ")}`;
 }
@@ -1891,11 +2014,12 @@ async function applySuggestions() {
     if (!response.ok) throw new Error(suggestion.error || `HTTP ${response.status}`);
     if (elements.suggestMerge.checked) {
       mergeLines(elements.technologies, suggestion.technologies, 40);
-      mergeLines(elements.searchTerms, suggestion.search_terms, MAX_SEARCH_TERMS);
+      mergeLines(elements.primaryTechnologies, suggestion.primary_technologies, 40);
     } else {
       elements.technologies.value = suggestion.technologies.join("\n");
-      elements.searchTerms.value = suggestion.search_terms.join("\n");
+      elements.primaryTechnologies.value = suggestion.primary_technologies.join("\n");
     }
+    mergeLines(elements.searchTerms, suggestion.search_terms, MAX_SEARCH_TERMS);
     refreshTagInputs();
     updateSearchTermsCount();
     elements.preferencesStatus.textContent =
@@ -1955,6 +2079,7 @@ function currentPreferencesPayload() {
     ]),
     location_scopes: linesFrom(elements.locationScopes),
     technologies: linesFrom(elements.technologies),
+    primary_technologies: linesFrom(elements.primaryTechnologies),
     excluded_terms: linesFrom(elements.excludedTerms),
     required_keywords: linesFrom(elements.requiredKeywords),
     bonus_keywords: linesFrom(elements.bonusKeywords),
@@ -2046,7 +2171,9 @@ async function saveProfile() {
     renderProfiles(payload);
     linkedinLoaded = false;
     elements.profileName.value = "";
-    elements.preferencesStatus.textContent = `Perfil "${name}" salvo e ativado.`;
+    fillPreferencesForm(payload.preferences ?? {});
+    await refreshState();
+    elements.preferencesStatus.textContent = `Perfil "${name}" salvo e ativado. Perfil aplicado às vagas salvas.`;
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível salvar o perfil: ${error.message}`;
   }
@@ -2061,7 +2188,8 @@ async function switchProfile() {
     renderProfiles(payload);
     fillPreferencesForm(payload.preferences ?? {});
     linkedinLoaded = false;
-    elements.preferencesStatus.textContent = `Perfil "${name}" ativado. Clique em Buscar vagas agora.`;
+    await refreshState();
+    elements.preferencesStatus.textContent = `Perfil "${name}" ativado. Perfil aplicado às vagas salvas.`;
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível ativar: ${error.message}`;
   }
@@ -2270,8 +2398,7 @@ async function savePreferences(event) {
     return;
   }
   try {
-    const reapply = elements.reapplySaved.checked;
-    const response = await fetch(`/api/preferences${reapply ? "?reapply=1" : ""}`, {
+    const response = await fetch("/api/preferences", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -2280,14 +2407,11 @@ async function savePreferences(event) {
     if (!response.ok) throw new Error(saved.error || `HTTP ${response.status}`);
     preferencesLoaded = true;
     linkedinLoaded = false;
-    elements.preferencesStatus.textContent = "Configurações salvas. Clique em Buscar vagas agora quando quiser.";
+    elements.preferencesStatus.textContent = "Configurações salvas. Perfil aplicado às vagas salvas.";
     if (saved.reapplied) {
       elements.preferencesImpact.hidden = false;
       elements.preferencesImpact.textContent = impactText(saved.reapplied, "Reaplicado às vagas salvas:");
       await refreshState();
-    } else if (saved.reapply_skipped) {
-      elements.preferencesImpact.hidden = false;
-      elements.preferencesImpact.textContent = saved.reapply_skipped;
     }
   } catch (error) {
     elements.preferencesStatus.textContent = `Não foi possível salvar: ${error.message}`;
@@ -2295,6 +2419,21 @@ async function savePreferences(event) {
     saveButton.disabled = false;
   }
 }
+
+elements.verifyLinksButton.addEventListener("click", async () => {
+  elements.verifyLinksButton.disabled = true;
+  try {
+    const response = await fetch("/api/verify-links", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    await refreshState();
+  } catch (error) {
+    elements.verificationStatus.textContent = `Não foi possível verificar: ${error.message}`;
+    elements.verifyLinksButton.disabled = false;
+  }
+});
 
 elements.searchButton.addEventListener("click", () => startSearch());
 elements.quickSearchButton.addEventListener("click", startQuickSearch);
@@ -2321,6 +2460,14 @@ elements.stackChips.addEventListener("click", () => window.setTimeout(updateProf
 elements.applySuggestions.addEventListener("click", applySuggestions);
 document.querySelectorAll("textarea.tag-source").forEach(setupTagInput);
 elements.searchTerms.addEventListener("input", updateSearchTermsCount);
+elements.primaryTechnologies.addEventListener("input", () => {
+  const levels = checkedValues(SENIORITY_BOXES());
+  const terms = linesFrom(elements.primaryTechnologies).flatMap((primary) =>
+    levels.length ? levels.map((level) => `${primary} ${level}`) : [primary]
+  );
+  mergeLines(elements.searchTerms, terms, MAX_SEARCH_TERMS);
+  updateSearchTermsCount();
+});
 elements.previewPreferences.addEventListener("click", previewPreferences);
 elements.termsBuilderToggle.addEventListener("click", () => showTermsBuilder(elements.termsBuilder.hidden));
 elements.termsRecommended.addEventListener("click", () => {
@@ -2384,6 +2531,13 @@ elements.linkedinButton.addEventListener("click", async () => {
 });
 elements.closeLinkedin.addEventListener("click", () => showLinkedin(false));
 elements.exportButton.addEventListener("click", () => showExport(elements.exportPanel.hidden));
+[
+  [elements.downloadCsv, "csv"], [elements.downloadReport, "markdown"],
+  [elements.downloadXlsx, "xlsx"], [elements.downloadAi, "ai"],
+].forEach(([link, format]) => link.addEventListener("click", (event) => {
+  event.preventDefault();
+  downloadTableExport(format);
+}));
 elements.autoExportEnabled.addEventListener("change", saveAutoExport);
 elements.autoExportSave.addEventListener("click", saveAutoExport);
 elements.autoExportRun.addEventListener("click", runAutoExport);
@@ -2427,6 +2581,17 @@ elements.linkedinImportButton.addEventListener("click", importLinkedinText);
 });
 elements.clearFilters.addEventListener("click", resetFilters);
 elements.emptyClear.addEventListener("click", resetFilters);
+elements.showUndated.addEventListener("click", () => {
+  elements.ageFilter.value = "undated";
+  elements.activityFilter.value = "all";
+  elements.matchFilter.value = "";
+  quickFilters.delete("recent");
+  syncAgeCustom();
+  syncQuickChips();
+  saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  renderTable();
+});
 elements.quickChips.forEach((chip) => chip.addEventListener("click", () => {
   const name = chip.dataset.quick;
   if (quickFilters.has(name)) quickFilters.delete(name);

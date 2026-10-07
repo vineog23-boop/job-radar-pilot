@@ -274,11 +274,31 @@ def delete_custom_stack(preferences_path: Path, stack_id: object) -> tuple[Stack
     return remaining
 
 
+# Áreas com mais de uma tecnologia principal aceitam qualquer alternativa.
+_PRIMARY_ALTERNATIVES = {
+    "node": ("node", "typescript", "javascript"),
+    "frontend": ("react", "angular", "vue"),
+    "dotnet": ("c#", ".net"),
+    "mobile": ("android", "kotlin", "ios", "swift", "flutter", "react native"),
+    "dados": ("sql", "python", "power bi"),
+    "cpp": ("c++", "linguagem c", "embarcados"),
+    "sap": ("sap", "abap"),
+    "lowcode": ("rpa", "uipath", "power automate", "power apps", "outsystems"),
+    "games": ("unity", "unreal", "game design"),
+    "ux": ("ux", "ui"),
+}
+
+
+def _primary_technologies(stack: StackPreset) -> tuple[str, ...]:
+    return _PRIMARY_ALTERNATIVES.get(stack.id, stack.technologies[:1])
+
+
 def _stack_payload(stack: StackPreset, *, custom: bool) -> dict[str, object]:
     return {
         "id": stack.id,
         "label": stack.label,
         "technologies": list(stack.technologies),
+        "primary_technologies": list(_primary_technologies(stack)),
         "queries": list(stack.queries),
         "custom": custom,
     }
@@ -466,5 +486,8 @@ def suggest(
     groups = term_catalog(stack_ids, levels, custom)
     return {
         "technologies": technologies[:40],
+        "primary_technologies": list(dict.fromkeys(
+            term for stack in stacks for term in _primary_technologies(stack)
+        ))[:40],
         "search_terms": recommended_terms(groups),
     }

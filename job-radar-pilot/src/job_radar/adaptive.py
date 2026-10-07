@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass
 import json
-import os
 from pathlib import Path
 import re
 import sqlite3
@@ -14,6 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from scrapling.parser import Adaptor
 
+from job_radar.user_paths import user_data_dir
 from job_radar.fetching import page_html
 
 
@@ -57,9 +57,7 @@ class CardSelection:
 
 
 def adaptive_db_path() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    root = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
-    return root / "JobRadar" / "adaptive" / "adaptive.db"
+    return user_data_dir() / "adaptive/adaptive.db"
 
 
 def _element(node: object) -> Any:

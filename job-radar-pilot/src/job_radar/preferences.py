@@ -8,6 +8,7 @@ import tempfile
 from typing import Iterable, Mapping
 import unicodedata
 
+from job_radar.user_paths import user_data_dir
 from job_radar.models import SearchProfile, WorkplaceModel
 
 
@@ -21,7 +22,7 @@ class SearchPreferences:
     seniority_levels: tuple[str, ...]
     workplace_models: tuple[WorkplaceModel, ...]
     location_scopes: tuple[str, ...]
-    # Vazio = usar positive_keywords/excluded_terms do profile.yaml.
+    # Tecnologias vazias usam o YAML apenas sem principal explícita.
     technologies: tuple[str, ...] = ()
     excluded_terms: tuple[str, ...] = ()
     # Refinos (todos opcionais): ver SearchProfile.
@@ -32,6 +33,7 @@ class SearchPreferences:
     favorite_companies: tuple[str, ...] = ()
     contract_types: tuple[str, ...] = ()
     avoid_advanced_english: bool = False
+    primary_technologies: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         search_terms = _validated_texts(
@@ -56,7 +58,7 @@ class SearchPreferences:
         object.__setattr__(self, "seniority_levels", seniority_levels)
         object.__setattr__(self, "workplace_models", workplace_models)
         object.__setattr__(self, "location_scopes", location_scopes)
-        for field_name in ("technologies", "excluded_terms"):
+        for field_name in ("technologies", "primary_technologies", "excluded_terms"):
             object.__setattr__(
                 self,
                 field_name,
@@ -115,6 +117,7 @@ _REQUIRED_FIELDS = {
 }
 _OPTIONAL_FIELDS = {
     "technologies",
+    "primary_technologies",
     "excluded_terms",
     *_REFINE_LIMITS,
     "contract_types",
@@ -209,9 +212,7 @@ def _validated_workplace_models(values: object) -> tuple[WorkplaceModel, ...]:
 
 
 def preferences_path() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    base = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
-    return base / "JobRadar" / "search-preferences.json"
+    return user_data_dir() / "search-preferences.json"
 
 
 def preferences_from_dict(payload: Mapping[str, object]) -> SearchPreferences:
@@ -229,6 +230,7 @@ def preferences_from_dict(payload: Mapping[str, object]) -> SearchPreferences:
         seniority_levels=payload["seniority_levels"],  # type: ignore[arg-type]
         workplace_models=payload["workplace_models"],  # type: ignore[arg-type]
         location_scopes=payload["location_scopes"],  # type: ignore[arg-type]
+        primary_technologies=payload.get("primary_technologies", ()),  # type: ignore[arg-type]
         technologies=payload.get("technologies", ()),  # type: ignore[arg-type]
         excluded_terms=payload.get("excluded_terms", ()),  # type: ignore[arg-type]
         **{name: payload.get(name, ()) for name in _REFINE_LIMITS},  # type: ignore[arg-type]
@@ -252,6 +254,7 @@ def preferences_to_dict(preferences: SearchPreferences) -> dict[str, object]:
         "workplace_models": [model.value for model in validated.workplace_models],
         "location_scopes": list(validated.location_scopes),
         "technologies": list(validated.technologies),
+        "primary_technologies": list(validated.primary_technologies),
         "excluded_terms": list(validated.excluded_terms),
         **{name: list(getattr(validated, name)) for name in _REFINE_LIMITS},
         "contract_types": list(validated.contract_types),
@@ -282,6 +285,7 @@ def load_preferences(
             workplace_models=default_profile.workplace_models,
             location_scopes=default_profile.location_scopes,
             technologies=tuple(default_profile.positive_keywords[:_MAX_FILTER_TERMS]),
+            primary_technologies=default_profile.primary_technologies,
             excluded_terms=tuple(default_profile.excluded_terms[:_MAX_FILTER_TERMS]),
         )
     try:
@@ -357,13 +361,19 @@ def apply_preferences(
         preferences.excluded_terms or profile.excluded_terms,
         preferences.seniority_levels,
     )
+    technologies = preferences.technologies or profile.positive_keywords
+    if preferences.primary_technologies:
+        technologies = tuple(dict.fromkeys(
+            (*preferences.primary_technologies, *preferences.technologies)
+        ))
     return replace(
         profile,
         search_terms=preferences.search_terms,
         seniority_levels=preferences.seniority_levels,
         workplace_models=preferences.workplace_models,
         location_scopes=preferences.location_scopes,
-        positive_keywords=preferences.technologies or profile.positive_keywords,
+        primary_technologies=preferences.primary_technologies,
+        positive_keywords=technologies,
         excluded_terms=excluded,
         required_keywords=preferences.required_keywords,
         bonus_keywords=preferences.bonus_keywords,

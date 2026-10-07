@@ -123,12 +123,12 @@ def export_after_collection(
     if output["read_error"]:
         raise ValueError(f"Não foi possível ler as vagas: {output['read_error']}")
     tracked = dict(tracking)
-    all_it = filter_jobs_for_export(output["jobs"], match="", tracked="active", tracking=tracked)
+    moment = now or datetime.now().astimezone()
+    all_it = filter_jobs_for_export(output["jobs"], match="", tracked="active", tracking=tracked, now=moment)
     if not all_it:
         return []
-    best = filter_jobs_for_export(all_it, match="fit", tracking=tracked)
+    best = filter_jobs_for_export(all_it, match="fit", tracking=tracked, now=moment)
 
-    moment = now or datetime.now().astimezone()
     stamp = moment.strftime("%Y-%m-%d-%H%M")
     folder = settings.resolved_folder
     folder.mkdir(parents=True, exist_ok=True)

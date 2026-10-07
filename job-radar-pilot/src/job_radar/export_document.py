@@ -38,6 +38,7 @@ def build_markdown_report(
     generated_at: str,
     sources: Sequence[Mapping[str, Any]] = (),
     applied_filters: Mapping[str, str] | None = None,
+    preserve_order: bool = False,
 ) -> str:
     groups: dict[str, list[Mapping[str, Any]]] = {
         "ready": [],
@@ -96,6 +97,9 @@ def build_markdown_report(
         ("other_stack", "Outra stack"),
         ("exclude", "Fora do perfil"),
     )
+    if preserve_order:
+        groups = {"selection": list(jobs)}
+        headings = (("selection", "Vagas na ordem da tabela"),)
     for key, label in headings:
         group = groups[key]
         lines.extend(("", f"## {label} ({len(group)})", ""))

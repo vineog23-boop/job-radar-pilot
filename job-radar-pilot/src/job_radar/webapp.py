@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import csv
 import io
 import json
@@ -19,9 +19,10 @@ from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
 from job_radar.dates import parse_iso_datetime
+from job_radar.activity import CLOSED, activity_state
 from job_radar.export_document import build_markdown_report
 from job_radar.fit import fit_name, fit_reasons, fit_state, is_off_topic, job_technologies
-from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock
+from job_radar.output_lock import BUSY_MESSAGE, OutputBusyError, OutputLock, is_output_locked
 from job_radar.text_cleaning import spreadsheet_safe
 from job_radar.tracking import (
     IN_PROGRESS_STATUSES,
@@ -177,13 +178,15 @@ def build_jobs_ai_text(
     tracking: dict[str, dict[str, str]],
     filters: Sequence[tuple[str, str]] = (),
     now: datetime | None = None,
+    *,
+    preserve_order: bool = False,
 ) -> bytes:
     """Markdown enxuto, ordenado por score, para colar em outra IA revisar."""
 
     from job_radar.xlsx_export import WORKPLACE_NAMES, job_score, level_name
 
     now = now or datetime.now(timezone.utc)
-    ranked = sorted(jobs, key=lambda job: -job_score(job, now))
+    ranked = jobs if preserve_order else sorted(jobs, key=lambda job: -job_score(job, now))
     lines = [
         "# Vagas de TI para revisão",
         "",
@@ -254,11 +257,7 @@ def _passes_extra_filters(
     if max_age_days is not None:
         published = parse_iso_datetime(job.get("published_at"))
         # Sem data publicada não dá para provar que é recente: fica de fora.
-        if published is None or (now - published).days > max_age_days:
-            return False
-        # Prazo vencido na página oficial: a vaga já não aceita candidatura.
-        deadline = parse_iso_datetime(job.get("application_deadline"))
-        if deadline is not None and deadline < now:
+        if published is None or published > now or (now - published).total_seconds() / 86400 > max_age_days:
             return False
     return True
 
@@ -282,6 +281,8 @@ def filter_jobs_for_export(
     now = now or datetime.now(timezone.utc)
     result: list[dict[str, Any]] = []
     for job in jobs:
+        if match in {"ready", "fit"} and activity_state(job, now) == CLOSED:
+            continue
         if source and job.get("source") != source:
             continue
         if not _passes_extra_filters(job, min_score, levels, workplaces, max_age_days, now):
@@ -303,7 +304,7 @@ def filter_jobs_for_export(
         if match == "offtopic":
             if not off_topic:
                 continue
-        elif match != "all" and off_topic:
+        elif match != "all" and off_topic and (match or tracked in {"active", "new", ""}):
             continue
         if match == "ready" and state != "READY":
             continue
@@ -452,6 +453,15 @@ def run_collection(
     )
 
 
+def run_verification(output_dir: Path, on_progress: Callable[..., None]) -> dict[str, Any]:
+    """O controlador já segura OutputLock durante toda a verificação."""
+    from job_radar.config import load_sources
+    from job_radar.link_check import verify_output
+
+    sources = load_sources(_project_root() / "config" / "sources.yaml")
+    return verify_output(output_dir, sources, on_progress=on_progress)
+
+
 class SearchController:
     def __init__(
         self,
@@ -459,19 +469,26 @@ class SearchController:
         runner: CollectionRunner = run_collection,
         *,
         workers: int = 1,
+        verification_runner: Callable[[Path, Callable[..., None]], dict[str, Any]] = run_verification,
     ) -> None:
         if workers < 1 or workers > 4:
             raise ValueError("workers deve estar entre 1 e 4")
         self._output_dir = output_dir
         self._runner = runner
         self._workers = workers
+        self._verification_runner = verification_runner
+        self._verification_thread: Thread | None = None
+        self._verification = {"status": "IDLE", "checked": 0, "total": 0, "error": None,
+                              "counts": {"LINK:LIVE": 0, "LINK:DEAD": 0, "LINK:UNKNOWN": 0}}
         self._lock = Lock()
+        self._output_mutation_active = False
         self._thread: Thread | None = None
         self._status = "IDLE"
         self._exit_code: int | None = None
         self._started_at: str | None = None
         self._finished_at: str | None = None
         self._error: str | None = None
+        self._progress: dict[str, int] | None = None
         self._sources: dict[str, dict[str, Any]] = {}
         self._logs: list[str] = []
         self._exports: list[str] = []
@@ -505,7 +522,12 @@ class SearchController:
 
     def start(self, sources: list[str] | None = None) -> bool:
         with self._lock:
-            if self._thread is not None and self._thread.is_alive():
+            if (
+                self._status == "RUNNING"
+                or self._verification["status"] == "RUNNING"
+                or self._output_mutation_active
+                or is_output_locked(self._output_dir)
+            ):
                 return False
             self._status = "RUNNING"
             self._exit_code = None
@@ -513,6 +535,7 @@ class SearchController:
             self._finished_at = None
             self._error = None
             self._sources = {}
+            self._progress = None
             self._logs = []
             self._exports = []
             self._control = "run"
@@ -530,6 +553,79 @@ class SearchController:
             )
             self._thread.start()
             return True
+
+    @contextmanager
+    def output_mutation(self):
+        """Reserva a saída sem brecha entre o estado do painel e a trava."""
+        with self._lock:
+            if (
+                self._status == "RUNNING"
+                or self._verification["status"] == "RUNNING"
+                or self._output_mutation_active
+            ):
+                raise OutputBusyError("Espere a busca ou verificação terminar.")
+            output_lock = OutputLock(self._output_dir)
+            output_lock.__enter__()
+            self._output_mutation_active = True
+        try:
+            yield
+        finally:
+            with self._lock:
+                try:
+                    output_lock.__exit__(None, None, None)
+                finally:
+                    self._output_mutation_active = False
+
+    def start_verification(self) -> bool:
+        with self._lock:
+            if (
+                self._status == "RUNNING"
+                or self._verification["status"] == "RUNNING"
+                or self._output_mutation_active
+            ):
+                return False
+            output_lock = OutputLock(self._output_dir)
+            try:
+                output_lock.__enter__()
+            except OutputBusyError:
+                return False
+            self._verification = {"status": "RUNNING", "checked": 0, "total": 0, "error": None,
+                                  "counts": {"LINK:LIVE": 0, "LINK:DEAD": 0, "LINK:UNKNOWN": 0}}
+            self._verification_thread = Thread(target=self._run_verification, args=(output_lock,),
+                                               name="job-radar-verify", daemon=True)
+            try:
+                self._verification_thread.start()
+            except Exception:
+                output_lock.__exit__(None, None, None)
+                self._verification["status"] = "ERROR"
+                raise
+            return True
+
+    def _verification_progress(self, checked: int, total: int, counts: dict[str, int]) -> None:
+        with self._lock:
+            self._verification.update(checked=checked, total=total, counts=dict(counts))
+
+    def _run_verification(self, output_lock: OutputLock) -> None:
+        error = None
+        try:
+            result = self._verification_runner(self._output_dir, self._verification_progress)
+            counts = {key: result.get(key, 0) for key in ("LINK:LIVE", "LINK:DEAD", "LINK:UNKNOWN")}
+            checked = result.get("checked", sum(counts.values()))
+            self._verification_progress(checked, checked, counts)
+        except Exception as exc:  # noqa: BLE001 - boundary de thread
+            error = str(exc)
+        finally:
+            output_lock.__exit__(None, None, None)
+            with self._lock:
+                self._verification.update(status="ERROR" if error else "DONE", error=error)
+
+    def wait_verification(self, timeout: float | None = None) -> bool:
+        with self._lock:
+            thread = self._verification_thread
+        if thread is None:
+            return True
+        thread.join(timeout=timeout)
+        return not thread.is_alive()
 
     def _run(self, sources: list[str] | None) -> None:
         try:
@@ -565,10 +661,13 @@ class SearchController:
 
     def _on_line(self, line: str) -> None:
         progress = parse_progress_line(line)
+        total_progress = re.fullmatch(r"PROGRESS: (\d+)/(\d+) portais", line.strip())
         with self._lock:
             self._logs = [*self._logs[-79:], line]
             if line.startswith("EXPORT: "):
                 self._exports.append(line.removeprefix("EXPORT: ").strip())
+            if total_progress is not None:
+                self._progress = {"finished": int(total_progress[1]), "total": int(total_progress[2])}
             if progress is not None:
                 self._sources[progress["source"]] = progress
 
@@ -584,12 +683,14 @@ class SearchController:
         with self._lock:
             state = {
                 "status": self._status,
+                "verification": {**self._verification, "counts": dict(self._verification["counts"])},
                 "paused": self._status == "RUNNING" and self._control == "pause",
                 "stopping": self._status == "RUNNING" and self._control == "stop",
                 "exit_code": self._exit_code,
                 "started_at": self._started_at,
                 "finished_at": self._finished_at,
                 "error": self._error,
+                "progress": dict(self._progress) if self._progress is not None else None,
                 "sources": dict(self._sources),
                 "logs": list(self._logs),
                 "exports": list(self._exports),
@@ -610,7 +711,7 @@ class SearchController:
 
     def is_running(self) -> bool:
         with self._lock:
-            return self._thread is not None and self._thread.is_alive()
+            return self._status == "RUNNING" or self._verification["status"] == "RUNNING"
 
     def wait(self, timeout: float | None = None) -> bool:
         with self._lock:
@@ -619,6 +720,46 @@ class SearchController:
             return True
         thread.join(timeout=timeout)
         return not thread.is_alive()
+
+    def export_selection(
+        self,
+        format_name: str,
+        urls: Sequence[str],
+        expected_version: str,
+        tracking: dict[str, dict[str, str]],
+    ) -> bytes:
+        """Resolve a seleção na saída local, preservando ordem e versão da tabela."""
+
+        from job_radar.xlsx_export import build_jobs_xlsx
+
+        with OutputLock(self._output_dir):
+            if output_version(self._output_dir) != expected_version:
+                raise OutputBusyError("A saída mudou. Atualize a tabela e exporte novamente.")
+            output = load_output(self._output_dir)
+            if output["read_error"]:
+                raise OutputReadError(f"Não foi possível ler a saída local: {output['read_error']}")
+            if output_version(self._output_dir) != expected_version:
+                raise OutputBusyError("A saída mudou. Atualize a tabela e exporte novamente.")
+            by_url = {job.get("canonical_url"): job for job in output["jobs"]}
+            if any(url not in by_url for url in urls):
+                raise OutputBusyError("A seleção contém vaga ausente. Atualize a tabela e exporte novamente.")
+            jobs = [by_url[url] for url in urls]
+            filters = [("Seleção", "Filtros e ordem da tabela")]
+            if format_name == "csv":
+                return build_jobs_csv(jobs, tracking)
+            if format_name == "xlsx":
+                return build_jobs_xlsx(jobs, tracking, filters=filters, reasons_for=fit_reasons, preserve_order=True)
+            if format_name == "ai":
+                return build_jobs_ai_text(jobs, tracking, filters, preserve_order=True)
+            report = output["report"] if isinstance(output["report"], dict) else {}
+            sources = report.get("sources", [])
+            return build_markdown_report(
+                jobs,
+                generated_at=datetime.now().astimezone().strftime("%d/%m/%Y %H:%M"),
+                sources=sources if isinstance(sources, list) else [],
+                applied_filters={"seleção": "filtros e ordem da tabela"},
+                preserve_order=True,
+            ).encode("utf-8-sig")
 
     def export_markdown(
         self,
@@ -956,7 +1097,7 @@ def _dashboard_handler(
                     load_profile(_project_root() / "config" / "profile.yaml"),
                     preferences_from_dict(self._load_preferences_payload()),
                 )
-                with OutputLock(controller.output_dir):
+                with controller.output_mutation():
                     result = import_into_output(controller.output_dir, text, profile)
             except OutputBusyError as exc:
                 self._json(409, {"error": str(exc)})
@@ -972,9 +1113,23 @@ def _dashboard_handler(
         def _route_get(self) -> None:
             request_url = urlsplit(self.path)
             path = request_url.path
+            if path == "/api/instance":
+                self._json(200, {"pid": os.getpid(), "venv": str(Path(sys.prefix).resolve()),
+                                 "project_root": str(_project_root().resolve())})
+                return
             if path == "/api/state":
-                since = parse_qs(request_url.query).get("since", [None])[-1]
-                self._json(200, controller.snapshot(since=since))
+                query = parse_qs(request_url.query)
+                since = query.get("since", [None])[-1]
+                try:
+                    entries, version = tracking_store.snapshot()
+                except TrackingError as exc:
+                    self._json(500, {"error": str(exc)})
+                    return
+                state = controller.snapshot(since=since)
+                state["tracking_version"] = version
+                if query.get("tracking_since", [None])[-1] != version:
+                    state["tracking"] = entries
+                self._json(200, state)
                 return
             if path == "/api/preferences":
                 try:
@@ -1243,36 +1398,60 @@ def _dashboard_handler(
             path = self._resolved_preferences_path()
             return {"profiles": list_profiles(path), "active": active_profile(path)}
 
+        def _apply_profile(self, preferences: Any, name: str | None = None) -> dict[str, Any]:
+            from job_radar.preferences import save_preferences
+            from job_radar.profiles import (
+                _set_active, active_profile, profile_application, save_profile,
+            )
+            from job_radar.reclassify import reclassify_output
+
+            path = self._resolved_preferences_path()
+            # O chamador mantém output_mutation durante leitura e confirmação.
+            with tracking_store.transaction():
+                tracking_store.load()  # corrupção impede reescrita
+                with profile_application(path, controller.output_dir):
+                    profile, countries = self._profile_for(preferences)
+                    result = reclassify_output(
+                        controller.output_dir, profile, countries, rules=self._cleanup_rules(),
+                    )
+                    active = name if name is not None else active_profile(path)
+                    if active is not None:
+                        active = save_profile(path, active, preferences)
+                    save_preferences(preferences, path=path)
+                    _set_active(path, active)
+            return result
+
         def _post_profiles(self, action: str) -> None:
             from job_radar.preferences import PreferencesError, validate_preferences_payload
-            from job_radar.profiles import (
-                activate_profile,
-                delete_profile,
-                save_profile,
-            )
+            from job_radar.profiles import delete_profile, read_profile, _clean_name
 
             path = self._resolved_preferences_path()
             try:
-                payload = self._read_json_body(limit=65_536)
-                if action == "save":
-                    preferences = validate_preferences_payload(
-                        payload.get("preferences") or {}
-                    )
-                    name = save_profile(path, payload.get("name"), preferences)
-                    activate_profile(path, name)
-                elif action == "activate":
-                    activate_profile(path, payload.get("name"))
-                else:
-                    delete_profile(path, payload.get("name"))
+                with controller.output_mutation():
+                    payload = self._read_json_body(limit=65_536)
+                    result = None
+                    if action == "save":
+                        preferences = validate_preferences_payload(payload.get("preferences") or {})
+                        name = _clean_name(payload.get("name"))
+                        result = self._apply_profile(preferences, name)
+                    elif action == "activate":
+                        name, preferences = read_profile(path, payload.get("name"))
+                        result = self._apply_profile(preferences, name)
+                    else:
+                        delete_profile(path, payload.get("name"))
+                    body = self._profiles_payload()
+                    if action != "delete":
+                        body["preferences"] = self._load_preferences_payload()
+                        body["reapplied"] = result
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
                 return
-            except (PreferencesError, OSError, ValueError, json.JSONDecodeError) as exc:
+            except (PreferencesError, OSError, ValueError, RuntimeError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
-            body = self._profiles_payload()
-            if action != "delete":
-                body["preferences"] = self._load_preferences_payload()
             self._json(200, body)
 
         def _cleanup_rules(self) -> Any:
@@ -1308,13 +1487,13 @@ def _dashboard_handler(
             from job_radar.auto_export import load_settings
 
             folder = load_settings(self._resolved_preferences_path()).resolved_folder
-            opener = getattr(os, "startfile", None)
-            if opener is None:
-                self._json(501, {"error": f"Abra a pasta manualmente: {folder}", "folder": str(folder)})
-                return
             try:
                 folder.mkdir(parents=True, exist_ok=True)
-                opener(str(folder))  # Windows: abre no Explorador de Arquivos
+                if sys.platform == "win32":
+                    os.startfile(str(folder))
+                else:
+                    command = "open" if sys.platform == "darwin" else "xdg-open"
+                    subprocess.Popen([command, str(folder)])
             except OSError as exc:
                 self._json(500, {"error": f"Não foi possível abrir {folder}: {exc}"})
                 return
@@ -1361,30 +1540,30 @@ def _dashboard_handler(
                 if controller.is_running():
                     self._json(409, {"error": "Espere a busca terminar para limpar."})
                     return
-                try:
-                    tracked = tracking_store.load()
-                except TrackingError as exc:
-                    # Sem o acompanhamento não dá para proteger as vagas salvas.
-                    self._json(
-                        409,
-                        {"error": f"{exc} Corrija o arquivo de acompanhamento antes de limpar."},
-                    )
-                    return
-                remove_urls: set[str] = set()
-                if payload.get("remove_discarded") is True:
-                    remove_urls = {
-                        url for url, entry in tracked.items()
-                        if entry.get("status") == "DISCARDED"
-                    }
-                # A prévia só lê; a limpeza de verdade regrava o arquivo.
-                with nullcontext() if dry_run else OutputLock(controller.output_dir):
-                    result = clean_output(
-                        controller.output_dir,
-                        keep_urls=set(tracked) - remove_urls,
-                        rules=rules,
-                        dry_run=dry_run,
-                        remove_urls=remove_urls,
-                    )
+                with nullcontext() if dry_run else controller.output_mutation():
+                    with tracking_store.transaction():
+                        try:
+                            tracked = tracking_store.load()
+                        except TrackingError as exc:
+                            # Sem o acompanhamento não dá para proteger as vagas salvas.
+                            self._json(
+                                409,
+                                {"error": f"{exc} Corrija o arquivo de acompanhamento antes de limpar."},
+                            )
+                            return
+                        remove_urls: set[str] = set()
+                        if payload.get("remove_discarded") is True:
+                            remove_urls = {
+                                url for url, entry in tracked.items()
+                                if entry.get("status") == "DISCARDED"
+                            }
+                        result = clean_output(
+                            controller.output_dir,
+                            keep_urls=set(tracked) - remove_urls,
+                            rules=rules,
+                            dry_run=dry_run,
+                            remove_urls=remove_urls,
+                        )
             except OutputBusyError as exc:
                 self._json(409, {"error": str(exc)})
                 return
@@ -1403,7 +1582,7 @@ def _dashboard_handler(
                 self._json(409, {"error": "Espere a busca terminar para desfazer."})
                 return
             try:
-                with OutputLock(controller.output_dir):
+                with controller.output_mutation():
                     result = undo_cleanup(controller.output_dir)
             except OutputBusyError as exc:
                 self._json(409, {"error": str(exc)})
@@ -1413,8 +1592,57 @@ def _dashboard_handler(
                 return
             self._json(200, result)
 
+        def _post_export_selection(self, format_name: str) -> None:
+            try:
+                payload = self._read_json_body(limit=2 * 1024 * 1024)
+                urls = payload.get("urls")
+                version = payload.get("output_version")
+                if not isinstance(urls, list) or len(urls) > 20_000:
+                    raise ValueError("urls deve ser uma lista com no máximo 20000 entradas.")
+                if not isinstance(version, str) or not version.strip():
+                    raise ValueError("output_version deve identificar a versão carregada da tabela.")
+                for url in urls:
+                    if not isinstance(url, str) or any(char.isspace() or ord(char) < 32 for char in url):
+                        raise ValueError("URL inválida na seleção.")
+                    parsed = urlsplit(url)
+                    # hostname não valida a porta; acessar port rejeita texto/fora da faixa.
+                    try:
+                        parsed.port
+                    except ValueError as exc:
+                        raise ValueError("Porta inválida na URL da seleção.") from exc
+                    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                        raise ValueError("URL inválida na seleção.")
+                if len(set(urls)) != len(urls):
+                    raise ValueError("A seleção contém URLs duplicadas.")
+                document = controller.export_selection(format_name, urls, version, tracking_store.load())
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
+            except (OutputReadError, TrackingError) as exc:
+                self._json(500, {"error": str(exc)})
+                return
+            content_type, filename = {
+                "csv": ("text/csv; charset=utf-8", "vagas.csv"),
+                "markdown": ("text/markdown; charset=utf-8", "relatorio-vagas.md"),
+                "ai": ("text/markdown; charset=utf-8", "vagas-para-ia.md"),
+                "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "vagas-" + datetime.now().strftime("%Y-%m-%d") + ".xlsx"),
+            }[format_name]
+            self._write(200, content_type, document, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
         def _route_post(self) -> None:
             path = self.path.split("?", maxsplit=1)[0]
+            if path == "/api/verify-links":
+                if not controller.start_verification():
+                    self._json(409, {"error": "Espere a busca ou verificação terminar."})
+                else:
+                    self._json(202, {"accepted": True})
+                return
+            if path in {"/api/export/csv", "/api/export/markdown", "/api/export/xlsx", "/api/export/ai"}:
+                self._post_export_selection(path.rsplit("/", 1)[-1])
+                return
             if path == "/api/cleanup/undo":
                 self._post_cleanup_undo()
                 return
@@ -1473,8 +1701,19 @@ def _dashboard_handler(
                 return
             self._json(202, {"accepted": True})
 
+        def _validate_tracking_url(self, url: str) -> None:
+            from job_radar.cleanup import read_jobs_for_rewrite
+
+            path = controller.output_dir / "vagas.jsonl"
+            jobs = read_jobs_for_rewrite(path) if path.exists() else []
+            if not any(job.get("canonical_url") == url for job in jobs):
+                raise OutputBusyError("Esta vaga saiu da lista. Recarregue o painel antes de acompanhar.")
+
         def _route_put(self) -> None:
             path = self.path.split("?", maxsplit=1)[0]
+            if path == "/api/preferences" and parse_qs(urlsplit(self.path).query).get("reapply", [""])[-1] == "1" and controller.is_running():
+                self._json(409, {"error": "Espere a busca ou verificação terminar para reaplicar."})
+                return
             if path == "/api/tracking":
                 try:
                     payload = self._read_json_body()
@@ -1483,7 +1722,11 @@ def _dashboard_handler(
                         payload.get("status"),
                         note=payload.get("note"),
                         now=datetime.now(timezone.utc),
+                        validate=self._validate_tracking_url,
                     )
+                except OutputBusyError as exc:
+                    self._json(409, {"error": str(exc)})
+                    return
                 except TypeError as exc:
                     self._json(415, {"error": str(exc)})
                     return
@@ -1513,43 +1756,22 @@ def _dashboard_handler(
                 self._json(404, {"error": "Recurso nao encontrado."})
                 return
             try:
-                from job_radar.preferences import (
-                    preferences_to_dict,
-                    save_preferences,
-                    validate_preferences_payload,
-                )
+                from job_radar.preferences import preferences_to_dict, validate_preferences_payload
 
-                payload = self._read_json_body(limit=65_536)
-                preferences = validate_preferences_payload(payload)
-                save_preferences(preferences, path=preferences_path)
+                with controller.output_mutation():
+                    payload = self._read_json_body(limit=65_536)
+                    preferences = validate_preferences_payload(payload)
+                    result = self._apply_profile(preferences)
+                    body = {**preferences_to_dict(preferences), "reapplied": result}
+            except OutputBusyError as exc:
+                self._json(409, {"error": str(exc)})
+                return
             except TypeError as exc:
                 self._json(415, {"error": str(exc)})
                 return
-            except (OSError, ValueError, json.JSONDecodeError) as exc:
+            except (OSError, ValueError, RuntimeError) as exc:
                 self._json(400, {"error": str(exc)})
                 return
-            body: dict[str, Any] = dict(preferences_to_dict(preferences))
-            query = parse_qs(urlsplit(self.path).query)
-            if query.get("reapply", [""])[-1] == "1":
-                body["reapplied"] = None
-                if controller.is_running():
-                    body["reapply_skipped"] = "Busca em andamento: a próxima coleta já usa o perfil novo."
-                else:
-                    from job_radar.reclassify import reclassify_output
-
-                    try:
-                        profile, countries = self._profile_for(preferences)
-                        with OutputLock(controller.output_dir):
-                            body["reapplied"] = reclassify_output(
-                                controller.output_dir,
-                                profile,
-                                countries,
-                                rules=self._cleanup_rules(),
-                            )
-                    except OutputBusyError as exc:
-                        body["reapply_skipped"] = str(exc)
-                    except (OSError, ValueError, RuntimeError) as exc:
-                        body["reapply_skipped"] = f"Não foi possível reaplicar: {exc}"
             self._json(200, body)
 
         def log_message(self, format: str, *args: Any) -> None:

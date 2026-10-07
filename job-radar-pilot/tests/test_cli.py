@@ -408,8 +408,8 @@ def test_dry_run_validates_all_sources_without_fetching(
     assert "DRY_RUN" in output
     assert "programathor" in output
     assert "companhia-de-estagios" in output
-    assert "25 fontes habilitadas" in output
-    assert "27 fontes configuradas" in output
+    assert "29 fontes habilitadas" in output
+    assert "31 fontes configuradas" in output
     assert "locale=pt-BR" in output
     assert "timezone=America/Sao_Paulo" in output
     assert "accept_language=pt-BR,pt;q=0.9,en;q=0.6" in output

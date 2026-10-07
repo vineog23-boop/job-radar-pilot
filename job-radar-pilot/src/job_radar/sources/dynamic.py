@@ -7,6 +7,7 @@ from job_radar.sources.base import (
     absolute_url,
     extract_value,
     make_record_with_fallback,
+    public_list_has_more,
 )
 
 
@@ -65,7 +66,7 @@ class DynamicAdapter(PaginatedAdapter):
             records,
             len(cards),
             next_url or None,
-            pagination_observable=(
+            pagination_observable=not public_list_has_more(page, config) and (
                 "next" in config.selectors or config.single_page
             ),
             card_method=selection.method,

@@ -166,7 +166,7 @@ def record_from_item(
         source_job_id=str(identifier) if identifier not in (None, "") else None,
         canonical_url=canonicalize_url(url),
         title=title,
-        company=clean_text(value("company")),
+        company=clean_text(value("company")) or config.default_company,
         description_summary=(description[:_MAX_DESCRIPTION] if description else None),
         employment_type=_EMPLOYMENT_NAMES.get(employment_raw or "", employment_raw),
         technologies=_skills(item, fields),
@@ -184,6 +184,8 @@ def page_url(config: SourceConfig, page_index: int) -> str:
     """URL da página ``page_index`` (0 = primeira) conforme o modo de paginação."""
 
     api = config.api
+    if api["page_mode"] == "single":
+        return config.start_url
     parsed = urlsplit(config.start_url)
     page_param = str(api["page_param"])
     size = int(api["page_size"])  # type: ignore[arg-type]
@@ -207,7 +209,8 @@ class JsonApiAdapter:
         self._locator = locator
 
     def collect(self, config: SourceConfig, fetcher: FetchPolicy) -> SourceRunResult:
-        page_size = int(config.api["page_size"])  # type: ignore[arg-type]
+        single = config.api["page_mode"] == "single"
+        page_size = int(config.api.get("page_size", 50))  # type: ignore[arg-type]
         items_path = str(config.api["items"])
         observed_at = datetime.now(timezone.utc).isoformat()
         records: list[VacancyRecord] = []
@@ -234,7 +237,7 @@ class JsonApiAdapter:
                 visited_urls=tuple(visited),
             )
 
-        for page_index in range(config.max_pages):
+        for page_index in range(1 if single else config.max_pages):
             url = page_url(config, page_index)
             visited.append(url)
             fetched = fetcher.fetch(url, config)
@@ -280,6 +283,19 @@ class JsonApiAdapter:
                 seen_ids.add(key)
                 records.append(record)
                 new_on_page += 1
+            if single:
+                total_path = config.api.get("total_path")
+                total = get_path(payload, str(total_path)) if total_path else None
+                if total_path and (
+                    not isinstance(total, int) or isinstance(total, bool)
+                    or total < 0 or total != len(items)
+                ):
+                    return result(CollectionStatus.PARTIAL, "TOTAL_MISMATCH", has_more=True)
+                if items and not records:
+                    return result(CollectionStatus.ERROR, "PARSE_ZERO_RECORDS")
+                if len(records) != len(items):
+                    return result(CollectionStatus.PARTIAL, "PARSE_INCOMPLETE", has_more=True)
+                break
             if not items:
                 break
             if new_on_page == 0:

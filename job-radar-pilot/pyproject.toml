@@ -28,6 +28,7 @@ job_radar = ["web/*.html", "web/*.css", "web/*.js"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers --strict-config"
+markers = ["production_filters: testa os filtros iniciais sem o seed legado de navegador"]
 filterwarnings = [
   "ignore:The 'strip_cdata' option of HTMLParser\\(\\) has never done anything.*:DeprecationWarning:lxml.html",
 ]

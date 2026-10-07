@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 from job_radar.dates import parse_iso_datetime
 
-ACTIVE_CONFIRMED = "ACTIVE_CONFIRMED"  # prazo oficial ainda aberto
+ACTIVE_CONFIRMED = "ACTIVE_CONFIRMED"  # detalhe verificado ou prazo oficial aberto
 ACTIVE_LISTED = "ACTIVE_LISTED"  # apareceu na listagem de uma coleta recente
 CLOSED = "CLOSED"  # prazo vencido
 UNKNOWN = "UNKNOWN"  # sem evidência suficiente
@@ -25,11 +25,19 @@ def activity_state(job: Mapping[str, Any], now: datetime) -> str:
     deadline = parse_iso_datetime(job.get("application_deadline"))
     if deadline is not None and deadline < now:
         return CLOSED
-    if published is None or published > now:
+    labels = job.get("match_labels") or []
+    checked = next((parse_iso_datetime(label.removeprefix("LINK_CHECKED_AT:"))
+                    for label in labels if isinstance(label, str) and label.startswith("LINK_CHECKED_AT:")), None)
+    if checked is not None and timedelta(0) <= now - checked <= timedelta(days=7):
+        if "LINK:DEAD" in labels:
+            return CLOSED
+        if "LINK:LIVE" in labels and "LINK_CHECK_METHOD:JOB_DETAIL_V2" in labels:
+            return ACTIVE_CONFIRMED
+    if published is not None and published > now:
         return UNKNOWN
-    if deadline is not None:
+    if published is not None and deadline is not None:
         return ACTIVE_CONFIRMED
     observed = parse_iso_datetime(job.get("observed_at"))
-    if observed is not None and now - observed <= timedelta(days=LISTING_FRESH_DAYS):
+    if observed is not None and timedelta(0) <= now - observed <= timedelta(days=LISTING_FRESH_DAYS):
         return ACTIVE_LISTED
     return UNKNOWN

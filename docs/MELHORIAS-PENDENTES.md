@@ -13,6 +13,32 @@ o usuário perceber a mudança, e marcar aqui o que foi feito.
 
 ---
 
+### Radar confiável — 06/10/2026
+
+- [x] Exportação exata da tabela em CSV, Markdown, XLSX e texto para IA: seleção
+  completa, ordem e versão carregada, sem fallback quando vazia; downloads do
+  painel de exportação continuam com filtros independentes.
+- [x] Melhores vagas e exportação automática excluem vagas encerradas sem exigir
+  janela temporal; recência calculada com dias fracionários e sem datas futuras.
+
+- [x] Acompanhamento protegido na coleta e limpeza, falha segura diante de
+  corrupção e transações que preservam mudanças concorrentes.
+- [x] Disponibilidade com evidências: detalhe confirmado, listagem recente,
+  encerrada e não comprovada; verificação em segundo plano com progresso e trava.
+- [x] Perfis normalizados e reaplicação atômica; conflito retorna 409 sem salvar
+  configuração parcial. Seletores de Salvas/Em processo expõem também histórico.
+- [x] Dados locais nativos Windows/macOS/Linux, prioridade de LOCALAPPDATA,
+  abertura de exportações sem shell, setup e launcher macOS reexecutáveis.
+- [x] CI configurada em matriz Windows/macOS com Python 3.13, Scrapling 0.4.15,
+  suíte offline, Ruff e pip check. A execução remota depende do próximo push/PR.
+- [x] Ativar novas fontes após validação: InHire por empresa (Programmers/Bionexo),
+  CI&T somente listagem/manual e Greenhouse por board (AB InBev). Pesquisa pública
+  concluída; nenhuma cobertura global desses ATS é prometida.
+- [ ] 99Freelas em categoria freelance separada; Telegram depende de canais
+  públicos fornecidos. LinkedIn permanece exclusivamente pesquisa/importação manual.
+- [ ] Coordenador: revisão completa, validação visual e instalação do launcher
+  no ambiente do usuário; esta etapa mantém o atalho instalado sem alterações.
+
 ## Dados reais para trabalhar sem acessar os portais
 
 `job-radar-pilot/tests/fixtures/amostra-real-2026-10-01.jsonl` — **300 vagas reais** da coleta de
@@ -228,3 +254,31 @@ Achados da auditoria e o que foi corrigido (um commit por item, branch
 Próximos passos sugeridos: preencher o gabarito (1.4) → 1.3 (aprender com salvas/descartadas) →
 2.1 (fixtures por portal, gerar no PC) → 2.2 (APIs Greenhouse/Lever por empresa, verificar ao vivo
 no PC) → 4.2/4.1 (quebrar webapp.py e app.js).
+
+## Radar confiável — 06/10/2026
+
+- [x] Preservação na coleta completa de vagas acompanhadas e fontes incompletas,
+  mantendo `observed_at`; JSONL anterior ilegível impede publicação.
+- [x] Acompanhamento com leitura-modificação-gravação serializada entre processos
+  e threads; snapshot final da coleta sob a mesma transação.
+
+### ✅ Stack principal e perfil coerente — 07/10/2026
+
+- Principal explícita com alternativas e complementares; campo vazio mantém a
+  classificação legada. Ausência de evidência recebe motivo visível.
+- Salvar/ativar aplica o perfil às vagas sob a trava compartilhada; ocupado retorna
+  409 antes de persistir. Falhas restauram arquivos anteriores; links, acompanhamento
+  e observação são preservados. Preferências editadas atualizam o perfil ativo.
+- Presets e sugestões preenchem principais sem apagar termos personalizados.
+
+### ✅ Fontes públicas por empresa — 07/10/2026
+
+- InHire — Programmers e Bionexo: páginas públicas renderizadas, UUID estável,
+  empresa explícita e data desconhecida quando ausente; sem acesso direto à API.
+- CI&T: listagem oficial global e links manuais; nenhum enriquecimento ou
+  verificação automática de detalhes proibidos pelo robots.
+- Greenhouse — AB InBev: API pública em chamada única, `first_published` e
+  conferência de `meta.total`, sem país ou foco tecnológico presumidos.
+- `fetch_details` e `default_company` validados; paginadores antigos preservados.
+- 99Freelas segue como projetos freelance; Telegram aguarda canais públicos;
+  LinkedIn segue manual. Não foram duplicadas fontes já existentes.

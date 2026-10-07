@@ -12,6 +12,7 @@ from job_radar.models import SourceKind
 
 PROJECT = Path(__file__).resolve().parents[1]
 EXPECTED_SOURCES = {
+    "inhire-programmers", "inhire-bionexo", "ciandt", "greenhouse-abinbev",
     "gupy",
     "indeed",
     "estagiotrainee",
@@ -66,9 +67,12 @@ def test_loads_complete_profile_and_sources() -> None:
     assert all(1 <= source.max_pages <= 100 for source in sources)
     assert all(source.min_interval_seconds >= 1 for source in sources)
     assert "linkedin" not in {source.code for source in sources}
-    # Todas as fontes configuradas são portais brasileiros (domínios .br/.com.br
-    # ou versão BR), então o país é evidência da própria fonte.
-    assert all(source.default_country == "BR" for source in sources)
+    # Boards corporativos podem conter vagas globais: não inventar país.
+    company_boards = {"inhire-programmers", "inhire-bionexo", "ciandt", "greenhouse-abinbev"}
+    assert all(
+        source.default_country == (None if source.code in company_boards else "BR")
+        for source in sources
+    )
     scrolling = {source.code for source in sources if source.browser.scroll_to_load}
     assert scrolling == {
         "eureca", "nube", "cia-de-talentos", "trampos", "remotar", "coodesh"

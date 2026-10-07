@@ -205,6 +205,7 @@ def enrich_records(
             source is None
             or record.source in _SKIP_SOURCES
             or source.requires_auth
+            or not source.fetch_details
             or not record.canonical_url.startswith("https://")
             or not _needs_detail(record)
             # Vaga velha ou com prazo vencido não gasta requisição de detalhe.

@@ -129,7 +129,7 @@ def test_dashboard_refuses_to_rewrite_output_while_locked(tmp_path: Path) -> Non
         assert status == 409
         assert "outra coleta" in body["error"].casefold()
     assert preview[0] == 200  # prévia só lê
-    assert saved[0] == 200  # as preferências são salvas; só a reaplicação espera
-    assert saved[1]["reapplied"] is None
-    assert "outra coleta" in saved[1]["reapply_skipped"].casefold()
+    assert saved[0] == 409
+    assert "outra coleta" in saved[1]["error"].casefold()
+    assert not (tmp_path / "prefs" / "search-preferences.json").exists()
     assert (output / "vagas.antes-da-limpeza.jsonl").exists()

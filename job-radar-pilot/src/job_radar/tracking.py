@@ -6,12 +6,18 @@ canônico; guarda somente URL, estado, data e uma nota curta do usuário.
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 from datetime import datetime
 import json
+import hashlib
 import os
 from pathlib import Path
 import tempfile
+from typing import Callable, Iterator
 from urllib.parse import urlsplit
+
+from job_radar.user_paths import user_data_dir
+from job_radar.output_lock import FileLock
 
 
 # Funil de candidatura, na ordem em que a pessoa avança.
@@ -35,15 +41,16 @@ class TrackingError(ValueError):
 
 
 def tracking_path() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    root = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
-    return root / "JobRadar" / "tracking.json"
+    return user_data_dir() / "tracking.json"
 
 
 def _validated_url(url: object) -> str:
     if not isinstance(url, str) or not url or len(url) > _MAX_URL_LENGTH:
         raise TrackingError("URL da vaga invalida.")
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError as exc:
+        raise TrackingError("URL da vaga invalida.") from exc
     if parts.scheme not in {"http", "https"} or not parts.netloc:
         raise TrackingError("URL da vaga deve ser http(s).")
     return url
@@ -53,7 +60,27 @@ class TrackingStore:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or tracking_path()
 
+    @contextmanager
+    def transaction(self) -> Iterator["TrackingStore"]:
+        """Mantém o snapshot final da coleta estável até sua publicação."""
+
+        with ExitStack() as held:
+            try:
+                held.enter_context(FileLock(self._path))
+            except OSError as exc:
+                raise TrackingError(
+                    f"Nao foi possivel travar o acompanhamento em {self._path}."
+                ) from exc
+            yield self
+
     def load(self) -> dict[str, dict[str, str]]:
+        """Lê o arquivo inteiro ou recusa, sem filtrar/normalizar entradas.
+
+        Cada chave é uma URL http(s) válida; a entrada é um objeto com status
+        conhecido e todos os valores são texto. Datas e nota são opcionais.
+        Qualquer violação impede o snapshot e toda reescrita do acompanhamento.
+        """
+
         if not self._path.exists():
             return {}
         try:
@@ -65,11 +92,27 @@ class TrackingStore:
         entries = data.get("jobs") if isinstance(data, dict) else None
         if not isinstance(entries, dict):
             raise TrackingError("Arquivo de acompanhamento com formato inesperado.")
-        return {
-            url: {key: str(value) for key, value in entry.items()}
-            for url, entry in entries.items()
-            if isinstance(entry, dict) and entry.get("status") in TRACKING_STATUSES
-        }
+        validated: dict[str, dict[str, str]] = {}
+        for url, entry in entries.items():
+            try:
+                _validated_url(url)
+            except TrackingError as exc:
+                raise TrackingError("Arquivo de acompanhamento com URL invalida.") from exc
+            if (
+                not isinstance(entry, dict)
+                or entry.get("status") not in TRACKING_STATUSES
+                or any(not isinstance(value, str) for value in entry.values())
+            ):
+                raise TrackingError("Arquivo de acompanhamento com entrada invalida.")
+            validated[url] = dict(entry)
+        return validated
+
+    def snapshot(self) -> tuple[dict[str, dict[str, str]], str]:
+        """Conteúdo e versão pertencem à mesma leitura protegida."""
+        with self.transaction():
+            entries = self.load()
+            content = json.dumps(entries, sort_keys=True, ensure_ascii=False).encode("utf-8")
+            return entries, hashlib.sha256(content).hexdigest()
 
     def set_status(
         self,
@@ -78,6 +121,7 @@ class TrackingStore:
         *,
         now: datetime,
         note: object = None,
+        validate: Callable[[str], None] | None = None,
     ) -> dict[str, dict[str, str]]:
         canonical = _validated_url(url)
         if status is not None and status not in TRACKING_STATUSES:
@@ -88,22 +132,25 @@ class TrackingStore:
         if len(cleaned_note) > _MAX_NOTE_LENGTH:
             raise TrackingError(f"Nota excede {_MAX_NOTE_LENGTH} caracteres.")
 
-        entries = self.load()
-        if status is None:
-            entries.pop(canonical, None)
-        else:
-            previous = entries.get(canonical, {})
-            # Datas de cada etapa já alcançada (applied_at, interview_at...) ficam.
-            entry = {key: value for key, value in previous.items() if key.endswith("_at")}
-            entry.update({"status": str(status), "updated_at": now.isoformat()})
-            entry.setdefault(f"{str(status).lower()}_at", now.isoformat())
-            # Sem nota no pedido (ex.: mudar o estado pelo painel), a nota antiga fica.
-            kept_note = cleaned_note if note is not None else previous.get("note", "")
-            if kept_note:
-                entry["note"] = kept_note
-            entries[canonical] = entry
-        self._write(entries)
-        return entries
+        with self.transaction():
+            entries = self.load()
+            if validate is not None:
+                validate(canonical)
+            if status is None:
+                entries.pop(canonical, None)
+            else:
+                previous = entries.get(canonical, {})
+                # Datas de cada etapa já alcançada (applied_at, interview_at...) ficam.
+                entry = {key: value for key, value in previous.items() if key.endswith("_at")}
+                entry.update({"status": str(status), "updated_at": now.isoformat()})
+                entry.setdefault(f"{str(status).lower()}_at", now.isoformat())
+                # Sem nota no pedido (ex.: mudar o estado pelo painel), a nota antiga fica.
+                kept_note = cleaned_note if note is not None else previous.get("note", "")
+                if kept_note:
+                    entry["note"] = kept_note
+                entries[canonical] = entry
+            self._write(entries)
+            return entries
 
     def _write(self, entries: dict[str, dict[str, str]]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

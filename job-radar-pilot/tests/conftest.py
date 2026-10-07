@@ -34,13 +34,15 @@ _AGE_ANY_SCRIPT = (
 
 
 @pytest.fixture(autouse=True)
-def _dashboard_without_age_window(monkeypatch: pytest.MonkeyPatch) -> None:
+def _dashboard_without_age_window(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
     """O painel abre em "Últimos 30 dias"; as fixtures antigas não têm data.
 
     Os testes de navegador começam em "Qualquer data" (salvo se o teste já
     guardou filtros próprios); o filtro de período tem testes dedicados.
     """
 
+    if request.node.get_closest_marker("production_filters"):
+        return
     try:
         from playwright.sync_api import Page
     except ImportError:  # pragma: no cover

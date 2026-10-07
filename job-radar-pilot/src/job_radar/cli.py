@@ -308,9 +308,11 @@ def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
 
     keep_urls: frozenset[str] = frozenset()
     prune = not getattr(args, "keep_all", False)
+    tracking_unreadable = False
     try:
         keep_urls = frozenset(TrackingStore().load())
     except TrackingError as exc:
+        tracking_unreadable = True
         # Sem saber quais vagas foram salvas/aplicadas, descartar seria arriscar
         # apagar justamente as que importam: grava tudo e avisa.
         if prune:
@@ -336,20 +338,33 @@ def _collect_locked(args: argparse.Namespace, sources, profile) -> int:
         for warning in item.warnings:
             if warning.startswith("SOURCE_COUNT_"):
                 print(f"WARNING {item.source_code}: {warning}", flush=True)
-    manifest = write_outputs(
-        result,
-        args.output.resolve(),
-        merge_unrefreshed=bool(args.sources) or result.stopped,
-        prune=prune,
-        keep_urls=keep_urls,
-        max_age_days=getattr(args, "max_age_days", None),
-        rules=load_rules(preferences_path()),
-        partial_sources={
-            item.source_code
-            for item in result.source_results
-            if item.stop_reason == run_control.STOP_REASON
-        },
-    )
+    tracking_store = TrackingStore()
+    with tracking_store.transaction():
+        # O painel pode salvar uma vaga enquanto os portais são consultados.
+        try:
+            keep_urls = frozenset(tracking_store.load())
+        except TrackingError as exc:
+            tracking_unreadable = True
+            prune = False
+            print(
+                f"WARNING: {exc} Limpeza automatica desligada; vagas anteriores preservadas.",
+                file=sys.stderr,
+                flush=True,
+            )
+        manifest = write_outputs(
+            result,
+            args.output.resolve(),
+            merge_unrefreshed=bool(args.sources) or result.stopped or tracking_unreadable,
+            prune=prune,
+            keep_urls=keep_urls,
+            max_age_days=getattr(args, "max_age_days", None),
+            rules=load_rules(preferences_path()),
+            partial_sources={
+                item.source_code
+                for item in result.source_results
+                if item.stop_reason == run_control.STOP_REASON or tracking_unreadable
+            },
+        )
     if manifest.discarded:
         print(f"DISCARDED: {manifest.discarded} vagas inuteis nao foram salvas.")
     if not getattr(args, "no_export", False):

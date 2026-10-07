@@ -7,7 +7,11 @@ sistema não precisa saber que existem vários perfis.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 import json
+import os
+import tempfile
 from pathlib import Path
 import re
 import unicodedata
@@ -124,11 +128,7 @@ def _set_active(preferences_path: Path, name: str | None) -> None:
 
 
 def activate_profile(preferences_path: Path, name: object) -> SearchPreferences:
-    display = _clean_name(name)
-    loaded = _read_profile(_profile_path(preferences_path, display))
-    if loaded is None:
-        raise PreferencesError(f"Perfil '{display}' não encontrado.")
-    stored_name, preferences = loaded
+    stored_name, preferences = read_profile(preferences_path, name)
     save_preferences(preferences, path=preferences_path)
     _set_active(preferences_path, stored_name)
     return preferences
@@ -142,3 +142,49 @@ def delete_profile(preferences_path: Path, name: object) -> None:
     path.unlink()
     if active_profile(preferences_path) == display:
         _set_active(preferences_path, None)
+
+
+@contextmanager
+def profile_application(preferences_path: Path, output_dir: Path) -> Iterator[None]:
+    """Restaura perfil e saída se a aplicação falhar; exige OutputLock externo.
+
+    A confirmação é única para o chamador. Não é um journal de recuperação
+    contra encerramento abrupto do processo ou falha do próprio disco no rollback.
+    """
+    from job_radar.cleanup import DISCARDED_NAME
+
+    directory = profiles_dir(preferences_path)
+    paths = {preferences_path, *directory.glob("*.json")}
+    paths.update(output_dir / name for name in (
+        "vagas.jsonl", "vagas.csv", "relatorio-execucao.json", DISCARDED_NAME,
+    ))
+    before = {path: path.read_bytes() if path.exists() else None for path in paths}
+    try:
+        yield
+    except Exception:
+        # Inclui um perfil criado durante a tentativa que falhou.
+        for path in paths | set(directory.glob("*.json")):
+            content = before.get(path)
+            if content is None:
+                path.unlink(missing_ok=True)
+            elif not path.exists() or path.read_bytes() != content:
+                temporary = None
+                try:
+                    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+                        temporary = Path(handle.name)
+                        handle.write(content)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    temporary.replace(path)
+                finally:
+                    if temporary is not None:
+                        temporary.unlink(missing_ok=True)
+        raise
+
+
+def read_profile(preferences_path: Path, name: object) -> tuple[str, SearchPreferences]:
+    display = _clean_name(name)
+    loaded = _read_profile(_profile_path(preferences_path, display))
+    if loaded is None:
+        raise PreferencesError(f"Perfil '{display}' não encontrado.")
+    return loaded

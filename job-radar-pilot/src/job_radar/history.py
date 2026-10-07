@@ -10,6 +10,7 @@ from pathlib import Path
 import tempfile
 from typing import Iterable
 
+from job_radar.user_paths import user_data_dir
 from job_radar.identity import identity_key
 from job_radar.models import CollectionStatus, SourceRunResult, VacancyRecord
 
@@ -28,9 +29,7 @@ _COUNTABLE_STATUSES = {
 
 
 def history_path() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    root = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
-    return root / "JobRadar" / "history.json"
+    return user_data_dir() / "history.json"
 
 
 class SeenHistory:

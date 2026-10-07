@@ -34,6 +34,8 @@ _OPTIONAL_SOURCE_KEYS = {
     "selectors",
     "queries",
     "default_country",
+    "default_company",
+    "fetch_details",
     "adaptive",
     "single_page",
     "query_path",
@@ -47,6 +49,7 @@ _API_KEYS = {
     "items",
     "page_param",
     "page_mode",
+    "total_path",
     "page_size",
     "size_param",
     "workplace_param",
@@ -71,7 +74,7 @@ _API_FIELD_KEYS = {
     "url_template",
     "skills",
 }
-_API_PAGE_MODES = {"offset", "page0", "page1"}
+_API_PAGE_MODES = {"offset", "page0", "page1", "single"}
 _SOURCE_KEYS = _REQUIRED_SOURCE_KEYS | _OPTIONAL_SOURCE_KEYS
 _BROWSER_KEYS = {"disable_resources", "blocked_domains", "scroll_to_load"}
 _REQUIRED_GENERIC_SELECTORS = {"card", "title", "url"}
@@ -251,6 +254,15 @@ def _load_source(item: Any, index: int) -> SourceConfig:
             f"sources[{index}].default_country deve usar codigo ISO alfa-2 maiusculo."
         )
 
+    default_company = item.get("default_company")
+    if default_company is not None and (
+        not isinstance(default_company, str) or not default_company.strip()
+    ):
+        raise ConfigError(f"sources[{index}].default_company deve ser um texto não vazio.")
+    fetch_details = item.get("fetch_details", True)
+    if not isinstance(fetch_details, bool):
+        raise ConfigError(f"sources[{index}].fetch_details deve ser booleano.")
+
     adaptive = item.get("adaptive", True)
     if not isinstance(adaptive, bool):
         raise ConfigError(f"sources[{index}].adaptive deve ser booleano.")
@@ -301,6 +313,8 @@ def _load_source(item: Any, index: int) -> SourceConfig:
         selectors=dict(selectors),
         queries=tuple(query.strip() for query in queries_raw),
         default_country=default_country,
+        default_company=default_company.strip() if default_company else None,
+        fetch_details=fetch_details,
         adaptive=adaptive,
         single_page=single_page,
         query_path=query_path,
@@ -332,10 +346,10 @@ def _load_api_options(value: Any, kind: SourceKind, index: int) -> dict[str, Any
     page_size = value.get("page_size", 50)
     if not isinstance(page_size, int) or isinstance(page_size, bool) or not 1 <= page_size <= 500:
         raise ConfigError(f"{label}.page_size deve estar entre 1 e 500.")
-    for key in ("page_param", "size_param", "workplace_param", "state_param"):
+    for key in ("page_param", "size_param", "workplace_param", "state_param", "total_path"):
         if key in value and (not isinstance(value[key], str) or not value[key].strip()):
             raise ConfigError(f"{label}.{key} deve ser um texto.")
-    if "page_param" not in value:
+    if page_mode != "single" and "page_param" not in value:
         raise ConfigError(f"{label}.page_param e obrigatorio.")
     strip_levels = value.get("strip_levels", False)
     if not isinstance(strip_levels, bool):
@@ -352,12 +366,12 @@ def _load_api_options(value: Any, kind: SourceKind, index: int) -> dict[str, Any
         raise ConfigError(f"{label}.fields exige title e url (ou url_template).")
     return {
         "items": items,
-        "page_param": value["page_param"].strip(),
+        **({"page_param": value["page_param"].strip()} if "page_param" in value else {}),
         "page_mode": page_mode,
         "page_size": page_size,
         **{
             key: value[key].strip()
-            for key in ("size_param", "workplace_param", "state_param")
+            for key in ("size_param", "workplace_param", "state_param", "total_path")
             if key in value
         },
         "strip_levels": strip_levels,

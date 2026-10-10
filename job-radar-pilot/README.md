@@ -643,6 +643,20 @@ Vagas que você marcou como salva ou aplicada nunca são apagadas. Se o arquivo 
 - Vagas sem relação com TI recebem `RELEVANCE:OFF_TOPIC` e ficam ocultas no painel (filtro "Fora de TI").
 - Agendar coleta diária com aviso de vagas novas: `scripts\agendar-coleta.ps1 -Horario 08:00` (remover com `-Remover`).
 - Detalhes da revisão: `docs/REVISAO-2026-09-29.md`.
+
+### Como o Radar roda (três formas, mesma pasta de saída)
+
+| Forma | Onde | Quando | O que faz |
+|---|---|---|---|
+| Atalho "Radar de Vagas" (`.cmd`/`.lnk`) | Windows | ao abrir | painel em `127.0.0.1:8765`; busca pelo botão |
+| `Radar de Vagas.command` | macOS | ao abrir | o mesmo painel |
+| Automação Hermes (cron, fora deste repositório) | macOS | todo dia 08:30 | `collect --workers 3 --enrich-limit 250 --no-export` + `verify-links --limit 150` na pasta `output/` do painel; depois aplica os critérios pessoais e envia 2 a 4 vagas ao Telegram |
+
+As três usam a mesma `output/` e o mesmo histórico, então o painel mostra exatamente a
+coleta que gerou o aviso do Telegram. A trava `output/.radar-output.lock` impede coleta e
+painel de regravar ao mesmo tempo: se o painel estiver ocupado, a automação sai com o
+código 5 e o aviso usa a última coleta válida. Vagas marcadas pelo Telegram ("apliquei
+na 2") vão para o mesmo `tracking.json` do painel. Detalhes: `docs/REVISAO-2026-10-10.md`.
 ## Medir o classificador (`avaliar`)
 
 Para saber se uma mudança no classificador melhorou ou piorou, sem acessar portal nenhum:

@@ -431,7 +431,7 @@ function detailRow(job) {
   const reposted = (job.match_labels ?? []).map(String).find((label) => label.startsWith("REPOSTED:"));
   if (reposted) facts.push(`Republicada ${reposted.slice(9)}× neste portal (mostramos o anúncio mais recente)`);
   if (job.employment_type) facts.push(`Contrato: ${job.employment_type}`);
-  if (publishedLabel(job)) facts.push(`Publicada em ${publishedLabel(job)}`);
+  if (dateFact(job, true)) facts.push(dateFact(job, true));
   const list = document.createElement("ul");
   list.className = "detail-facts";
   facts.forEach((fact) => list.appendChild(textElement("li", "", fact)));
@@ -784,6 +784,19 @@ function publishedLabel(job) {
   return new Date(time).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 
+// Portal sem data: quando o Radar viu a vaga pela 1ª vez. Só texto; ordenação e filtros de
+// período continuam usando apenas published_at.
+function firstSeenLabel(job) {
+  const time = Date.parse(job.first_seen_at ?? "");
+  return Number.isNaN(time) ? "" : new Date(time).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
+function dateFact(job, capitalized) {
+  if (publishedLabel(job)) return `${capitalized ? "Publicada" : "publicada"} em ${publishedLabel(job)}`;
+  if (firstSeenLabel(job)) return `${capitalized ? "Vista" : "vista"} pela 1ª vez em ${firstSeenLabel(job)}`;
+  return "";
+}
+
 function textElement(tag, className, text) {
   const element = document.createElement(tag);
   if (className) element.className = className;
@@ -815,7 +828,7 @@ function renderTable() {
         "job-meta",
         [
           jobTechnologies(job).slice(0, 4).join(" · ") || "Tecnologias não informadas",
-          publishedLabel(job) && `publicada em ${publishedLabel(job)}`,
+          dateFact(job, false),
           ACTIVITY_LABELS[activityState(job)],
           alsoSeenIn(job).length && `também em ${alsoSeenIn(job).join(", ")}`,
         ].filter(Boolean).join(" — ")

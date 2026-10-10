@@ -136,6 +136,7 @@ senioridade, tecnologias, data de publicação, fonte, URL e nota.
 ## Vigência: publicação, prazo e período
 
 - **Publicada em** vem só do portal (campo estruturado ou texto "Publicada em"); a data de coleta (`observed_at`) nunca a substitui.
+- **Vista pela 1ª vez** (`first_seen_at`, do histórico local) aparece só quando o portal não informa a publicação (Indeed, InfoJobs, Nube...). É informação, não data de publicação: ordenação e filtros de período continuam usando apenas `published_at`.
 - **Prazo** (`application_deadline`) vem do `validThrough` da página oficial. Só a data vale até 23:59 de Brasília.
 - O painel abre em **Últimos 30 dias** (também 7 e 15). Vaga sem data de publicação fica fora dessas janelas e aparece em **Qualquer data**; nada é apagado. Prazo vencido afeta a **Situação**, não o período: uma vaga encerrada pode aparecer em **Últimos 30 dias** ao selecionar **Encerradas**. Os atalhos de melhores vagas continuam excluindo encerradas.
 - **Período personalizado:** em "Personalizado…" informe data inicial e/ou final; os dois dias entram (horário de Brasília). Vaga sem data de publicação continua de fora.

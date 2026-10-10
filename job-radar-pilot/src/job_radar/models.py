@@ -111,6 +111,9 @@ class VacancyRecord:
     collection_status: CollectionStatus = CollectionStatus.SUCCESS
     content_hash: str | None = None
     identity_strength: str = "STRONG"
+    # Primeira vez que o Radar viu a vaga (history.json). NÃO é data de publicação:
+    # published_at continua vindo só do portal. Serve para portais que nunca informam data.
+    first_seen_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

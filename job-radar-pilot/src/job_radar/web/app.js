@@ -573,7 +573,11 @@ function externalScoreFact(job) {
   if (!score) return "";
   if (externalScore(job) === null) return score.motivo ? `Não entrou no aviso (seus critérios): ${score.motivo}` : "";
   const axes = Object.entries(score.eixos ?? {}).map(([name, points]) => `${name} ${points}`).join(" · ");
-  return `Nota pelos seus critérios: ${externalScore(job)}/100${score.trilha ? ` — ${score.trilha}` : ""}${axes ? ` (${axes})` : ""}`;
+  const fit = score.aderencia;
+  const cv = fit && Number.isFinite(fit.total)
+    ? `. Seu currículo: ${fit.atende}/${fit.total} requisitos${fit.faltam?.length ? ` (falta: ${fit.faltam.join(", ")})` : ""}`
+    : "";
+  return `Nota pelos seus critérios: ${externalScore(job)}/100${score.trilha ? ` — ${score.trilha}` : ""}${axes ? ` (${axes})` : ""}${cv}`;
 }
 
 function fitLabel(state) {

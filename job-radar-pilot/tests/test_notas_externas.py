@@ -51,7 +51,8 @@ def test_panel_shows_external_score_and_sorts_by_it(tmp_path: Path) -> None:
     server, thread = _serve(tmp_path)
     (tmp_path / "output" / "notas.json").write_text(json.dumps({"versao": 1, "avaliador": "hermes", "notas": {
         "https://example.com/vaga/1?a=1&b=2": {"nota": 61, "trilha": "Java júnior", "eixos": {"nível": 25}},
-        "https://example.com/vaga/2?a=1&b=2": {"nota": 88, "trilha": "Java júnior", "eixos": {"nível": 25}},
+        "https://example.com/vaga/2?a=1&b=2": {"nota": 88, "trilha": "Java júnior", "eixos": {"nível": 25},
+                                               "aderencia": {"atende": 5, "total": 6, "faltam": ["kubernetes"]}},
     }}), encoding="utf-8")
     try:
         with sync_playwright() as playwright:
@@ -66,7 +67,9 @@ def test_panel_shows_external_score_and_sorts_by_it(tmp_path: Path) -> None:
             assert "Dev Java 2" in first.inner_text() and "88/100" in first.inner_text()
             page.locator(".title-cell").first.click()
             page.wait_for_selector(".detail-row")
-            assert "Nota pelos seus critérios: 88/100 — Java júnior" in page.locator(".detail-row").inner_text()
+            detail = page.locator(".detail-row").inner_text()
+            assert "Nota pelos seus critérios: 88/100 — Java júnior" in detail
+            assert "Seu currículo: 5/6 requisitos (falta: kubernetes)" in detail
             browser.close()
     finally:
         server.shutdown()

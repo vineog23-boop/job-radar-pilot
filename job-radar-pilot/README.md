@@ -434,6 +434,7 @@ continua sendo a pontuação do perfil do próprio Radar. Arquivo ausente ou ile
 ```json
 {"versao": 1, "avaliador": "...", "notas": {
   "<canonical_url>": {"nota": 87, "trilha": "Java júnior", "eixos": {"nível": 25, "stack": 21},
+                      "aderencia": {"atende": 5, "total": 6, "faltam": ["kubernetes"]},
                       "motivo": null},
   "<outra>": {"nota": null, "motivo": "nível acima de júnior"}}}
 ```

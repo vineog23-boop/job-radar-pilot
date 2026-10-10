@@ -422,6 +422,7 @@ function detailRow(job) {
     ? `Score ${breakdown.total}/100 — ${breakdown.parts.map((part) => `${part.label} +${part.points}`).join(" · ")}`
     : `Score ${breakdown.total}/100 — nenhum ponto: vaga fora do perfil ou sem critério confirmado`;
   const facts = [
+    ...(externalScoreFact(job) ? [externalScoreFact(job)] : []),
     scoreText,
     criteria.length ? `Critérios atendidos — ${criteria.join(" · ")}` : "Nenhum critério do perfil confirmado",
   ];
@@ -561,6 +562,20 @@ function fitScore(job) {
   return label ? Number(String(label).slice("FIT_SCORE:".length)) : Number.NEGATIVE_INFINITY;
 }
 
+// Nota de um avaliador externo (output/notas.json; ex.: a automação que envia ao Telegram).
+function externalScore(job) {
+  const nota = job.external_score?.nota;
+  return typeof nota === "number" ? nota : null;
+}
+
+function externalScoreFact(job) {
+  const score = job.external_score;
+  if (!score) return "";
+  if (externalScore(job) === null) return score.motivo ? `Não entrou no aviso (seus critérios): ${score.motivo}` : "";
+  const axes = Object.entries(score.eixos ?? {}).map(([name, points]) => `${name} ${points}`).join(" · ");
+  return `Nota pelos seus critérios: ${externalScore(job)}/100${score.trilha ? ` — ${score.trilha}` : ""}${axes ? ` (${axes})` : ""}`;
+}
+
 function fitLabel(state) {
   return {
     READY: "Mais compatível",
@@ -688,6 +703,9 @@ function filteredJobs() {
       byState ||
       fitScore(right) - fitScore(left) ||
       boostPoints(right) - boostPoints(left);
+    if (elements.sortOrder.value === "score") {
+      return (externalScore(right) ?? -1) - (externalScore(left) ?? -1) || byFit;
+    }
     if (elements.sortOrder.value !== "recent") return byFit;
     return publishedTime(right) - publishedTime(left) || byFit;
   });
@@ -876,6 +894,11 @@ function renderTable() {
         fitLabel(fitState(job))
       )
     );
+    if (externalScore(job) !== null) {
+      const pill = textElement("span", "match-pill external", `${externalScore(job)}/100`);
+      pill.title = externalScoreFact(job);
+      matchCell.appendChild(pill);
+    }
     if (isUnseen(job)) {
       matchCell.appendChild(textElement("span", "match-pill new", "Nova"));
       row.classList.add("unseen");

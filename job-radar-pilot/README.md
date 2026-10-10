@@ -423,6 +423,21 @@ Greenhouse abaixo. As demais integrações mantêm os limites indicados:
 | Telegram | Pendente dos URLs de canais públicos indicados pelo usuário; sem descoberta inventada ou leitura de grupos privados. |
 | LinkedIn | Somente links oficiais de pesquisa e importação manual do conteúdo colado. |
 
+## Notas externas (nota dos seus critérios no painel)
+
+Opcional: se existir `output/notas.json`, o painel mostra a nota ao lado da aderência
+(ex.: "87/100"), oferece a ordenação "Maior nota (seus critérios)" e, no detalhe, os eixos
+da nota ou o motivo de a vaga não ter entrado no aviso. A automação diária do Hermes grava
+esse arquivo, então o painel mostra **o mesmo número** do Telegram. O "Score X/100" do painel
+continua sendo a pontuação do perfil do próprio Radar. Arquivo ausente ou ilegível é ignorado.
+
+```json
+{"versao": 1, "avaliador": "...", "notas": {
+  "<canonical_url>": {"nota": 87, "trilha": "Java júnior", "eixos": {"nível": 25, "stack": 21},
+                      "motivo": null},
+  "<outra>": {"nota": null, "motivo": "nível acima de júnior"}}}
+```
+
 ## Modalidade por região
 
 Opcional, em `search-preferences.json` (o painel mostra a regra abaixo das localidades e a

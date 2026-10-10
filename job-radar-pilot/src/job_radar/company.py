@@ -21,9 +21,11 @@ _NOISE = re.compile(
     r"^\s*(carreiras|vagas?)(\s+(na|no|da|do|de))?\s+|"
     r"\s+carreiras\s*$|"
     r"\s*\|?\s*trabalhe\s+conosco\s*$|"
-    r"^\s*(somos|venha\s+ser|fa[cç]a\s+parte\s+(da|do|de))\s+|"
     r"\s+20\d\d\s*$"
 )
+# "Somos X", "Venha ser X": só é slogan quando veio decorado (emoji/hashtag). Sem isso pode
+# ser o nome real da empresa ("Somos Educação").
+_SLOGAN_PREFIX = re.compile(r"(?i)^\s*(somos|venha\s+ser|fa[cç]a\s+parte\s+(da|do|de))\s+")
 _MIN_LETTERS = 2
 
 # ATS cujo endereço identifica a empresa: subdomínio ou primeiro trecho do caminho.
@@ -48,8 +50,11 @@ def clean_company(name: str | None) -> str | None:
 
     if not name:
         return None
+    decorated = bool(_EMOJI.search(name) or _HASHTAG.search(name))
     text = _EMOJI.sub(" ", name)
     text = _HASHTAG.sub(" ", text)
+    if decorated:
+        text = _SLOGAN_PREFIX.sub(" ", text)
     previous = None
     while previous != text:   # "Logo Programa de Estágio X 2027": várias camadas
         previous = text
@@ -58,7 +63,7 @@ def clean_company(name: str | None) -> str | None:
     if sum(ch.isalpha() for ch in text) < _MIN_LETTERS:
         return None
     # Sobrou só o slogan ("VENHA SER #SANGUELARANJA" -> "VENHA SER" já removido acima).
-    if re.fullmatch(r"(?i)(venha|seja|vem)(\s+\w+)?", text):
+    if decorated and re.fullmatch(r"(?i)(venha|seja|vem)(\s+\w+)?", text):
         return None
     return text[:120]
 

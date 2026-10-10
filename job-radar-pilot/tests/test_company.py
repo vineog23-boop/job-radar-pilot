@@ -25,6 +25,8 @@ from job_radar.sources.base import apply_source_defaults
         ("Bauducco #vemparaBauducco", "Bauducco"),
         ("Tahto - Staff e Executivo #VemSerTahto", "Tahto - Staff e Executivo"),
         ("Somos BHS 💚", "BHS"),
+        ("Somos Educação", "Somos Educação"),          # nome real: sem emoji/hashtag, fica
+        ("Venha Ser Consultoria", "Venha Ser Consultoria"),
         ("Acme Ltda", "Acme Ltda"),
         ("CI&T", "CI&T"),
     ],

@@ -28,6 +28,7 @@ from urllib.parse import urlsplit
 import json
 import re
 import unicodedata
+from job_radar.dates import parse_deadline
 from job_radar.fit import fit_state, is_off_topic
 from job_radar.models import CollectionStatus, SourceConfig, SourceKind, VacancyRecord
 
@@ -163,6 +164,37 @@ def _job_posting_live(html: str, expected_title: str | None) -> bool:
     return False
 
 
+_NEXT_DATA = re.compile(
+    r"<script[^>]+id=[\"']__NEXT_DATA__[\"'][^>]*>(.*?)</script>", re.I | re.S
+)
+
+
+def _gupy_job_status(html: str, expected_title: str | None) -> str | None:
+    """Status estruturado da Gupy (``pageProps.job``): ``status`` e ``expiresAt``.
+
+    A página é montada por JavaScript e o script traz textos de interface
+    ("Candidaturas encerradas") em toda vaga, então o texto não serve de prova.
+    """
+
+    match = _NEXT_DATA.search(html)
+    if not match:
+        return None
+    try:
+        job = json.loads(match.group(1))["props"]["pageProps"]["job"]
+    except (ValueError, TypeError, KeyError):
+        return None
+    if not isinstance(job, dict) or "status" not in job:
+        return None
+    if not _identity_matches(str(job.get("name") or job.get("title") or ""), expected_title):
+        return None
+    if job.get("status") != "published":
+        return LINK_DEAD
+    expires = parse_deadline(job.get("expiresAt"))
+    if expires and datetime.fromisoformat(expires) < datetime.now(timezone.utc):
+        return LINK_DEAD
+    return LINK_LIVE
+
+
 def check_canonical_url(
     url: str,
     source: SourceConfig,
@@ -219,6 +251,9 @@ def check_canonical_url(
         return status
     if _blocked_text(text):
         return LINK_UNKNOWN
+    structured = _gupy_job_status(page_html(response), expected_title)
+    if structured is not None:
+        return structured
     return (
         LINK_LIVE
         if _job_posting_live(page_html(response), expected_title)

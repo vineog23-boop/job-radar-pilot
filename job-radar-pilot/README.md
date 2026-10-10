@@ -423,6 +423,23 @@ Greenhouse abaixo. As demais integrações mantêm os limites indicados:
 | Telegram | Pendente dos URLs de canais públicos indicados pelo usuário; sem descoberta inventada ou leitura de grupos privados. |
 | LinkedIn | Somente links oficiais de pesquisa e importação manual do conteúdo colado. |
 
+## Modalidade por região
+
+Opcional, em `search-preferences.json` (o painel mostra a regra abaixo das localidades e a
+preserva ao salvar; ainda não há campo para editá-la):
+
+```json
+"workplace_location_scopes": {
+  "HYBRID": ["sp", "florianopolis-sc", "sao-jose-sc", "palhoca-sc", "biguacu-sc"],
+  "ONSITE": ["sao-carlos-sp", "florianopolis-sc", "sao-jose-sc", "palhoca-sc", "biguacu-sc"]
+}
+```
+
+Com ela, vaga híbrida ou presencial fora da região da sua modalidade fica "Fora do perfil"
+(`REGION_MISMATCH:hybrid|onsite`, motivo "híbrido/presencial fora da região permitida"),
+mesmo que a localidade esteja em `location_scopes` (ex.: "brasil" para aceitar remoto).
+Remoto segue só `location_scopes`. Sem a regra, nada muda.
+
 ## Nome da empresa
 
 Antes da classificação, o nome da empresa é limpo: saem emojis, hashtags e frases de

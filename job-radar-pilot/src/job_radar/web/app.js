@@ -49,6 +49,7 @@ const elements = {
   preferencesStatus: document.querySelector("#preferences-status"),
   searchTerms: document.querySelector("#search-terms"),
   locationScopes: document.querySelector("#location-scopes"),
+  regionRules: document.querySelector("#region-rules"),
   technologies: document.querySelector("#technologies"),
   primaryTechnologies: document.querySelector("#primary-technologies"),
   excludedTerms: document.querySelector("#excluded-terms"),
@@ -468,6 +469,8 @@ const REASON_LABELS = [
   ["PRIMARY_TECH_MISSING:", "stack principal não confirmada na vaga"],
   ["RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"],
   ["SENIORITY_MISMATCH:", "nível acima do desejado"],
+  ["REGION_MISMATCH:hybrid", "híbrido fora da região permitida para híbrido"],
+  ["REGION_MISMATCH:onsite", "presencial fora da região permitida para presencial"],
   ["LOCATION_MISMATCH:", "fora das localidades escolhidas"],
   ["WORKPLACE_MISMATCH:", "modelo de trabalho diferente"],
   ["LOCATION_UNCLEAR:", "local não confirmado"],
@@ -1865,7 +1868,22 @@ function applyTerms(mode) {
     `${added} termo(s) aplicados${left ? `; ${left} ficaram de fora (limite de ${MAX_SEARCH_TERMS})` : ""}. Salve as configurações para valer na próxima busca.`;
 }
 
+// Modalidade por região: ainda sem campo de edição no painel (edita-se no
+// search-preferences.json). O formulário só mostra e devolve a regra intacta ao salvar.
+let loadedRegionRules = {};
+const REGION_NAMES = { REMOTE: "remoto", HYBRID: "híbrido", ONSITE: "presencial" };
+
+function showRegionRules(rules) {
+  const entries = Object.entries(rules || {});
+  elements.regionRules.hidden = entries.length === 0;
+  elements.regionRules.textContent = entries.length
+    ? "Modalidade por região: " + entries.map(([model, scopes]) => `${REGION_NAMES[model] ?? model} só em ${scopes.join(", ")}`).join("; ") + "."
+    : "";
+}
+
 function fillPreferencesForm(payload) {
+  loadedRegionRules = payload.workplace_location_scopes ?? {};
+  showRegionRules(loadedRegionRules);
   elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
   elements.locationScopes.value = (payload.location_scopes ?? []).join("\n");
   elements.technologies.value = (payload.technologies ?? []).join("\n");
@@ -2198,6 +2216,7 @@ function currentPreferencesPayload() {
     favorite_companies: linesFrom(elements.favoriteCompanies),
     contract_types: checkedValues(elements.contractBoxes),
     avoid_advanced_english: elements.avoidEnglish.checked,
+    workplace_location_scopes: loadedRegionRules,
   };
 }
 

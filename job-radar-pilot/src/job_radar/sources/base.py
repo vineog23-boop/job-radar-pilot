@@ -16,6 +16,7 @@ from job_radar.models import (
     SourceConfig,
     SourceRunResult,
     VacancyRecord,
+    WorkplaceModel,
 )
 
 
@@ -425,6 +426,42 @@ class PaginatedAdapter:
             visited_urls=tuple(visited),
             warnings=tuple(warnings),
         )
+
+
+def _company_from_url(url: str, pattern: str | None) -> str | None:
+    """Empresa pelo trecho da URL (``selectors.company_from_url``, regex com 1 grupo).
+
+    Ex.: ``/pt/nava-technology-for-business-1/jobs/`` -> "Nava Technology For Business".
+    """
+
+    if not pattern:
+        return None
+    try:
+        match = re.search(pattern, url)
+    except re.error:
+        return None
+    if not match or not match.groups() or not match.group(1):
+        return None
+    slug = re.sub(r"-\d+$", "", match.group(1))
+    words = [word for word in re.split(r"[-_]+", slug) if word]
+    return " ".join(word.capitalize() for word in words)[:120] or None
+
+
+def apply_source_defaults(record: VacancyRecord, config: SourceConfig) -> VacancyRecord:
+    """Completa o que o card não trouxe com o que vale para o portal inteiro.
+
+    Nunca sobrescreve dado do próprio card: só preenche empresa vazia (pela URL) e
+    modalidade desconhecida (``default_workplace``).
+    """
+
+    changes: dict[str, object] = {}
+    if not (record.company or "").strip():
+        company = _company_from_url(record.canonical_url, config.selectors.get("company_from_url"))
+        if company:
+            changes["company"] = company
+    if config.default_workplace and record.workplace_model is WorkplaceModel.UNKNOWN:
+        changes["workplace_model"] = config.default_workplace
+    return replace(record, **changes) if changes else record
 
 
 def make_record(

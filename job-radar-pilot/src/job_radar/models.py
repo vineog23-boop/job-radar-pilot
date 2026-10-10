@@ -69,6 +69,8 @@ class SourceConfig:
     queries: tuple[str, ...] = ()
     default_country: str | None = None
     default_company: str | None = None
+    # Modalidade de todas as vagas do portal quando o card não informa (ex.: Remotar = REMOTE).
+    default_workplace: WorkplaceModel | None = None
     fetch_details: bool = True
     adaptive: bool = True
     single_page: bool = False

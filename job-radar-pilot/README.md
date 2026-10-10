@@ -332,7 +332,11 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 - Enriquecimento: vagas `CONDITIONAL`/`AMBIGUOUS` com tecnologia compatível têm a página de
   detalhe lida (HTTP estático, respeitando robots.txt e limites; ignora Indeed e fontes com
   login) e são reclassificadas; recebem `ENRICHED:DETAIL`. `collect --enrich-limit N`
-  (padrão 40; `0` desliga).
+  (padrão 120; `0` desliga). A fila vai das mais compatíveis para as duvidosas e, dentro de
+  cada faixa, **vagas sem data de publicação primeiro** (sem data a vaga some dos filtros de
+  período), com rodízio entre portais para que um portal grande não gaste o orçamento todo.
+  Da página de detalhe saem data, prazo, empresa e **modalidade** (JSON-LD `datePosted`,
+  `validThrough`, `jobLocationType: TELECOMMUTE`; `__NEXT_DATA__` da Gupy e do Remotar).
 - Histórico local em `%LOCALAPPDATA%\JobRadar\history.json` (só chave da vaga e data da
   primeira observação). Da segunda coleta em diante, vagas inéditas ganham `STATUS:NEW` e
   o selo "Nova" no painel. `collect --no-history` desliga.
@@ -394,6 +398,8 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 | `default_country` | País assumido para vagas remotas sem país explícito. |
 | `adaptive` | Liga/desliga o fallback adaptativo (padrão `true`). |
 | `default_company` | Empresa cadastrada explicitamente, usada somente quando ausente no cartão. |
+| `default_workplace` | `REMOTE`, `HYBRID` ou `ONSITE` para portais de uma modalidade só (ex.: Remotar); só preenche modalidade desconhecida. |
+| `selectors.company_from_url` | Regex com um grupo que tira a empresa da URL quando o cartão não traz (ex.: GeekHunter `/pt/<empresa>/jobs/`). |
 | `fetch_details` | Permite enriquecimento e verificação automática de detalhes (padrão `true`). `false` mantém os links para visita manual. |
 | `api.page_mode: single` | Uma requisição à URL exata, sem `page_param` obrigatório; `total_path` opcional confere a quantidade declarada. |
 | `kind: json` + `api` | Portal com API JSON pública (Gupy, Primeira Vaga Tech). `api.items` (caminho da lista), `page_param`/`page_mode` (`offset`, `page0`, `page1` ou `single`)/`page_size`/`size_param`, `workplace_param`/`state_param` (filtros de modelo e estado vindos do perfil), `strip_levels` e `fields` (mapeamento `title`, `company`, `url` ou `url_template`, `published`...). Um portal novo vira só configuração. |

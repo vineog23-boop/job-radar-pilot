@@ -282,7 +282,7 @@ sources:
     fixed_queries: true
     query_param: searchTerm
     queries: [java, spring boot, backend junior, estagio desenvolvimento]
-    selectors: {card: "li[id^='job-']", title: "h3 a::all-text", url: "h3 a::attr(href)", location: "div[role='group'] > div:first-child > div:nth-child(3) > div:nth-child(3) p::all-text", summary: "::all-text", next: "a[href*='page=']::attr(href)", published: "div[role='group'] > div:first-child > div:first-child p::all-text"}
+    selectors: {card: "li[id^='job-']", title: "h3 a::all-text", url: "h3 a::attr(href)", company_from_url: "/pt/([^/]+)/jobs/", location: "div[role='group'] > div:first-child > div:nth-child(3) > div:nth-child(3) p::all-text", summary: "::all-text", next: "a[href*='page=']::attr(href)", published: "div[role='group'] > div:first-child > div:first-child p::all-text"}
   - code: empregos-com
     kind: generic
     start_url: https://www.empregos.com.br/vagas/java
@@ -307,6 +307,8 @@ sources:
     selectors: {card: "div.opportunity-box", title: "h4::all-text", url: "a.inner::attr(href)", company: "h5::all-text", location: ".location::all-text", summary: "::all-text"}
   - code: remotar
     kind: dynamic
+    # O portal só publica vagas 100% remotas; o card não repete a modalidade.
+    default_workplace: REMOTE
     start_url: https://remotar.com.br/search/jobs?q=java
     enabled: true
     max_pages: 1

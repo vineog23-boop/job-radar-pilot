@@ -746,8 +746,20 @@ function showToast(text, undo) {
 
 const TRACKING_NAMES = Object.fromEntries(TRACKING_OPTIONS.filter(([value]) => value));
 
+// Desabilitar o <select> focado faz o Chromium mover o foco para o <body> no quadro seguinte
+// (focus fixup). Se a resposta demora mais que um quadro, o foco se perdia; ao terminar,
+// devolvemos o foco ao seletor da mesma vaga, desde que o usuário não o tenha levado a outro lugar.
+function restoreTrackingFocus(url) {
+  const active = document.activeElement;
+  if (active && active !== document.body) return;
+  const row = [...elements.tableBody.querySelectorAll("[data-job-url]")]
+    .find((candidate) => candidate.dataset.jobUrl === url);
+  row?.querySelector(".tracking-select")?.focus();
+}
+
 async function updateTracking(job, status, select, { undoable = true } = {}) {
   const previous = trackingStatus(job);
+  const hadFocus = document.activeElement === select;
   select.disabled = true;
   let saved = false;
   try {
@@ -768,6 +780,7 @@ async function updateTracking(job, status, select, { undoable = true } = {}) {
     renderTable();
     renderNews();
     renderFunnel();
+    if (hadFocus) restoreTrackingFocus(job.canonical_url);
   }
   if (saved && undoable && previous !== status) {
     const name = TRACKING_NAMES[status] || "sem acompanhamento";

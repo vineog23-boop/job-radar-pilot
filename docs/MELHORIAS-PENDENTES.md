@@ -342,7 +342,17 @@ real desde então (07/10) rodou de verdade e revelou duas falhas que só aparece
 - 3 testes Playwright liam a tabela sem esperar a primeira linha renderizar; no Windows do CI
   (mais lento) a leitura corria antes do primeiro `/api/state` terminar.
 
-#### `test_own_tracking_change_keeps_status_keyboard_focus` — investigado, sem correção (07/10)
+#### `test_own_tracking_change_keeps_status_keyboard_focus` — **causa achada e corrigida (10/10)**
+
+Causa: `updateTracking()` desabilita o `<select>` focado durante o `fetch`. No mesmo instante o
+foco continua nele (por isso o teste isolado de 07/10 não viu nada), mas **no quadro seguinte o
+Chromium aplica o "focus fixup" e move o foco para o `<body>`**, e reabilitar não o devolve.
+Resposta mais rápida que um quadro (máquina local) = passa; mais lenta (CI) = falha. Correção:
+ao terminar, se o seletor tinha o foco e ele caiu no `<body>`, o foco volta ao seletor da mesma
+vaga. Regressão determinística: `test_tracking_change_keeps_focus_even_when_the_server_is_slow`
+(atrasa a resposta em 300 ms; falhava 3/3 antes, passa 5/5 depois).
+
+##### Histórico da investigação de 07/10
 
 Falhou **duas vezes seguidas** no Windows do CI, sempre a mesma asserção (`to_be_focused()`).
 Não é flakiness aleatória entre testes — é sempre o mesmo. Investigado a fundo sem achar bug:

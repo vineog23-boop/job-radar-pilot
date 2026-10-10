@@ -130,7 +130,7 @@ sources:
     requires_auth: false
     adaptive: true
     default_country: BR
-    selectors: {card: ".gallery-item-container", title: "a.O16KGI[href*='/post/']::all-text", url: "a.O16KGI[href*='/post/']::attr(href)", published: "span.post-metadata__date::all-text"}
+    selectors: {company_from_title: "^(?:[^:\u2013-]*[-\u2013:]\\s*)?([A-Z\u00c0-\u00da][\\w&.-]*(?: [A-Z\u00c0-\u00da][\\w&.-]*){0,3}) abre |Est[a\u00e1]gio (?:da |do |de )?([A-Z\u00c0-\u00da][\\w&.-]*(?: [A-Z\u00c0-\u00da][\\w&.-]*){0,2}) 20\\d\\d|Programa de Est[a\u00e1]gio (?:da |do )([A-Z\u00c0-\u00da][\\w&.-]*(?: [A-Z\u00c0-\u00da][\\w&.-]*){0,2})", card: ".gallery-item-container", title: "a.O16KGI[href*='/post/']::all-text", url: "a.O16KGI[href*='/post/']::attr(href)", published: "span.post-metadata__date::all-text"}
   - code: eureca
     kind: dynamic
     start_url: https://app.eureca.me/oportunidades
@@ -242,7 +242,7 @@ sources:
     adaptive: true
     default_country: BR
     single_page: true
-    selectors: {card: "article.category-vagas-abertas", title: ".entry-title a::all-text", url: ".entry-title a::attr(href)", summary: ".entry-content::all-text", published: "time.entry-date::attr(datetime)"}
+    selectors: {company_from_title: "Trainee ([A-Z\u00c0-\u00da][\\w&.-]*(?: [A-Z\u00c0-\u00da][\\w&.-]*){0,3}) (?:20\\d\\d|abre)|^([A-Z\u00c0-\u00da][\\w&.-]*(?: [A-Z\u00c0-\u00da][\\w&.-]*){0,3}) abre ", card: "article.category-vagas-abertas", title: ".entry-title a::all-text", url: ".entry-title a::attr(href)", summary: ".entry-content::all-text", published: "time.entry-date::attr(datetime)"}
   - code: vidadetrainee
     kind: generic
     start_url: https://www.vidadetrainee.com/archive
@@ -262,7 +262,7 @@ sources:
     requires_auth: false
     adaptive: true
     default_country: BR
-    selectors: {card: "article.jeg_post", title: ".jeg_post_title a::all-text", url: ".jeg_post_title a::attr(href)", summary: ".jeg_post_excerpt::all-text", next: "link[rel='next']::attr(href)", published: ".jeg_meta_date::all-text"}
+    selectors: {company_from_title: "^(?:[^:]*:\\s*)?([A-Z\u00c0-\u00da][\\w&.-]*(?: (?:de |do |da )?[A-Z\u00c0-\u00da][\\w&.-]*){0,3})(?:,[^,]*,)? abre ", card: "article.jeg_post", title: ".jeg_post_title a::all-text", url: ".jeg_post_title a::attr(href)", summary: ".jeg_post_excerpt::all-text", next: "link[rel='next']::attr(href)", published: ".jeg_meta_date::all-text"}
   - code: infojobs
     kind: dynamic
     start_url: https://www.infojobs.com.br/vagas-de-emprego-java.aspx

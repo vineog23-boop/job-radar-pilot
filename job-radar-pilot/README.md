@@ -399,6 +399,7 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 | `adaptive` | Liga/desliga o fallback adaptativo (padrão `true`). |
 | `default_company` | Empresa cadastrada explicitamente, usada somente quando ausente no cartão. |
 | `default_workplace` | `REMOTE`, `HYBRID` ou `ONSITE` para portais de uma modalidade só (ex.: Remotar); só preenche modalidade desconhecida. |
+| `selectors.company_from_title` | Regex (1 ou mais grupos; vale o primeiro preenchido) que tira a empresa do título em portais de programa ("Ingredion abre Programa de Estágio..."). |
 | `selectors.company_from_url` | Regex com um grupo que tira a empresa da URL quando o cartão não traz (ex.: GeekHunter `/pt/<empresa>/jobs/`). |
 | `fetch_details` | Permite enriquecimento e verificação automática de detalhes (padrão `true`). `false` mantém os links para visita manual. |
 | `api.page_mode: single` | Uma requisição à URL exata, sem `page_param` obrigatório; `total_path` opcional confere a quantidade declarada. |
@@ -420,6 +421,15 @@ Greenhouse abaixo. As demais integrações mantêm os limites indicados:
 | 99Freelas | Projetos **freelance**, separados de vagas CLT/estágio; integração opcional pendente da categoria/contrato adequado. |
 | Telegram | Pendente dos URLs de canais públicos indicados pelo usuário; sem descoberta inventada ou leitura de grupos privados. |
 | LinkedIn | Somente links oficiais de pesquisa e importação manual do conteúdo colado. |
+
+## Nome da empresa
+
+Antes da classificação, o nome da empresa é limpo: saem emojis, hashtags e frases de
+marketing ("Carreiras X", "Vagas na X", "X | Trabalhe Conosco", "Logo Programa de Estágio X
+2027"). Se não sobrar nome (ex.: "VENHA SER #SANGUELARANJA"), ele vem do título
+(`company_from_title`), da URL (`company_from_url`) ou do endereço do ATS
+(`fcamara.gupy.io`, `jobs.lever.co/ciandt`, `jobs.quickin.io/sinqia`...). Isso também
+melhora a remoção de duplicatas entre portais, que compara empresa + cargo.
 
 ## Fontes com API/feed (mais vagas, mais compatíveis)
 

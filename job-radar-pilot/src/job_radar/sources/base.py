@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from job_radar.adaptive import AdaptiveCardLocator, CardSelection, select_cards
 from job_radar.fetching import BlockReason, FetchPolicy, _visible_response_text
+from job_radar.company import clean_company, company_from_ats_url, company_from_title
 from job_radar.identity import canonicalize_url
 from job_radar.dates import parse_published_at
 from job_radar.text_cleaning import clean_description, clean_title
@@ -450,15 +451,21 @@ def _company_from_url(url: str, pattern: str | None) -> str | None:
 def apply_source_defaults(record: VacancyRecord, config: SourceConfig) -> VacancyRecord:
     """Completa o que o card não trouxe com o que vale para o portal inteiro.
 
-    Nunca sobrescreve dado do próprio card: só preenche empresa vazia (pela URL) e
-    modalidade desconhecida (``default_workplace``).
+    Empresa: limpa slogan/marketing (``company.clean_company``); se não sobrar nome, usa o
+    título (``selectors.company_from_title``), a URL (``selectors.company_from_url``) ou o
+    endereço do ATS. Modalidade: só preenche a desconhecida (``default_workplace``).
     """
 
     changes: dict[str, object] = {}
-    if not (record.company or "").strip():
-        company = _company_from_url(record.canonical_url, config.selectors.get("company_from_url"))
-        if company:
-            changes["company"] = company
+    cleaned = clean_company(record.company)
+    if not cleaned:
+        cleaned = (
+            company_from_title(record.title, config.selectors.get("company_from_title"))
+            or _company_from_url(record.canonical_url, config.selectors.get("company_from_url"))
+            or company_from_ats_url(record.canonical_url)
+        )
+    if cleaned != record.company and (cleaned or record.company):
+        changes["company"] = cleaned
     if config.default_workplace and record.workplace_model is WorkplaceModel.UNKNOWN:
         changes["workplace_model"] = config.default_workplace
     return replace(record, **changes) if changes else record

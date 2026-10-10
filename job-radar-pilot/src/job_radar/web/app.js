@@ -84,6 +84,14 @@ const elements = {
   techInsights: document.querySelector("#tech-insights"),
   techInsightsChips: document.querySelector("#tech-insights-chips"),
   companyInsights: document.querySelector("#company-insights"),
+  trackingFavoriteKeywords: document.querySelector("#tracking-favorite-keywords"),
+  trackingFavoriteKeywordsChips: document.querySelector("#tracking-favorite-keywords-chips"),
+  trackingAvoidKeywords: document.querySelector("#tracking-avoid-keywords"),
+  trackingAvoidKeywordsChips: document.querySelector("#tracking-avoid-keywords-chips"),
+  trackingFavoriteCompanies: document.querySelector("#tracking-favorite-companies"),
+  trackingFavoriteCompaniesChips: document.querySelector("#tracking-favorite-companies-chips"),
+  trackingAvoidCompanies: document.querySelector("#tracking-avoid-companies"),
+  trackingAvoidCompaniesChips: document.querySelector("#tracking-avoid-companies-chips"),
   seniorityInternship: document.querySelector("#seniority-internship"),
   seniorityJunior: document.querySelector("#seniority-junior"),
   workplaceRemote: document.querySelector("#workplace-remote"),
@@ -351,17 +359,48 @@ function boostPoints(job) {
 }
 
 function jobScore(job) {
+  return scoreBreakdown(job).total;
+}
+
+// Mesma conta de xlsx_export.job_score, mas devolvendo cada parcela: a tabela
+// mostra o total, o detalhe explica de onde ele veio (item 3.5 do backlog). O
+// total nunca diverge do score real: se um rótulo específico (TECH_MATCH:
+// etc.) não explicar algum dos 20 pontos de `points` — caso raro, de vaga
+// sintética/antiga sem os rótulos individuais — o resto vira uma parcela
+// genérica em vez de inventar de qual critério ele veio.
+function scoreBreakdown(job) {
   const state = fitState(job);
   const points = fitScore(job);
-  if (state === "EXCLUDE" || points < 0 || !Number.isFinite(points)) return 0;
-  let score = points * 20 + (state === "READY" ? 10 : 0) + boostPoints(job);
+  if (state === "EXCLUDE" || points < 0 || !Number.isFinite(points)) {
+    return { total: 0, parts: [] };
+  }
+  const labels = (job.match_labels ?? []).map(String);
+  const has = (prefix) => labels.some((label) => label.startsWith(prefix));
+  const parts = [
+    ["Tecnologia", "TECH_MATCH:"],
+    ["Nível", "SENIORITY_MATCH:"],
+    ["Local", "LOCATION_MATCH:"],
+    ["Modelo de trabalho", "WORKPLACE_MATCH:"],
+  ]
+    .filter(([, prefix]) => has(prefix))
+    .map(([label]) => ({ label, points: 20 }));
+  const criteriaTotal = points * 20;
+  const accounted = parts.length * 20;
+  if (criteriaTotal > accounted) {
+    parts.push({ label: "Outros critérios do perfil", points: criteriaTotal - accounted });
+  }
+  if (state === "READY") parts.push({ label: "Mais compatível", points: 10 });
+  const boost = boostPoints(job);
+  if (boost) parts.push({ label: "Diferenciais e empresa favorita", points: boost });
+  let total = criteriaTotal + (state === "READY" ? 10 : 0) + boost;
   const published = publishedTime(job);
   if (published !== -Infinity) {
     const days = (Date.now() - published) / 86400000;
     const bonus = days < 0 ? 0 : days <= 3 ? 10 : days <= 7 ? 7 : days <= 14 ? 4 : days <= 30 ? 2 : 0;
-    score += bonus;
+    if (bonus) parts.push({ label: "Publicada recentemente", points: bonus });
+    total += bonus;
   }
-  return Math.min(100, score);
+  return { total: Math.min(100, total), parts };
 }
 
 function detailRow(job) {
@@ -377,8 +416,12 @@ function detailRow(job) {
   const criteria = CRITERIA_LABELS.flatMap(([prefix, name]) =>
     labels.filter((l) => l.startsWith(prefix)).map((l) => `${name}: ${l.slice(prefix.length)}`)
   );
+  const breakdown = scoreBreakdown(job);
+  const scoreText = breakdown.parts.length
+    ? `Score ${breakdown.total}/100 — ${breakdown.parts.map((part) => `${part.label} +${part.points}`).join(" · ")}`
+    : `Score ${breakdown.total}/100 — nenhum ponto: vaga fora do perfil ou sem critério confirmado`;
   const facts = [
-    `Score ${jobScore(job)}/100`,
+    scoreText,
     criteria.length ? `Critérios atendidos — ${criteria.join(" · ")}` : "Nenhum critério do perfil confirmado",
   ];
   const reasons = fitReasons(job);
@@ -2068,6 +2111,60 @@ async function loadInsights() {
   }
 }
 
+function renderTrackingInsightGroup(section, chipsEl, items, targetInputId) {
+  section.hidden = items.length === 0;
+  chipsEl.replaceChildren(
+    ...items.map(({ term, count, other_count: otherCount }) =>
+      insightChip(
+        `+ ${term} (${count} × ${otherCount})`,
+        "Evidência: quantas vezes apareceu do seu lado × do outro lado.",
+        () => tagInputs.get(targetInputId)?.add(term)
+      )
+    )
+  );
+}
+
+async function loadTrackingInsights() {
+  try {
+    const response = await fetch("/api/tracking/insights", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    renderTrackingInsightGroup(
+      elements.trackingFavoriteKeywords,
+      elements.trackingFavoriteKeywordsChips,
+      payload.keywords_favorite ?? [],
+      "bonus-keywords"
+    );
+    renderTrackingInsightGroup(
+      elements.trackingAvoidKeywords,
+      elements.trackingAvoidKeywordsChips,
+      payload.keywords_avoid ?? [],
+      "blocked-keywords"
+    );
+    renderTrackingInsightGroup(
+      elements.trackingFavoriteCompanies,
+      elements.trackingFavoriteCompaniesChips,
+      payload.companies_favorite ?? [],
+      "favorite-companies"
+    );
+    renderTrackingInsightGroup(
+      elements.trackingAvoidCompanies,
+      elements.trackingAvoidCompaniesChips,
+      payload.companies_avoid ?? [],
+      "excluded-companies"
+    );
+  } catch {
+    [
+      elements.trackingFavoriteKeywords,
+      elements.trackingAvoidKeywords,
+      elements.trackingFavoriteCompanies,
+      elements.trackingAvoidCompanies,
+    ].forEach((section) => {
+      section.hidden = true;
+    });
+  }
+}
+
 function currentPreferencesPayload() {
   return {
     search_terms: linesFrom(elements.searchTerms),
@@ -2358,7 +2455,13 @@ async function loadPreferences() {
     fillPreferencesForm(payload);
     preferencesLoaded = true;
     elements.preferencesStatus.textContent = "Configurações atuais carregadas.";
-    await Promise.all([loadPresets(), loadProfiles(), loadInsights(), loadConfiguredSources()]);
+    await Promise.all([
+      loadPresets(),
+      loadProfiles(),
+      loadInsights(),
+      loadTrackingInsights(),
+      loadConfiguredSources(),
+    ]);
     textSearchSources = configuredSources.filter((source) => source.text_search).length;
     updateSearchTermsCount();
     return true;

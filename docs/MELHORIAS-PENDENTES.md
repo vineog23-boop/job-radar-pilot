@@ -92,12 +92,19 @@ Texto original:
 - Pronto quando: teste com cada alias casando nos dois sentidos, sem falso positivo ("js" não
   casa com "jsp"; "go" não casa com "google" nem com "go-live").
 
-### 1.3 Aprender com o que o usuário salva e descarta
-- O acompanhamento (`tracking.json`: SAVED/APPLIED/DISCARDED) é um rótulo humano grátis. Gerar
-  sugestões: termos/empresas muito mais frequentes nas descartadas do que nas salvas →
-  "Proibidas"/"Empresas a evitar"; o inverso → "Diferenciais"/"Favoritas". Só sugerir; o usuário
-  clica para aplicar (mesmo estilo dos chips de "Aparecem muito nas suas vagas").
-- Pronto quando: teste com tracking simulado gera sugestões coerentes e nada é aplicado sozinho.
+### ✅ 1.3 Aprender com o que o usuário salva e descarta — FEITO em 07/10/2026
+- Feito: `reclassify.tracking_insights()` cruza `vagas.jsonl` com `tracking.json`
+  (salva/aplicada/entrevista/oferta = sinal positivo; descartada = negativo; recusada pela
+  empresa não conta para nenhum lado) e sugere empresas/tecnologias só quando o sinal é claro
+  (aparece pelo menos `min_count` vezes de um lado e menos vezes do outro; empate não sugere).
+  Nunca aplica sozinho: `/api/tracking/insights` devolve a evidência (contagem dos dois lados) e
+  o painel mostra chips — igual ao padrão já usado em "Aparecem muito nas suas vagas" — perto de
+  Diferenciais, Proibidas, Empresas a evitar e Empresas favoritas; o clique é que adiciona.
+- Testado: 7 testes novos da função pura (`tests/test_tracking_insights.py`) + 1 teste de API
+  (`test_api_tracking_insights`); suíte inteira (1093 testes) e Ruff continuam verdes.
+- **Não verificado visualmente** no painel real: havia um processo já rodando com dados reais do
+  usuário na porta 8765, e reiniciá-lo para testar exigiria derrubar o painel que ele pode estar
+  usando. Reabra pelo atalho (mata o processo antigo e carrega o `app.js` novo) para ver os chips.
 
 ### ✅ 1.4 Medir o classificador — FEITO em 01/10/2026 (falta o gabarito humano)
 - Feito: `job-radar avaliar` (`src/job_radar/evaluation.py`) com `--salvar`/`--base` e
@@ -139,13 +146,36 @@ Texto original:
   que só gastam tempo (ex.: o que trouxer quase só `OFF_TOPIC`).
 
 ### 2.4 Pendências antigas ainda abertas
-- Nube/Infojobs: restringir à área de TI na URL de partida.
 - Paginação não verificada: estagiotrainee (Wix, lazy load), ciee, mytechjobs (`?page=N` sem link
-  "próxima" → opção `page_param` incremental), trampos, coodesh; programathor marca `PARTIAL` mesmo
-  no fim legítimo; busca vazia no Infojobs vira timeout em vez de `EMPTY`.
+  "próxima" → opção `page_param` incremental), trampos, coodesh; busca vazia no Infojobs vira
+  timeout em vez de `EMPTY`.
 - Candidatas não testadas: APInfo, ABRE, IEL, Universia. **Descartadas, não readicionar**:
   GeekHunter (exceto o que já existe), TalenTI, eu.dev.br, ViUmaVaga, Super Estágios, Futura
   Estágios, Glassdoor, GitHub `backend-br/vagas`, Catho, Revelo, LinkedIn (scraping).
+
+#### Investigado em 07/10/2026 (não mexer sem reabrir a discussão)
+
+- **Nube — 0 úteis em 1.218 registros**: não é bug de URL. `/estudantes/vagas` é um board
+  generalista (5.973 vagas de todas as áreas: engenharia, vendas, administrativo etc.); o filtro
+  por área ("Tecnologia da Informação") só existe no JavaScript do cliente, lido de uma API JSON
+  pública (`/api/portal/buscar_listagem_vagas?offset=&limite=`) sem parâmetro de categoria na URL.
+  Medido ao vivo: de ~3.292 vagas lidas dessa API, só 15 eram de TI (~0,5%) — extrapolando para as
+  5.973 totais, são ~27 vagas de TI no site inteiro, a maioria com título genérico
+  ("Tecnologia da Informação - <id>", sem stack). Corrigir direito exigiria migrar o adaptador de
+  `dynamic` para `json` e estender `sources/json_api.py` (hoje só lê listas; a API do Nube devolve
+  `dict_por_id_vaga`, um dicionário por ID) — mudança em código compartilhado com outros portais
+  `json`, para um ganho de poucas dezenas de vagas genéricas. **Recomendação**: não vale o risco;
+  o aviso "este portal rende pouco" já existe no painel (`app.js` `renderSources`, quando
+  `useful === 0` e `records >= 5`) e cobre o caso — deixar o usuário desmarcar Nube se quiser.
+- **Programathor — `PARTIAL` mesmo "no fim legítimo"**: confirmado ao vivo que a busca
+  `jobs-java` fica vazia a partir da página 6, mas o próprio site mostra um link "Last » page=230"
+  na paginação (provavelmente o total do site inteiro, não da busca filtrada) e nenhuma página
+  exibe texto de "nenhum resultado". Como não há sinal textual confiável de fim de busca, o
+  adaptador genérico (`sources/base.py`, `EMPTY_PAGE_AFTER_RECORDS`) está certo em marcar
+  `PARTIAL` em vez de supor `SUCCESS` — essa lógica é compartilhada por todos os portais
+  `generic`, então "corrigi-la" para aceitar uma página vazia como fim legítimo arriscaria
+  declarar coleta completa em portais que na verdade sofreram bloqueio temporário.
+  **Recomendação**: manter como está; não é regressão, é limite real do portal.
 
 ---
 
@@ -162,7 +192,11 @@ Texto original:
 - ◐ 3.4 (PARCIAL 01/10: celular em cartões sem rolagem horizontal, foco visível; falta auditoria
   WCAG completa) **Acessibilidade e mobile**: auditoria WCAG AA (contraste, foco visível, navegação por
   teclado nos chips/etiquetas, `aria-pressed`/`aria-live`), e layout em tela estreita.
-- 3.5 Explicar o score na tabela (tooltip com os pontos de cada critério e diferenciais).
+- ✅ 3.5 (FEITO 07/10: `scoreBreakdown()` no `app.js` separa os 20 pontos de cada critério
+  confirmado — Tecnologia/Nível/Local/Modelo —, +10 de "Mais compatível", diferenciais/empresa
+  favorita e o bônus de recência; o total nunca diverge do score real, mesmo em vagas antigas
+  sem os rótulos individuais) **Explicar o score na tabela**: pontos de cada critério e
+  diferenciais, visível ao abrir o detalhe da vaga.
 
 ---
 
@@ -204,8 +238,8 @@ Texto original:
 
 ## Ordem sugerida
 
-~~1.4 → 1.1 → 1.2 → 4.4 → 4.5~~ (feitos) → gabarito humano do 1.4 → 1.3 → 3.1 → 2.3 → 4.2 →
-4.1 → 2.2 → restante.
+~~1.4 → 1.1 → 1.2 → 4.4 → 4.5~~ (feitos) → gabarito humano do 1.4 (pendente do usuário) →
+~~1.3~~ (feito) → 3.1 → 2.3 → 4.2 → 4.1 → 2.2 → restante.
 
 ## Já feito (não refazer)
 
@@ -282,3 +316,36 @@ no PC) → 4.2/4.1 (quebrar webapp.py e app.js).
 - `fetch_details` e `default_company` validados; paginadores antigos preservados.
 - 99Freelas segue como projetos freelance; Telegram aguarda canais públicos;
   LinkedIn segue manual. Não foram duplicadas fontes já existentes.
+
+### ⚠️ CI do GitHub ficou quebrado (silenciosamente) de 02/10 a 07/10/2026
+
+O passo `name: Lint (ruff: erros reais, sem estilo)` do workflow estava sem aspas; o `:`
+depois de "ruff" quebrava o parser YAML e **nenhum job rodava** — toda execução falhava em 0s,
+sem log de teste nenhum. Como ninguém olhou `gh run list` nesse intervalo, commits e PRs foram
+descritos como "CI verde" com base só na suíte local. Corrigido em `c30bb26`. A primeira execução
+real desde então (07/10) rodou de verdade e revelou duas falhas que só aparecem no CI remoto
+(mais lento, Windows de verdade) — corrigidas em `9992db0`:
+- Um teste rodava `run-job-radar.ps1` (launcher Windows-only) contra a venv real; no runner
+  macOS do CI (que tem `pwsh` instalado) ele sempre falhava porque o caminho da venv é fixo para
+  Windows — agora pula fora do Windows.
+- 3 testes Playwright liam a tabela sem esperar a primeira linha renderizar; no Windows do CI
+  (mais lento) a leitura corria antes do primeiro `/api/state` terminar.
+
+#### `test_own_tracking_change_keeps_status_keyboard_focus` — investigado, sem correção (07/10)
+
+Falhou **duas vezes seguidas** no Windows do CI, sempre a mesma asserção (`to_be_focused()`).
+Não é flakiness aleatória entre testes — é sempre o mesmo. Investigado a fundo sem achar bug:
+- 15 execuções locais seguidas: todas passaram.
+- Testei direto no Chromium (Playwright isolado) se `select.disabled = true` tira o foco do
+  elemento focado: **não tira** — hipótese inicial (achar que o próprio código desfocava o
+  `<select>` ao desabilitá-lo durante o `fetch`) estava errada.
+- Tracing completo de `renderTable()`/`refreshState()`: a captura de foco lê
+  `document.activeElement` no topo de toda chamada de `renderTable()`, de forma síncrona (sem
+  `await` no meio) — mesmo com o polling de `/api/state` podendo disparar um segundo
+  `renderTable()` concorrente, cada chamada deveria recapturar o foco correto já restaurado pela
+  anterior.
+- Não apliquei nenhum remendo sem confirmar a causa (reproduzir antes de corrigir). Hipótese mais
+  provável: peculiaridade do `<select>` nativo do Windows no Playwright/Chromium (a lista do
+  `<select>` usa UI nativa do SO no Windows, diferente de macOS/Linux), não um bug no app.js.
+- Próximo passo se repetir: pegar o `trace`/vídeo do Playwright na própria execução do CI
+  (`--tracing` ou artefato de falha) em vez de tentar reproduzir às cegas localmente.

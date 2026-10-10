@@ -34,5 +34,12 @@ fi
 "$venv_python" -c 'import importlib.metadata as m; assert m.version("scrapling") == "0.4.15"'
 "$project_root/.venv/bin/scrapling" install
 "$venv_python" -m pip check
+
+shortcut_dir="${JOBRADAR_SHORTCUT_DIR:-$HOME/Desktop}"
+shortcut="$shortcut_dir/Radar de Vagas.command"
+mkdir -p "$shortcut_dir"
+printf '#!/bin/bash\nset -euo pipefail\nexec %q\n' "$workspace_root/Radar de Vagas.command" > "$shortcut"
+chmod 755 "$shortcut"
+
 echo "Radar preparado com Python 3.13 e Scrapling $expected_tag ($expected_commit)."
-echo "Abra $workspace_root/Radar de Vagas.command"
+echo "Atalho instalado em $shortcut"

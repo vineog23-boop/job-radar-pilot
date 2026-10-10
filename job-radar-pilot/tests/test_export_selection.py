@@ -236,10 +236,34 @@ def test_browser_future_publication_gets_no_recency_bonus(tmp_path):
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(base)
+        page.locator('#jobs-table-body tr').first.wait_for()
         page.locator('#age-filter').select_option('')
         page.locator('#activity-filter').select_option('all')
         page.locator('#jobs-table-body .title-cell').click()
         assert 'Score 50/100' in page.locator('.job-detail').inner_text()
+        browser.close()
+
+
+def test_browser_score_breakdown_names_each_criterion(tmp_path):
+    from playwright.sync_api import sync_playwright
+    live = datetime.now(timezone.utc)
+    job = _job(
+        'detalhada',
+        match_labels=['FIT:READY', 'FIT_SCORE:2', 'TECH_MATCH:java', 'SENIORITY_MATCH:junior'],
+        published_at=(live - timedelta(days=60)).isoformat(),
+        observed_at=live.isoformat(),
+    )
+    with _serve(tmp_path, [job]) as (base, _), sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(base)
+        page.locator('#jobs-table-body tr').first.wait_for()
+        page.locator('#age-filter').select_option('')
+        page.locator('#activity-filter').select_option('all')
+        page.locator('#jobs-table-body .title-cell').click()
+        text = page.locator('.job-detail').inner_text()
+        # 2 pontos de FIT_SCORE batem com os dois rótulos: nada vira "outros critérios".
+        assert 'Score 50/100 — Tecnologia +20 · Nível +20 · Mais compatível +10' in text
         browser.close()
 
 
@@ -253,6 +277,7 @@ def test_browser_future_publication_is_outside_dated_window(tmp_path, window):
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(base)
+        page.locator('#jobs-table-body tr').first.wait_for()
         page.locator('#age-filter').select_option('')
         page.locator('#activity-filter').select_option('all')
         assert page.locator('#jobs-table-body .job-title').all_inner_texts() == ['Vaga atual', 'Vaga futura']

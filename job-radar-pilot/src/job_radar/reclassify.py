@@ -21,7 +21,7 @@ from job_radar.classifier import (
     _canonical_term,
     classify,
 )
-from job_radar.fit import fit_state
+from job_radar.fit import fit_state, job_technologies
 from job_radar.models import CollectionStatus, SearchProfile, VacancyRecord, WorkplaceModel
 
 # Rótulos que o classificador recalcula; os demais (STATUS:NEW, ALSO_SEEN_IN:,
@@ -280,4 +280,89 @@ def insights(
         "companies": [
             {"name": name, "count": count} for name, count in companies.most_common(limit)
         ],
+    }
+
+
+# Estados em que o usuário escolheu seguir com a vaga (sinal positivo) e o
+# único estado que é uma rejeição explícita dele (sinal negativo). REJECTED
+# fica de fora dos dois: o usuário quis a vaga, a resposta negativa veio da
+# empresa, então não diz nada sobre stack/empresa que ele deva evitar.
+_TRACKING_POSITIVE_STATUSES = frozenset({"SAVED", "APPLIED", "INTERVIEW", "OFFER"})
+_TRACKING_NEGATIVE_STATUSES = frozenset({"DISCARDED"})
+
+
+def tracking_insights(
+    payloads: Iterable[Mapping[str, Any]],
+    tracking: Mapping[str, Mapping[str, Any]],
+    profile: SearchProfile,
+    *,
+    limit: int = 8,
+    min_count: int = 2,
+) -> dict[str, Any]:
+    """Sugestões a partir do que o usuário salvou/aplicou × descartou.
+
+    Só sugere (nunca aplica): o painel mostra os chips com a evidência
+    (quantas vezes apareceu de cada lado) e o usuário clica para adicionar.
+    Tecnologia/empresa já configurada no perfil não é sugerida de novo.
+    """
+
+    known_avoid_companies = {_canonical_term(c) for c in profile.excluded_companies}
+    known_favorite_companies = {_canonical_term(c) for c in profile.favorite_companies}
+    known_avoid_keywords = {_canonical_term(k) for k in profile.blocked_keywords}
+    known_favorite_keywords = {_canonical_term(k) for k in profile.bonus_keywords} | {
+        _canonical_term(k) for k in profile.positive_keywords
+    }
+
+    positive_companies: Counter[str] = Counter()
+    negative_companies: Counter[str] = Counter()
+    positive_keywords: Counter[str] = Counter()
+    negative_keywords: Counter[str] = Counter()
+    saved_total = 0
+    discarded_total = 0
+
+    for payload in payloads:
+        url = payload.get("canonical_url")
+        entry = tracking.get(url) if isinstance(url, str) else None
+        status = entry.get("status") if entry else None
+        if status in _TRACKING_POSITIVE_STATUSES:
+            bucket_companies, bucket_keywords = positive_companies, positive_keywords
+            saved_total += 1
+        elif status in _TRACKING_NEGATIVE_STATUSES:
+            bucket_companies, bucket_keywords = negative_companies, negative_keywords
+            discarded_total += 1
+        else:
+            continue
+        company = " ".join(str(payload.get("company") or "").split())
+        if company:
+            bucket_companies[company] += 1
+        for technology in job_technologies(payload):
+            canonical = _canonical_term(technology)
+            if 1 < len(canonical) <= 40:
+                bucket_keywords[canonical] += 1
+
+    def _pick(
+        primary: Counter[str], other: Counter[str], known: set[str]
+    ) -> list[dict[str, Any]]:
+        picked: list[dict[str, Any]] = []
+        for term, count in primary.most_common():
+            if count < min_count or _canonical_term(term) in known:
+                continue
+            other_count = other.get(term, 0)
+            if other_count >= count:
+                continue  # não é um sinal claro: aparece dos dois lados.
+            picked.append({"term": term, "count": count, "other_count": other_count})
+            if len(picked) >= limit:
+                break
+        return picked
+
+    return {
+        "sample": {"saved": saved_total, "discarded": discarded_total},
+        "companies_avoid": _pick(negative_companies, positive_companies, known_avoid_companies),
+        "companies_favorite": _pick(
+            positive_companies, negative_companies, known_favorite_companies
+        ),
+        "keywords_avoid": _pick(negative_keywords, positive_keywords, known_avoid_keywords),
+        "keywords_favorite": _pick(
+            positive_keywords, negative_keywords, known_favorite_keywords
+        ),
     }

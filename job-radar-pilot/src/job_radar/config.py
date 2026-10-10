@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from job_radar.models import BrowserOptions, SearchProfile, SourceConfig, SourceKind
+from job_radar.models import BrowserOptions, SearchProfile, SourceConfig, SourceKind, WorkplaceModel
 
 
 class ConfigError(ValueError):
@@ -35,6 +35,7 @@ _OPTIONAL_SOURCE_KEYS = {
     "queries",
     "default_country",
     "default_company",
+    "default_workplace",
     "fetch_details",
     "adaptive",
     "single_page",
@@ -254,6 +255,15 @@ def _load_source(item: Any, index: int) -> SourceConfig:
             f"sources[{index}].default_country deve usar codigo ISO alfa-2 maiusculo."
         )
 
+    raw_workplace = item.get("default_workplace")
+    default_workplace = None
+    if raw_workplace is not None:
+        allowed = {model.value for model in WorkplaceModel if model is not WorkplaceModel.UNKNOWN}
+        if not isinstance(raw_workplace, str) or raw_workplace not in allowed:
+            raise ConfigError(
+                f"sources[{index}].default_workplace aceita apenas REMOTE, HYBRID ou ONSITE."
+            )
+        default_workplace = WorkplaceModel(raw_workplace)
     default_company = item.get("default_company")
     if default_company is not None and (
         not isinstance(default_company, str) or not default_company.strip()
@@ -314,6 +324,7 @@ def _load_source(item: Any, index: int) -> SourceConfig:
         queries=tuple(query.strip() for query in queries_raw),
         default_country=default_country,
         default_company=default_company.strip() if default_company else None,
+        default_workplace=default_workplace,
         fetch_details=fetch_details,
         adaptive=adaptive,
         single_page=single_page,

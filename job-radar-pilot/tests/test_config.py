@@ -14,6 +14,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 EXPECTED_SOURCES = {
     "inhire-programmers", "inhire-bionexo", "ciandt", "greenhouse-abinbev",
     "gupy",
+    "querovagastech",
     "indeed",
     "estagiotrainee",
     "eureca",

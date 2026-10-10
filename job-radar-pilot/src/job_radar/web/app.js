@@ -49,6 +49,7 @@ const elements = {
   preferencesStatus: document.querySelector("#preferences-status"),
   searchTerms: document.querySelector("#search-terms"),
   locationScopes: document.querySelector("#location-scopes"),
+  regionRules: document.querySelector("#region-rules"),
   technologies: document.querySelector("#technologies"),
   primaryTechnologies: document.querySelector("#primary-technologies"),
   excludedTerms: document.querySelector("#excluded-terms"),
@@ -421,6 +422,7 @@ function detailRow(job) {
     ? `Score ${breakdown.total}/100 — ${breakdown.parts.map((part) => `${part.label} +${part.points}`).join(" · ")}`
     : `Score ${breakdown.total}/100 — nenhum ponto: vaga fora do perfil ou sem critério confirmado`;
   const facts = [
+    ...(externalScoreFact(job) ? [externalScoreFact(job)] : []),
     scoreText,
     criteria.length ? `Critérios atendidos — ${criteria.join(" · ")}` : "Nenhum critério do perfil confirmado",
   ];
@@ -431,7 +433,7 @@ function detailRow(job) {
   const reposted = (job.match_labels ?? []).map(String).find((label) => label.startsWith("REPOSTED:"));
   if (reposted) facts.push(`Republicada ${reposted.slice(9)}× neste portal (mostramos o anúncio mais recente)`);
   if (job.employment_type) facts.push(`Contrato: ${job.employment_type}`);
-  if (publishedLabel(job)) facts.push(`Publicada em ${publishedLabel(job)}`);
+  if (dateFact(job, true)) facts.push(dateFact(job, true));
   const list = document.createElement("ul");
   list.className = "detail-facts";
   facts.forEach((fact) => list.appendChild(textElement("li", "", fact)));
@@ -468,6 +470,8 @@ const REASON_LABELS = [
   ["PRIMARY_TECH_MISSING:", "stack principal não confirmada na vaga"],
   ["RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"],
   ["SENIORITY_MISMATCH:", "nível acima do desejado"],
+  ["REGION_MISMATCH:hybrid", "híbrido fora da região permitida para híbrido"],
+  ["REGION_MISMATCH:onsite", "presencial fora da região permitida para presencial"],
   ["LOCATION_MISMATCH:", "fora das localidades escolhidas"],
   ["WORKPLACE_MISMATCH:", "modelo de trabalho diferente"],
   ["LOCATION_UNCLEAR:", "local não confirmado"],
@@ -556,6 +560,24 @@ function fitScore(job) {
     /^FIT_SCORE:-?\d+$/.test(String(item))
   );
   return label ? Number(String(label).slice("FIT_SCORE:".length)) : Number.NEGATIVE_INFINITY;
+}
+
+// Nota de um avaliador externo (output/notas.json; ex.: a automação que envia ao Telegram).
+function externalScore(job) {
+  const nota = job.external_score?.nota;
+  return typeof nota === "number" ? nota : null;
+}
+
+function externalScoreFact(job) {
+  const score = job.external_score;
+  if (!score) return "";
+  if (externalScore(job) === null) return score.motivo ? `Não entrou no aviso (seus critérios): ${score.motivo}` : "";
+  const axes = Object.entries(score.eixos ?? {}).map(([name, points]) => `${name} ${points}`).join(" · ");
+  const fit = score.aderencia;
+  const cv = fit && Number.isFinite(fit.total)
+    ? `. Seu currículo: ${fit.atende}/${fit.total} requisitos${fit.faltam?.length ? ` (falta: ${fit.faltam.join(", ")})` : ""}`
+    : "";
+  return `Nota pelos seus critérios: ${externalScore(job)}/100${score.trilha ? ` — ${score.trilha}` : ""}${axes ? ` (${axes})` : ""}${cv}`;
 }
 
 function fitLabel(state) {
@@ -685,6 +707,9 @@ function filteredJobs() {
       byState ||
       fitScore(right) - fitScore(left) ||
       boostPoints(right) - boostPoints(left);
+    if (elements.sortOrder.value === "score") {
+      return (externalScore(right) ?? -1) - (externalScore(left) ?? -1) || byFit;
+    }
     if (elements.sortOrder.value !== "recent") return byFit;
     return publishedTime(right) - publishedTime(left) || byFit;
   });
@@ -721,8 +746,20 @@ function showToast(text, undo) {
 
 const TRACKING_NAMES = Object.fromEntries(TRACKING_OPTIONS.filter(([value]) => value));
 
+// Desabilitar o <select> focado faz o Chromium mover o foco para o <body> no quadro seguinte
+// (focus fixup). Se a resposta demora mais que um quadro, o foco se perdia; ao terminar,
+// devolvemos o foco ao seletor da mesma vaga, desde que o usuário não o tenha levado a outro lugar.
+function restoreTrackingFocus(url) {
+  const active = document.activeElement;
+  if (active && active !== document.body) return;
+  const row = [...elements.tableBody.querySelectorAll("[data-job-url]")]
+    .find((candidate) => candidate.dataset.jobUrl === url);
+  row?.querySelector(".tracking-select")?.focus();
+}
+
 async function updateTracking(job, status, select, { undoable = true } = {}) {
   const previous = trackingStatus(job);
+  const hadFocus = document.activeElement === select;
   select.disabled = true;
   let saved = false;
   try {
@@ -743,6 +780,7 @@ async function updateTracking(job, status, select, { undoable = true } = {}) {
     renderTable();
     renderNews();
     renderFunnel();
+    if (hadFocus) restoreTrackingFocus(job.canonical_url);
   }
   if (saved && undoable && previous !== status) {
     const name = TRACKING_NAMES[status] || "sem acompanhamento";
@@ -784,6 +822,19 @@ function publishedLabel(job) {
   return new Date(time).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 
+// Portal sem data: quando o Radar viu a vaga pela 1ª vez. Só texto; ordenação e filtros de
+// período continuam usando apenas published_at.
+function firstSeenLabel(job) {
+  const time = Date.parse(job.first_seen_at ?? "");
+  return Number.isNaN(time) ? "" : new Date(time).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
+function dateFact(job, capitalized) {
+  if (publishedLabel(job)) return `${capitalized ? "Publicada" : "publicada"} em ${publishedLabel(job)}`;
+  if (firstSeenLabel(job)) return `${capitalized ? "Vista" : "vista"} pela 1ª vez em ${firstSeenLabel(job)}`;
+  return "";
+}
+
 function textElement(tag, className, text) {
   const element = document.createElement(tag);
   if (className) element.className = className;
@@ -815,7 +866,7 @@ function renderTable() {
         "job-meta",
         [
           jobTechnologies(job).slice(0, 4).join(" · ") || "Tecnologias não informadas",
-          publishedLabel(job) && `publicada em ${publishedLabel(job)}`,
+          dateFact(job, false),
           ACTIVITY_LABELS[activityState(job)],
           alsoSeenIn(job).length && `também em ${alsoSeenIn(job).join(", ")}`,
         ].filter(Boolean).join(" — ")
@@ -860,6 +911,11 @@ function renderTable() {
         fitLabel(fitState(job))
       )
     );
+    if (externalScore(job) !== null) {
+      const pill = textElement("span", "match-pill external", `${externalScore(job)}/100`);
+      pill.title = externalScoreFact(job);
+      matchCell.appendChild(pill);
+    }
     if (isUnseen(job)) {
       matchCell.appendChild(textElement("span", "match-pill new", "Nova"));
       row.classList.add("unseen");
@@ -1852,7 +1908,22 @@ function applyTerms(mode) {
     `${added} termo(s) aplicados${left ? `; ${left} ficaram de fora (limite de ${MAX_SEARCH_TERMS})` : ""}. Salve as configurações para valer na próxima busca.`;
 }
 
+// Modalidade por região: ainda sem campo de edição no painel (edita-se no
+// search-preferences.json). O formulário só mostra e devolve a regra intacta ao salvar.
+let loadedRegionRules = {};
+const REGION_NAMES = { REMOTE: "remoto", HYBRID: "híbrido", ONSITE: "presencial" };
+
+function showRegionRules(rules) {
+  const entries = Object.entries(rules || {});
+  elements.regionRules.hidden = entries.length === 0;
+  elements.regionRules.textContent = entries.length
+    ? "Modalidade por região: " + entries.map(([model, scopes]) => `${REGION_NAMES[model] ?? model} só em ${scopes.join(", ")}`).join("; ") + "."
+    : "";
+}
+
 function fillPreferencesForm(payload) {
+  loadedRegionRules = payload.workplace_location_scopes ?? {};
+  showRegionRules(loadedRegionRules);
   elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
   elements.locationScopes.value = (payload.location_scopes ?? []).join("\n");
   elements.technologies.value = (payload.technologies ?? []).join("\n");
@@ -2185,6 +2256,7 @@ function currentPreferencesPayload() {
     favorite_companies: linesFrom(elements.favoriteCompanies),
     contract_types: checkedValues(elements.contractBoxes),
     avoid_advanced_english: elements.avoidEnglish.checked,
+    workplace_location_scopes: loadedRegionRules,
   };
 }
 

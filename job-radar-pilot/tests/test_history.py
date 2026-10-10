@@ -143,3 +143,45 @@ def test_source_count_check_continues_when_history_directory_is_not_writable(
     monkeypatch.setattr(tempfile, "mkstemp", deny_temporary_file)
 
     assert history.check_source_counts([_result("gupy", 10)]) == {}
+
+
+# --- first_seen_at (10/10/2026): "vista pela 1ª vez" separada da data do portal ---------
+
+
+def test_first_seen_at_is_kept_across_runs_and_never_touches_published_at(tmp_path: Path) -> None:
+    from datetime import timedelta
+
+    history = SeenHistory(tmp_path / "h.json")
+    first = history.annotate([_record("1")], NOW)
+    assert first[0].first_seen_at == NOW.isoformat()
+    assert first[0].published_at is None
+    later = NOW + timedelta(days=3)
+    again = history.annotate([_record("1"), _record("2")], later)
+    by_id = {r.source_job_id: r for r in again}
+    assert by_id["1"].first_seen_at == NOW.isoformat()
+    assert by_id["2"].first_seen_at == later.isoformat()
+    assert all(r.published_at is None for r in again)
+
+
+def test_first_seen_at_is_valid_in_the_output_schema() -> None:
+    import jsonschema
+
+    schema = json.loads((Path(__file__).resolve().parents[1] / "schemas" / "vagas.schema.json").read_text("utf-8"))
+    assert "first_seen_at" in schema["properties"]
+    assert "first_seen_at" not in schema["required"]
+    from dataclasses import replace
+
+    from job_radar.output import _record_payload
+
+    record = replace(_record("1"), first_seen_at=NOW.isoformat(), content_hash="0" * 64)
+    jsonschema.validate(_record_payload(record), schema)
+
+
+def test_first_seen_at_survives_reclassification_roundtrip() -> None:
+    from dataclasses import replace
+
+    from job_radar.output import _record_payload
+    from job_radar.reclassify import record_from_payload
+
+    record = replace(_record("1"), first_seen_at=NOW.isoformat(), content_hash="0" * 64)
+    assert record_from_payload(_record_payload(record)).first_seen_at == NOW.isoformat()

@@ -54,6 +54,9 @@ class SearchProfile:
     contract_types: tuple[str, ...] = ()  # CLT, PJ, FREELANCE; vazio = qualquer
     avoid_advanced_english: bool = False
     primary_technologies: tuple[str, ...] = ()
+    # Modalidade por região: (("HYBRID", ("sp",)), ("ONSITE", ("sao-carlos-sp",))).
+    # Vaga híbrida/presencial fora da região da sua modalidade é excluída; vazio = sem regra.
+    workplace_location_scopes: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +72,8 @@ class SourceConfig:
     queries: tuple[str, ...] = ()
     default_country: str | None = None
     default_company: str | None = None
+    # Modalidade de todas as vagas do portal quando o card não informa (ex.: Remotar = REMOTE).
+    default_workplace: WorkplaceModel | None = None
     fetch_details: bool = True
     adaptive: bool = True
     single_page: bool = False
@@ -109,6 +114,9 @@ class VacancyRecord:
     collection_status: CollectionStatus = CollectionStatus.SUCCESS
     content_hash: str | None = None
     identity_strength: str = "STRONG"
+    # Primeira vez que o Radar viu a vaga (history.json). NÃO é data de publicação:
+    # published_at continua vindo só do portal. Serve para portais que nunca informam data.
+    first_seen_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

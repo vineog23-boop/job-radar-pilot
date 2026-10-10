@@ -17,6 +17,7 @@ from job_radar.models import (
     CollectionStatus,
     SourceConfig,
     SourceKind,
+    WorkplaceModel,
     VacancyRecord,
 )
 
@@ -40,11 +41,29 @@ _META_PUBLISHED = re.compile(
 _TIME_TAG = re.compile(r"<time[^>]+datetime=[\"']([^\"']+)[\"']", re.IGNORECASE)
 
 
+_WORKPLACE_WORDS = {
+    "remote": WorkplaceModel.REMOTE,
+    "telecommute": WorkplaceModel.REMOTE,
+    "hybrid": WorkplaceModel.HYBRID,
+    "on-site": WorkplaceModel.ONSITE,
+    "onsite": WorkplaceModel.ONSITE,
+}
+
+
 @dataclass(frozen=True, slots=True)
 class DetailMetadata:
     published_at: str | None = None
     company: str | None = None
     application_deadline: str | None = None
+    workplace: WorkplaceModel | None = None
+
+
+def _workplace(value: Any) -> WorkplaceModel | None:
+    values = value if isinstance(value, list) else [value]
+    for item in values:
+        if isinstance(item, str) and item.strip().lower() in _WORKPLACE_WORDS:
+            return _WORKPLACE_WORDS[item.strip().lower()]
+    return None
 
 
 def _main_text(response: object) -> str:
@@ -75,13 +94,21 @@ def _walk_json_ld(node: Any) -> Iterator[dict[str, Any]]:
 
 
 def _walk_next_data(node: Any) -> Iterator[dict[str, Any]]:
-    """Objetos de vaga do ``__NEXT_DATA__`` (Gupy): têm ``publishedAt`` e ``expiresAt``."""
+    """Objetos de vaga do ``__NEXT_DATA__``.
+
+    Gupy: ``publishedAt`` + ``expiresAt``. Remotar (``jobData``): ``title`` +
+    ``createdAt`` + ``expiresAt``/``expired``.
+    """
 
     if isinstance(node, list):
         for item in node:
             yield from _walk_next_data(item)
     elif isinstance(node, dict):
-        if "publishedAt" in node and "expiresAt" in node:
+        gupy = "publishedAt" in node and "expiresAt" in node
+        remotar = "title" in node and "createdAt" in node and (
+            "expiresAt" in node or "expired" in node
+        )
+        if gupy or remotar:
             yield node
         for value in node.values():
             if isinstance(value, (dict, list)):
@@ -99,6 +126,7 @@ def extract_detail_metadata(html: str, *, now: datetime | None = None) -> Detail
     published: str | None = None
     company: str | None = None
     deadline: str | None = None
+    workplace: WorkplaceModel | None = None
     for block in _JSON_LD.findall(html):
         try:
             data = json.loads(block.strip())
@@ -111,6 +139,8 @@ def extract_detail_metadata(html: str, *, now: datetime | None = None) -> Detail
                     published = parse_published_at(raw_date, now=now)
             if deadline is None:
                 deadline = parse_deadline(posting.get("validThrough"))
+            if workplace is None:
+                workplace = _workplace(posting.get("jobLocationType"))
             if company is None:
                 organization = posting.get("hiringOrganization")
                 name = (
@@ -120,17 +150,24 @@ def extract_detail_metadata(html: str, *, now: datetime | None = None) -> Detail
                 )
                 if isinstance(name, str) and name.strip():
                     company = " ".join(name.split())[:120]
-    if published is None or deadline is None:
+    if published is None or deadline is None or company is None or workplace is None:
         match = _NEXT_DATA.search(html)
         try:
             next_data = json.loads(match.group(1)) if match else None
         except (ValueError, TypeError):
             next_data = None
         for posting in _walk_next_data(next_data):
-            if published is None and isinstance(posting.get("publishedAt"), str):
-                published = parse_published_at(posting["publishedAt"], now=now)
+            raw_published = posting.get("publishedAt") or posting.get("createdAt")
+            if published is None and isinstance(raw_published, str):
+                published = parse_published_at(raw_published, now=now)
             if deadline is None:
                 deadline = parse_deadline(posting.get("expiresAt"))
+            if workplace is None:
+                workplace = _workplace(posting.get("workplaceType"))
+            owner = posting.get("company")
+            name = owner.get("name") if isinstance(owner, dict) else None
+            if company is None and isinstance(name, str) and name.strip():
+                company = " ".join(name.split())[:120]
             break
     if published is None:
         for pattern in (_META_PUBLISHED, _TIME_TAG):
@@ -140,7 +177,10 @@ def extract_detail_metadata(html: str, *, now: datetime | None = None) -> Detail
                 if published:
                     break
     return DetailMetadata(
-        published_at=published, company=company, application_deadline=deadline
+        published_at=published,
+        company=company,
+        application_deadline=deadline,
+        workplace=workplace,
     )
 
 
@@ -198,7 +238,8 @@ def enrich_records(
         return tuple(raw_records), 0
     moment = now or datetime.now(timezone.utc)
     by_code = {source.code: source for source in sources}
-    ranked: list[tuple[int, int, SourceConfig]] = []
+    ranked: list[tuple[int, int, int, int, SourceConfig]] = []
+    per_source: dict[str, int] = {}
     for index, record in enumerate(raw_records):
         source = by_code.get(record.source)
         if (
@@ -215,15 +256,20 @@ def enrich_records(
             continue
         priority = _priority(classify_fn(record))
         if priority is not None:
-            ranked.append((priority, index, source))
-    picked = sorted(ranked, key=lambda item: (item[0], item[1]))[:limit]
+            # Sem data a vaga some dos filtros de período: buscar a data vale mais que texto.
+            # O rodízio por fonte impede que o primeiro portal da lista gaste o orçamento todo.
+            has_date = 1 if record.published_at else 0
+            turn = per_source.get(record.source, 0)
+            per_source[record.source] = turn + 1
+            ranked.append((priority, has_date, turn, index, source))
+    picked = sorted(ranked, key=lambda item: item[:4])[:limit]
     if not picked:
         return tuple(raw_records), 0
 
     updated = list(raw_records)
     enriched = 0
     with fetcher_factory() as fetcher:
-        for _, index, source in picked:
+        for *_, index, source in picked:
             record = raw_records[index]
             static_source = replace(source, kind=SourceKind.GENERIC, adaptive=False)
             try:
@@ -241,6 +287,8 @@ def enrich_records(
                 new_fields["application_deadline"] = metadata.application_deadline
             if not record.company and metadata.company:
                 new_fields["company"] = metadata.company
+            if record.workplace_model is WorkplaceModel.UNKNOWN and metadata.workplace:
+                new_fields["workplace_model"] = metadata.workplace
             if len(text) < 80 and not new_fields:
                 continue
             if len(text) >= 80:

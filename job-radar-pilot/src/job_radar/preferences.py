@@ -34,6 +34,8 @@ class SearchPreferences:
     contract_types: tuple[str, ...] = ()
     avoid_advanced_english: bool = False
     primary_technologies: tuple[str, ...] = ()
+    # Modalidade por região (ver SearchProfile.workplace_location_scopes).
+    workplace_location_scopes: object = ()
 
     def __post_init__(self) -> None:
         search_terms = _validated_texts(
@@ -98,6 +100,11 @@ class SearchPreferences:
         object.__setattr__(self, "contract_types", contracts)
         if not isinstance(self.avoid_advanced_english, bool):
             raise PreferencesError("avoid_advanced_english deve ser verdadeiro ou falso.")
+        object.__setattr__(
+            self,
+            "workplace_location_scopes",
+            _validated_region_rules(self.workplace_location_scopes),
+        )
 
 
 CONTRACT_TYPES = ("CLT", "PJ", "FREELANCE")
@@ -122,6 +129,7 @@ _OPTIONAL_FIELDS = {
     *_REFINE_LIMITS,
     "contract_types",
     "avoid_advanced_english",
+    "workplace_location_scopes",
 }
 _FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
 _MAX_FILTER_TERMS = 40
@@ -172,6 +180,33 @@ def _validated_texts(
     if len(normalized) < minimum:
         raise PreferencesError(f"{field} nao pode ficar vazio apos normalizacao.")
     return tuple(normalized)
+
+
+def _validated_region_rules(value: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """{"HYBRID": ["sp"], "ONSITE": [...]} -> tupla imutável e ordenada."""
+
+    if isinstance(value, tuple) and all(isinstance(item, tuple) for item in value):
+        value = dict(value)
+    if not isinstance(value, Mapping):
+        raise PreferencesError(
+            "workplace_location_scopes deve ser um objeto {modalidade: [localidades]}."
+        )
+    allowed = {model.value for model in _WORKPLACE_MODELS}
+    rules: list[tuple[str, tuple[str, ...]]] = []
+    for key in sorted(value):
+        if key not in allowed:
+            raise PreferencesError(
+                "workplace_location_scopes aceita apenas REMOTE, HYBRID e ONSITE."
+            )
+        try:
+            scopes = _validated_texts(
+                value[key], field=f"workplace_location_scopes.{key}",
+                minimum=1, maximum=12, item_limit=100, casefold=True,
+            )
+        except PreferencesError as exc:
+            raise PreferencesError(f"workplace_location_scopes: {exc}") from exc
+        rules.append((key, scopes))
+    return tuple(rules)
 
 
 def _validated_seniority(values: object) -> tuple[str, ...]:
@@ -236,6 +271,7 @@ def preferences_from_dict(payload: Mapping[str, object]) -> SearchPreferences:
         **{name: payload.get(name, ()) for name in _REFINE_LIMITS},  # type: ignore[arg-type]
         contract_types=payload.get("contract_types", ()),  # type: ignore[arg-type]
         avoid_advanced_english=payload.get("avoid_advanced_english", False),  # type: ignore[arg-type]
+        workplace_location_scopes=payload.get("workplace_location_scopes", {}),
     )
 
 
@@ -259,6 +295,14 @@ def preferences_to_dict(preferences: SearchPreferences) -> dict[str, object]:
         **{name: list(getattr(validated, name)) for name in _REFINE_LIMITS},
         "contract_types": list(validated.contract_types),
         "avoid_advanced_english": validated.avoid_advanced_english,
+        # Só aparece quando há regra: arquivos de quem não usa ficam como antes.
+        **(
+            {"workplace_location_scopes": {
+                key: list(scopes) for key, scopes in validated.workplace_location_scopes
+            }}
+            if validated.workplace_location_scopes
+            else {}
+        ),
     }
 
 
@@ -287,6 +331,7 @@ def load_preferences(
             technologies=tuple(default_profile.positive_keywords[:_MAX_FILTER_TERMS]),
             primary_technologies=default_profile.primary_technologies,
             excluded_terms=tuple(default_profile.excluded_terms[:_MAX_FILTER_TERMS]),
+            workplace_location_scopes=default_profile.workplace_location_scopes,
         )
     try:
         raw = json.loads(resolved_path.read_text(encoding="utf-8"))
@@ -382,4 +427,5 @@ def apply_preferences(
         favorite_companies=preferences.favorite_companies,
         contract_types=preferences.contract_types,
         avoid_advanced_english=preferences.avoid_advanced_english,
+        workplace_location_scopes=preferences.workplace_location_scopes,
     )

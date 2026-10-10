@@ -136,6 +136,7 @@ senioridade, tecnologias, data de publicação, fonte, URL e nota.
 ## Vigência: publicação, prazo e período
 
 - **Publicada em** vem só do portal (campo estruturado ou texto "Publicada em"); a data de coleta (`observed_at`) nunca a substitui.
+- **Vista pela 1ª vez** (`first_seen_at`, do histórico local) aparece só quando o portal não informa a publicação (Indeed, InfoJobs, Nube...). É informação, não data de publicação: ordenação e filtros de período continuam usando apenas `published_at`.
 - **Prazo** (`application_deadline`) vem do `validThrough` da página oficial. Só a data vale até 23:59 de Brasília.
 - O painel abre em **Últimos 30 dias** (também 7 e 15). Vaga sem data de publicação fica fora dessas janelas e aparece em **Qualquer data**; nada é apagado. Prazo vencido afeta a **Situação**, não o período: uma vaga encerrada pode aparecer em **Últimos 30 dias** ao selecionar **Encerradas**. Os atalhos de melhores vagas continuam excluindo encerradas.
 - **Período personalizado:** em "Personalizado…" informe data inicial e/ou final; os dois dias entram (horário de Brasília). Vaga sem data de publicação continua de fora.
@@ -332,7 +333,11 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 - Enriquecimento: vagas `CONDITIONAL`/`AMBIGUOUS` com tecnologia compatível têm a página de
   detalhe lida (HTTP estático, respeitando robots.txt e limites; ignora Indeed e fontes com
   login) e são reclassificadas; recebem `ENRICHED:DETAIL`. `collect --enrich-limit N`
-  (padrão 40; `0` desliga).
+  (padrão 120; `0` desliga). A fila vai das mais compatíveis para as duvidosas e, dentro de
+  cada faixa, **vagas sem data de publicação primeiro** (sem data a vaga some dos filtros de
+  período), com rodízio entre portais para que um portal grande não gaste o orçamento todo.
+  Da página de detalhe saem data, prazo, empresa e **modalidade** (JSON-LD `datePosted`,
+  `validThrough`, `jobLocationType: TELECOMMUTE`; `__NEXT_DATA__` da Gupy e do Remotar).
 - Histórico local em `%LOCALAPPDATA%\JobRadar\history.json` (só chave da vaga e data da
   primeira observação). Da segunda coleta em diante, vagas inéditas ganham `STATUS:NEW` e
   o selo "Nova" no painel. `collect --no-history` desliga.
@@ -394,6 +399,9 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 | `default_country` | País assumido para vagas remotas sem país explícito. |
 | `adaptive` | Liga/desliga o fallback adaptativo (padrão `true`). |
 | `default_company` | Empresa cadastrada explicitamente, usada somente quando ausente no cartão. |
+| `default_workplace` | `REMOTE`, `HYBRID` ou `ONSITE` para portais de uma modalidade só (ex.: Remotar); só preenche modalidade desconhecida. |
+| `selectors.company_from_title` | Regex (1 ou mais grupos; vale o primeiro preenchido) que tira a empresa do título em portais de programa ("Ingredion abre Programa de Estágio..."). |
+| `selectors.company_from_url` | Regex com um grupo que tira a empresa da URL quando o cartão não traz (ex.: GeekHunter `/pt/<empresa>/jobs/`). |
 | `fetch_details` | Permite enriquecimento e verificação automática de detalhes (padrão `true`). `false` mantém os links para visita manual. |
 | `api.page_mode: single` | Uma requisição à URL exata, sem `page_param` obrigatório; `total_path` opcional confere a quantidade declarada. |
 | `kind: json` + `api` | Portal com API JSON pública (Gupy, Primeira Vaga Tech). `api.items` (caminho da lista), `page_param`/`page_mode` (`offset`, `page0`, `page1` ou `single`)/`page_size`/`size_param`, `workplace_param`/`state_param` (filtros de modelo e estado vindos do perfil), `strip_levels` e `fields` (mapeamento `title`, `company`, `url` ou `url_template`, `published`...). Um portal novo vira só configuração. |
@@ -415,10 +423,54 @@ Greenhouse abaixo. As demais integrações mantêm os limites indicados:
 | Telegram | Pendente dos URLs de canais públicos indicados pelo usuário; sem descoberta inventada ou leitura de grupos privados. |
 | LinkedIn | Somente links oficiais de pesquisa e importação manual do conteúdo colado. |
 
+## Notas externas (nota dos seus critérios no painel)
+
+Opcional: se existir `output/notas.json`, o painel mostra a nota ao lado da aderência
+(ex.: "87/100"), oferece a ordenação "Maior nota (seus critérios)" e, no detalhe, os eixos
+da nota ou o motivo de a vaga não ter entrado no aviso. A automação diária do Hermes grava
+esse arquivo, então o painel mostra **o mesmo número** do Telegram. O "Score X/100" do painel
+continua sendo a pontuação do perfil do próprio Radar. Arquivo ausente ou ilegível é ignorado.
+
+```json
+{"versao": 1, "avaliador": "...", "notas": {
+  "<canonical_url>": {"nota": 87, "trilha": "Java júnior", "eixos": {"nível": 25, "stack": 21},
+                      "aderencia": {"atende": 5, "total": 6, "faltam": ["kubernetes"]},
+                      "motivo": null},
+  "<outra>": {"nota": null, "motivo": "nível acima de júnior"}}}
+```
+
+## Modalidade por região
+
+Opcional, em `search-preferences.json` (o painel mostra a regra abaixo das localidades e a
+preserva ao salvar; ainda não há campo para editá-la):
+
+```json
+"workplace_location_scopes": {
+  "HYBRID": ["sp", "florianopolis-sc", "sao-jose-sc", "palhoca-sc", "biguacu-sc"],
+  "ONSITE": ["sao-carlos-sp", "florianopolis-sc", "sao-jose-sc", "palhoca-sc", "biguacu-sc"]
+}
+```
+
+Com ela, vaga híbrida ou presencial fora da região da sua modalidade fica "Fora do perfil"
+(`REGION_MISMATCH:hybrid|onsite`, motivo "híbrido/presencial fora da região permitida"),
+mesmo que a localidade esteja em `location_scopes` (ex.: "brasil" para aceitar remoto).
+Remoto segue só `location_scopes`. Sem a regra, nada muda.
+
+## Nome da empresa
+
+Antes da classificação, o nome da empresa é limpo: saem emojis, hashtags e frases de
+marketing ("Carreiras X", "Vagas na X", "X | Trabalhe Conosco", "Logo Programa de Estágio X
+2027"). Se não sobrar nome (ex.: "VENHA SER #SANGUELARANJA"), ele vem do título
+(`company_from_title`), da URL (`company_from_url`) ou do endereço do ATS
+(`fcamara.gupy.io`, `jobs.lever.co/ciandt`, `jobs.quickin.io/sinqia`...). Isso também
+melhora a remoção de duplicatas entre portais, que compara empresa + cargo.
+
 ## Fontes com API/feed (mais vagas, mais compatíveis)
 
-`primeiravagatech` e `empregostec` leem dados estruturados (data,
-empresa, modelo de trabalho, local) em vez de interpretar HTML. `gupy-api`
+`primeiravagatech`, `querovagastech` e `empregostec` leem dados estruturados (data,
+empresa, modelo de trabalho, local) em vez de interpretar HTML. O `querovagastech`
+(agregador, busca por termo no parâmetro `q`) entrega como URL o **link de candidatura
+original**, muitas vezes o ATS da própria empresa (InHire, Gupy, site de carreiras). `gupy-api`
 continua desativada após HTTP 404; o comportamento de sua configuração abaixo
 se aplica somente se houver validação futura do endpoint. No Gupy API, cada
 termo do perfil vira consultas por modelo (`remote`/`hybrid`/`on-site`) e por
@@ -607,6 +659,20 @@ Vagas que você marcou como salva ou aplicada nunca são apagadas. Se o arquivo 
 - Vagas sem relação com TI recebem `RELEVANCE:OFF_TOPIC` e ficam ocultas no painel (filtro "Fora de TI").
 - Agendar coleta diária com aviso de vagas novas: `scripts\agendar-coleta.ps1 -Horario 08:00` (remover com `-Remover`).
 - Detalhes da revisão: `docs/REVISAO-2026-09-29.md`.
+
+### Como o Radar roda (três formas, mesma pasta de saída)
+
+| Forma | Onde | Quando | O que faz |
+|---|---|---|---|
+| Atalho "Radar de Vagas" (`.cmd`/`.lnk`) | Windows | ao abrir | painel em `127.0.0.1:8765`; busca pelo botão |
+| `Radar de Vagas.command` | macOS | ao abrir | o mesmo painel |
+| Automação Hermes (cron, fora deste repositório) | macOS | todo dia 08:30 | `collect --workers 3 --enrich-limit 250 --no-export` + `verify-links --limit 150` na pasta `output/` do painel; depois aplica os critérios pessoais e envia 2 a 4 vagas ao Telegram |
+
+As três usam a mesma `output/` e o mesmo histórico, então o painel mostra exatamente a
+coleta que gerou o aviso do Telegram. A trava `output/.radar-output.lock` impede coleta e
+painel de regravar ao mesmo tempo: se o painel estiver ocupado, a automação sai com o
+código 5 e o aviso usa a última coleta válida. Vagas marcadas pelo Telegram ("apliquei
+na 2") vão para o mesmo `tracking.json` do painel. Detalhes: `docs/REVISAO-2026-10-10.md`.
 ## Medir o classificador (`avaliar`)
 
 Para saber se uma mudança no classificador melhorou ou piorou, sem acessar portal nenhum:

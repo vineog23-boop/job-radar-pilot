@@ -298,3 +298,36 @@ def test_redirect_to_localized_job_detail_keeps_matching_identity():
                 body=b'Java Junior vaga requisitos responsabilidades candidate-se agora.'))
     assert check_canonical_url('https://x.com.br/jobs/123', _source(), Fetcher(),
         expected_title='Java Junior') == LINK_LIVE
+
+
+# --- Gupy (10/10/2026): página montada por JavaScript; o status vem do __NEXT_DATA__ --------
+# Os textos de interface da Gupy ("candidaturas encerradas") ficam no script de toda página:
+# eles não podem marcar a vaga como encerrada.
+
+_GUPY = (
+    '<html><body><div id="__next"></div><script id="__NEXT_DATA__" type="application/json">'
+    '{"props":{"pageProps":{"job":{"name":"Desenvolvedor Java Junior","status":"%s",'
+    '"expiresAt":%s},"i18n":{"jobClosed":"Candidaturas encerradas"}}}}</script></body></html>'
+)
+
+
+def test_gupy_published_job_is_live_despite_interface_text():
+    from job_radar.link_check import check_canonical_url
+    url = "https://empresa.gupy.io/jobs/1"
+    fetcher = _ScriptedFetcher({url: _GUPY % ("published", '"2099-12-31"')})
+    assert check_canonical_url(url, _source("gupy"), fetcher, expected_title="Desenvolvedor Java Junior") == LINK_LIVE
+
+
+def test_gupy_closed_or_expired_job_is_dead():
+    from job_radar.link_check import check_canonical_url
+    closed, expired = "https://empresa.gupy.io/jobs/2", "https://empresa.gupy.io/jobs/3"
+    fetcher = _ScriptedFetcher({closed: _GUPY % ("closed", "null"), expired: _GUPY % ("published", '"2020-01-01"')})
+    assert check_canonical_url(closed, _source("gupy"), fetcher, expected_title="Desenvolvedor Java Junior") == LINK_DEAD
+    assert check_canonical_url(expired, _source("gupy"), fetcher, expected_title="Desenvolvedor Java Junior") == LINK_DEAD
+
+
+def test_gupy_other_job_title_does_not_confirm():
+    from job_radar.link_check import check_canonical_url
+    url = "https://empresa.gupy.io/jobs/4"
+    fetcher = _ScriptedFetcher({url: _GUPY % ("published", "null")})
+    assert check_canonical_url(url, _source("gupy"), fetcher, expected_title="Analista de Marketing Pleno") == LINK_UNKNOWN

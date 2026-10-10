@@ -149,7 +149,7 @@ class SeenHistory:
     def annotate(
         self, records: Iterable[VacancyRecord], now: datetime
     ) -> tuple[VacancyRecord, ...]:
-        """Marca vagas inéditas com STATUS:NEW e grava o histórico.
+        """Marca vagas inéditas com STATUS:NEW, preenche ``first_seen_at`` e grava o histórico.
 
         Na primeira execução (histórico vazio) nada é marcado como novo, para
         não rotular a base inteira.
@@ -163,9 +163,10 @@ class SeenHistory:
         for record in items:
             key = self._key(record)
             if key in seen:
-                result.append(record)
+                result.append(replace(record, first_seen_at=seen[key]))
                 continue
             seen[key] = stamp
+            record = replace(record, first_seen_at=stamp)
             if first_run:
                 result.append(record)
             else:

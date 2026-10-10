@@ -34,6 +34,17 @@ o usuário perceber a mudança, e marcar aqui o que foi feito.
 - [x] Ativar novas fontes após validação: InHire por empresa (Programmers/Bionexo),
   CI&T somente listagem/manual e Greenhouse por board (AB InBev). Pesquisa pública
   concluída; nenhuma cobertura global desses ATS é prometida.
+- [x] Qualidade da coleta (10/10/2026): enriquecimento lê data/prazo/empresa do
+  `__NEXT_DATA__` do Remotar e a modalidade (Gupy `workplaceType`, JSON-LD
+  `TELECOMMUTE`); fila prioriza vagas sem data com rodízio entre portais;
+  `default_workplace` (Remotar = REMOTE) e `selectors.company_from_url` (GeekHunter).
+- [x] Nova fonte `querovagastech` (API JSON pública, link de candidatura original).
+- [ ] Fontes avaliadas e NÃO adicionadas (10/10/2026): VagasPraJr (busca ignora o
+  termo, ~10 vagas mais recentes sem paginação, quase só suporte/infra, sem link de
+  candidatura), TalenTI (HTTP 403 para robôs: regra 3), VagasLume (site não
+  encontrado), Symplicity (exige login institucional). Reavaliar se mudarem.
+- [ ] Sem data na listagem nem no detalhe: Indeed, InfoJobs (detalhe dinâmico), Nube.
+  Empresa ausente em Seja Trainee, Estágio Trainee, Nube, oTrainee, Quickin, Coodesh.
 - [ ] 99Freelas em categoria freelance separada; Telegram depende de canais
   públicos fornecidos. LinkedIn permanece exclusivamente pesquisa/importação manual.
 - [ ] Coordenador: revisão completa, validação visual e instalação do launcher

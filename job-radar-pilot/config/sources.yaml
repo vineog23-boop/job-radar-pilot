@@ -61,6 +61,34 @@ sources:
         published: datePosted
         employment_type: employmentTypeRaw
         url_template: "https://www.primeiravagatech.com.br/vaga/{slug}"
+  # Agregador com API JSON pública (10/10/2026): devolve o link de candidatura original
+  # (muitas vezes o ATS da empresa) e a data de publicação. Busca por termo em "q".
+  - code: querovagastech
+    kind: json
+    start_url: https://www.querovagastech.com.br/api/jobs
+    enabled: true
+    max_pages: 3
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    tech_focus: true
+    query_param: q
+    queries: [java junior, estagio desenvolvimento, spring boot, backend junior]
+    api:
+      items: items
+      page_param: page
+      page_mode: page1
+      page_size: 20
+      fields:
+        id: id
+        title: title
+        company: company
+        city: location
+        published: postedAt
+        employment_type: employmentType
+        workplace: workMode
+        url: applyUrl
   - code: empregostec
     kind: rss
     start_url: https://www.empregostec.com.br/feed/

@@ -423,8 +423,10 @@ Greenhouse abaixo. As demais integrações mantêm os limites indicados:
 
 ## Fontes com API/feed (mais vagas, mais compatíveis)
 
-`primeiravagatech` e `empregostec` leem dados estruturados (data,
-empresa, modelo de trabalho, local) em vez de interpretar HTML. `gupy-api`
+`primeiravagatech`, `querovagastech` e `empregostec` leem dados estruturados (data,
+empresa, modelo de trabalho, local) em vez de interpretar HTML. O `querovagastech`
+(agregador, busca por termo no parâmetro `q`) entrega como URL o **link de candidatura
+original**, muitas vezes o ATS da própria empresa (InHire, Gupy, site de carreiras). `gupy-api`
 continua desativada após HTTP 404; o comportamento de sua configuração abaixo
 se aplica somente se houver validação futura do endpoint. No Gupy API, cada
 termo do perfil vira consultas por modelo (`remote`/`hybrid`/`on-site`) e por

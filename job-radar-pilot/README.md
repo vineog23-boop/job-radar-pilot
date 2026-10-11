@@ -148,7 +148,14 @@ senioridade, tecnologias, data de publicação, fonte, URL e nota.
 
 - Não acessa o SQLite de outros projetos, Notion, RADAR, `pipeline-state.json` nem a pasta
   `Vagas Dev`.
-- Não automatiza nem raspa o LinkedIn, preenche formulários ou envia candidaturas.
+- Não preenche formulários nem envia candidaturas.
+- LinkedIn: além da importação manual descrita abaixo, existe a fonte **opt-in**
+  `linkedin` (guest API anônima, sem login), que consulta a busca pública de vagas
+  com throttling alto e sem enriquecimento de detalhe. O robots.txt do LinkedIn
+  não permite esse endpoint e os Termos proíbem coleta automatizada: a fonte fica
+  desabilitada por padrão em volumes agressivos (máx. 2 páginas por combinação,
+  intervalo ≥ 4 s) e deve ser usada só em baixo volume, por conta de quem
+  habilitar. Para todo o resto do domínio, o bloqueio geral continua valendo.
 - LinkedIn: o botão **Pesquisar no LinkedIn** gera, para cada termo do perfil, um
   link da busca oficial já filtrado por nível, modelo (remoto/híbrido/presencial),
   local e período (24 h, semana, mês). Você abre no seu navegador, na sua sessão.
@@ -421,7 +428,7 @@ Greenhouse abaixo. As demais integrações mantêm os limites indicados:
 | Greenhouse | API pública de **um board cadastrado**, inicialmente AB InBev; cada empresa requer sua própria fonte. Nenhum acesso à API privada Harvest ou envio de candidatura. |
 | 99Freelas | Projetos **freelance**, separados de vagas CLT/estágio; integração opcional pendente da categoria/contrato adequado. |
 | Telegram | Pendente dos URLs de canais públicos indicados pelo usuário; sem descoberta inventada ou leitura de grupos privados. |
-| LinkedIn | Somente links oficiais de pesquisa e importação manual do conteúdo colado. |
+| LinkedIn | Fonte **opt-in** `linkedin`: guest API anônima da busca pública (sem login), com throttling alto e sem detalhe; fora dela, somente links oficiais de pesquisa e importação manual do conteúdo colado. |
 
 ## Notas externas (nota dos seus critérios no painel)
 

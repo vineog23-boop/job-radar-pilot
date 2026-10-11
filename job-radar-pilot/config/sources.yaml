@@ -454,3 +454,23 @@ sources:
         published: first_published
         deadline: application_deadline
         description: content
+  # LinkedIn via API pública de convidado (sem login). OPT-IN explícito: o
+  # robots.txt do LinkedIn não permite /jobs-guest/ e os ToS proíbem coleta
+  # automatizada — uso pessoal de baixo volume, throttling alto, sem detalhe.
+  # O FetchPolicy libera o domínio somente para este kind. Trocar queries por
+  # termos amplos e deixar o classificador filtrar rende mais que muitos
+  # termos específicos (cada termo × localização pagina de novo).
+  - code: linkedin
+    kind: linkedin
+    start_url: https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search
+    enabled: true
+    max_pages: 2
+    min_interval_seconds: 4
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    tech_focus: true
+    fetch_details: false
+    api:
+      locations: ["Brasil", "São Paulo, São Paulo, Brasil", "Florianópolis, Santa Catarina, Brasil"]
+      queries: [java, spring boot, "full stack", backend]

@@ -12,6 +12,10 @@ class SourceKind(StrEnum):
     DYNAMIC = "dynamic"
     JSON = "json"
     RSS = "rss"
+    # Opt-in explícito para o domínio LinkedIn: o FetchPolicy só libera
+    # requisições a linkedin.com para adaptadores deste kind (ver
+    # sources/linkedin.py para o aviso de robots.txt/ToS).
+    LINKEDIN = "linkedin"
 
 
 class CollectionStatus(StrEnum):

@@ -128,20 +128,6 @@ sources:
     fixed_queries: true
     browser: {paginate_next: "[data-testid='pagination-next-button']", paginate_max_pages: 6}
     selectors: {card: "[data-testid='job-list__listitem']"}
-  - code: gupy-boticario
-    kind: gupy
-    start_url: https://grupoboticario.gupy.io/
-    enabled: true
-    max_pages: 1
-    min_interval_seconds: 2
-    requires_auth: false
-    adaptive: false
-    default_country: BR
-    default_company: Grupo Boticário
-    tech_focus: true
-    fixed_queries: true
-    browser: {paginate_next: "[data-testid='pagination-next-button']", paginate_max_pages: 6}
-    selectors: {card: "[data-testid='job-list__listitem']"}
   - code: gupy-spread
     kind: gupy
     start_url: https://spread.gupy.io/
@@ -268,19 +254,6 @@ sources:
     # A lista cresce pelo botão "Carregar mais"; o coletor clica até ele sumir.
     browser: {click_to_load: ".btn-exibir-mais-vagas"}
     selectors: {card: "a.vaga-row[href*='codigoVaga=']", id: ".cod-vaga::all-text", title: "h2.tipo-vaga::all-text", title_extra: "div.descricao::all-text", url: "::attr(href)", location: "li.info-local::all-text", summary: "li.info-area::all-text"}
-  - code: nube
-    kind: dynamic
-    start_url: https://www.nube.com.br/estudantes/vagas
-    enabled: true
-    max_pages: 1
-    min_interval_seconds: 3
-    requires_auth: false
-    adaptive: true
-    default_country: BR
-    # Rolagem infinita sem fim observável (2.4k+ vagas e crescendo): rola fundo
-    # e o marcador data-jr-load-complete informa se a lista estabilizou.
-    browser: {scroll_to_load: true, scroll_max_iterations: 60}
-    selectors: {card: "a.flex.flex-col[href^='/detalhes-vaga/']", title: "div.p-3 > p:nth-of-type(1)::all-text", title_extra: "p.font-bold.text-sm::all-text", url: "::attr(href)", location: "div.p-3 > p:nth-of-type(2)::all-text", summary: "::all-text"}
   - code: vagas-com
     kind: generic
     start_url: https://www.vagas.com.br/vagas-de-java

@@ -408,8 +408,8 @@ def test_dry_run_validates_all_sources_without_fetching(
     assert "DRY_RUN" in output
     assert "programathor" in output
     assert "companhia-de-estagios" in output
-    assert "37 fontes habilitadas" in output
-    assert "39 fontes configuradas" in output
+    assert "35 fontes habilitadas" in output
+    assert "37 fontes configuradas" in output
     assert "locale=pt-BR" in output
     assert "timezone=America/Sao_Paulo" in output
     assert "accept_language=pt-BR,pt;q=0.9,en;q=0.6" in output
@@ -576,16 +576,16 @@ def test_auth_opens_configured_source_without_receiving_credentials(
 
     def fake_bootstrap(source: object) -> Path:
         captured["source"] = source
-        return tmp_path / "nube"
+        return tmp_path / "infojobs"
 
     monkeypatch.setattr(cli, "bootstrap_auth", fake_bootstrap)
 
-    exit_code = cli.main(["auth", "nube"])
+    exit_code = cli.main(["auth", "infojobs"])
 
     assert exit_code == 0
-    assert getattr(captured["source"], "code") == "nube"
+    assert getattr(captured["source"], "code") == "infojobs"
     output = capsys.readouterr().out
-    assert "AUTH_PROFILE_SAVED_UNVERIFIED: nube" in output
+    assert "AUTH_PROFILE_SAVED_UNVERIFIED: infojobs" in output
     assert "senha" not in output.casefold()
 
 

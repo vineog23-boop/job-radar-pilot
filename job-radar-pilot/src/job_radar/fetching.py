@@ -177,11 +177,12 @@ def _mark_load_complete(page: Any, complete: bool) -> None:
 
 
 def _scroll_infojobs_until_stable(page: Any) -> None:
-    _scroll_until_stable(
+    stabilized = _scroll_until_stable(
         page,
         selector=".js_vacanciesGridFragment > .js_rowCard",
         max_iterations=40,
     )
+    _mark_load_complete(page, stabilized)
 
 
 def _make_scroll_action(selector: str, max_iterations: int = 40) -> Callable[[Any], None]:

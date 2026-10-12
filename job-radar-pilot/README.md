@@ -303,9 +303,10 @@ em `script`, `style` ou elementos ocultos não declara `NO_RESULTS`.
 - Rolagem/botão em JavaScript virou observável: as ações de browser gravam
   `data-jr-load-complete` no HTML e o parser distingue lista completa
   (`EXHAUSTED`) de parada no teto (`SCROLL_LIMIT`, parcial por configuração).
-  `browser.scroll_to_load` cobre eureca, nube, cia-de-talentos, remotar e
-  coodesh; `browser.click_to_load` cobre ciee e trampos ("Mostre-me mais
-  vagas!"); `browser.paginate_next` cobre os quadros de empresa da Gupy.
+  `browser.scroll_to_load` cobre eureca, cia-de-talentos, remotar e coodesh;
+  `browser.click_to_load` cobre ciee e trampos ("Mostre-me mais vagas!");
+  `browser.paginate_next` cobre os quadros de empresa da Gupy. O infojobs rola a
+  listagem em JavaScript por ação dedicada e grava o mesmo marcador.
 
 O fallback adaptativo só é aceito na primeira página, sem marcador de vazio e com
 pelo menos duas vagas válidas (sem link de login/listagem e título com 8+ caracteres).
@@ -337,10 +338,12 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 Quadros `<empresa>.gupy.io` têm markup e paginação próprios (por clique, sem URL por
 página); o adaptador da Gupy ganhou a variante de quadro e a ação `paginate_next`.
 Empresas mineradas do histórico de vagas relevantes e validadas ao vivo:
-Compass UOL, Grupo Boticário, Spread, Montreal, Quality Digital e SoftDesign
-(`gupy-compass`, `gupy-boticario`, `gupy-spread`, `gupy-montreal`,
-`gupy-qualitydigital`, `gupy-softdesign`). Subdomínios InHire foram testados e
-descartados: respondem 200 para qualquer nome (catch-all), sem prova de quadro real.
+Compass UOL, Spread, Montreal, Quality Digital e SoftDesign (`gupy-compass`,
+`gupy-spread`, `gupy-montreal`, `gupy-qualitydigital`, `gupy-softdesign`).
+O quadro do Grupo Boticário saiu da lista: rendimento baixo para o perfil
+(3 vagas úteis em 60 brutas, maioria não-técnica). Subdomínios InHire foram
+testados e descartados: respondem 200 para qualquer nome (catch-all), sem prova
+de quadro real.
 - **APInfo**: só ~8 vagas por lista, sem paginação, busca por formulário e o `robots.txt`
   bloqueia explicitamente bots de IA.
 - **Wellfound**: sem login só 2 vagas aparecem no HTML e são sêniores/internacionais.
@@ -348,10 +351,11 @@ descartados: respondem 200 para qualquer nome (catch-all), sem prova de quadro r
 ## Rolagem, termos de busca e histórico
 
 - `browser: {scroll_to_load: true}`: rola a página até a quantidade de cards estabilizar
-  (eureca, nube, cia-de-talentos). No nube o limite é de 60 rolagens (~1.800 vagas mais
-  recentes; a lista completa passa de 2.400 e nunca estabiliza), então termina em
-  `SCROLL_LIMIT` por escolha — o marcador `data-jr-load-complete` informa se a lista
-  estabilizou de verdade.
+  (eureca, cia-de-talentos, remotar, coodesh). O marcador `data-jr-load-complete`
+  informa se a lista estabilizou de verdade; se a rolagem parar no teto configurado,
+  a fonte termina em `SCROLL_LIMIT` (parcial por configuração). O nube foi removido
+  do radar: rendimento baixo (25 vagas úteis de 1.821 brutas), era a fonte mais lenta
+  da coleta e as vagas de "empresa confidencial" quebravam a deduplicação.
 - `browser: {click_to_load: "<seletor>"}`: clica no botão "carregar mais" até ele sumir
   (ciee, trampos). Lista completa só quando o botão desaparece.
 - `browser: {paginate_next: "<seletor>", paginate_max_pages: 6}`: para SPAs de quadro

@@ -335,9 +335,9 @@ def test_pipeline_keeps_fixed_query_gupy_company_boards_unswept() -> None:
     # fixed_queries o pipeline aplicaria os termos do perfil e quebraria a URL.
     sources = (
         replace(
-            _source("gupy-boticario"),
+            _source("gupy-spread"),
             kind=SourceKind.GUPY,
-            start_url="https://grupoboticario.gupy.io/",
+            start_url="https://spread.gupy.io/",
             queries=(),
             fixed_queries=True,
         ),
@@ -357,7 +357,7 @@ def test_pipeline_keeps_fixed_query_gupy_company_boards_unswept() -> None:
         adapter_factory=lambda config: QueryAdapter(),
     ).run()
 
-    assert calls == ["https://grupoboticario.gupy.io/"]
+    assert calls == ["https://spread.gupy.io/"]
 
 
 def test_pipeline_builds_casado_dev_search_urls() -> None:

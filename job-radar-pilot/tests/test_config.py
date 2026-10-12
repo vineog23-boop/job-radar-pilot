@@ -14,7 +14,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 EXPECTED_SOURCES = {
     "inhire-programmers", "inhire-bionexo", "ciandt", "greenhouse-abinbev",
     "gupy",
-    "gupy-compass", "gupy-boticario", "gupy-spread", "gupy-montreal",
+    "gupy-compass", "gupy-spread", "gupy-montreal",
     "gupy-qualitydigital", "gupy-softdesign",
     "querovagastech",
     "indeed",
@@ -23,7 +23,6 @@ EXPECTED_SOURCES = {
     "programathor",
     "casado-dev",
     "ciee",
-    "nube",
     "vagas-com",
     "99jobs",
     "cia-de-talentos",
@@ -81,7 +80,7 @@ def test_loads_complete_profile_and_sources() -> None:
     )
     scrolling = {source.code for source in sources if source.browser.scroll_to_load}
     assert scrolling == {
-        "eureca", "nube", "cia-de-talentos", "remotar", "coodesh"
+        "eureca", "cia-de-talentos", "remotar", "coodesh"
     }
     clicking = {
         source.code: source.browser.click_to_load
@@ -98,7 +97,7 @@ def test_loads_complete_profile_and_sources() -> None:
         if source.browser.paginate_next
     }
     assert paginating == {
-        "gupy-compass", "gupy-boticario", "gupy-spread", "gupy-montreal",
+        "gupy-compass", "gupy-spread", "gupy-montreal",
         "gupy-qualitydigital", "gupy-softdesign",
     }
     assert all(
@@ -106,7 +105,7 @@ def test_loads_complete_profile_and_sources() -> None:
         == models.BrowserOptions(
             scroll_to_load=source.code in scrolling,
             click_to_load=clicking.get(source.code, ""),
-            scroll_max_iterations=60 if source.code == "nube" else 40,
+            scroll_max_iterations=40,
             paginate_next=(
                 "[data-testid='pagination-next-button']"
                 if source.code in paginating
@@ -144,8 +143,6 @@ def test_priority_sources_target_real_result_surfaces_and_current_selectors() ->
     assert sources["eureca"].start_url.endswith("/oportunidades")
     assert sources["eureca"].selectors["card"].startswith("[data-testid^")
     assert sources["ciee"].selectors["card"].startswith("a.vaga-row")
-    assert sources["nube"].requires_auth is False
-    assert sources["nube"].selectors["card"].startswith("a.flex.flex-col")
     assert sources["99jobs"].kind is SourceKind.GENERIC
     assert sources["99jobs"].selectors["declared_count"].startswith("#opportunities")
     assert sources["cia-de-talentos"].selectors["card"] == ".block-opportunities"

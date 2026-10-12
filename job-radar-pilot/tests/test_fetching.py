@@ -1147,6 +1147,45 @@ def test_scroll_action_marks_complete_only_when_stable() -> None:
     assert marks == [[fetching.LOAD_COMPLETE_ATTRIBUTE, "0"]]
 
 
+def test_infojobs_scroll_marks_load_complete() -> None:
+    marks: list[list[object]] = []
+
+    class Locator:
+        def __init__(self, counts) -> None:
+            self._counts = counts
+
+        def count(self) -> int:
+            return next(self._counts)
+
+    class Page:
+        def __init__(self, counts) -> None:
+            self._counts = counts
+
+        def locator(self, selector: str) -> Locator:
+            return Locator(self._counts)
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            pass
+
+        def evaluate(self, script: str, arg: object = None) -> None:
+            if "setAttribute" in script:
+                marks.append(list(arg) if isinstance(arg, list) else [arg])
+
+        class mouse:
+            @staticmethod
+            def wheel(x: int, y: int) -> None:
+                pass
+
+    # Estabiliza: 10, 14, 14, 14 -> marcador "1"
+    fetching._scroll_infojobs_until_stable(Page(iter((10, 14, 14, 14))))
+    assert marks == [[fetching.LOAD_COMPLETE_ATTRIBUTE, "1"]]
+
+    # Cresce até o teto de 40 iterações -> marcador "0"
+    marks.clear()
+    fetching._scroll_infojobs_until_stable(Page(iter(range(1, 200))))
+    assert marks == [[fetching.LOAD_COMPLETE_ATTRIBUTE, "0"]]
+
+
 def _paginate_fake_page(pages, states, clicks, injected, marks):
     state = {"page": 0}
 

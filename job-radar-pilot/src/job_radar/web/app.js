@@ -625,6 +625,14 @@ const ACTIVITY_LABELS = {
   UNKNOWN: "situação não comprovada",
 };
 
+// Versão curta para a linha da vaga; a descrição completa vai no tooltip.
+const ACTIVITY_SHORT_LABELS = {
+  ACTIVE_CONFIRMED: "ativa",
+  ACTIVE_LISTED: "listada na última busca",
+  CLOSED: "encerrada",
+  UNKNOWN: "situação não comprovada",
+};
+
 function passesActivityFilter(job) {
   const choice = elements.activityFilter.value;
   if (choice === "all") return true;
@@ -859,18 +867,21 @@ function renderTable() {
     const trackedStatus = trackingStatus(job);
     if (trackedStatus) row.className = `tracked-${trackedStatus.toLowerCase()}`;
     const titleCell = document.createElement("td");
+    const activity = activityState(job);
+    const meta = textElement(
+      "span",
+      "job-meta",
+      [
+        jobTechnologies(job).slice(0, 4).join(" · ") || "Tecnologias não informadas",
+        dateFact(job, false),
+        ACTIVITY_SHORT_LABELS[activity],
+        alsoSeenIn(job).length && `também em ${alsoSeenIn(job).join(", ")}`,
+      ].filter(Boolean).join(" — ")
+    );
+    meta.title = ACTIVITY_LABELS[activity];
     titleCell.append(
       textElement("div", "job-title", job.title || "Cargo não informado"),
-      textElement(
-        "span",
-        "job-meta",
-        [
-          jobTechnologies(job).slice(0, 4).join(" · ") || "Tecnologias não informadas",
-          dateFact(job, false),
-          ACTIVITY_LABELS[activityState(job)],
-          alsoSeenIn(job).length && `também em ${alsoSeenIn(job).join(", ")}`,
-        ].filter(Boolean).join(" — ")
-      )
+      meta
     );
     const expanded = expandedJobs.has(job.canonical_url);
     titleCell.classList.add("title-cell");

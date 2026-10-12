@@ -44,7 +44,7 @@ h1 em { color: #9ca6b7; font-style: normal; font-weight: 530; }
 .tech-tag { color: var(--green); font-size: 9px; font-weight: 800; border: 1px solid rgba(79,214,156,.35); border-radius: 99px; padding: 1px 6px; }
 .reason { display: block; color: var(--muted); font-size: 10px; margin-top: 5px; max-width: 190px; }
 .more-row { display: flex; justify-content: center; padding: 16px 0 4px; }
-.action-button { display: grid; place-items: center; min-height: 40px; text-decoration: none; }
+.action-button { display: grid; place-items: center; min-height: 38px; text-decoration: none; font-size: 11px; }
 .primary-button { border: 0; border-radius: 16px; min-height: 76px; padding: 15px 18px; display: flex; align-items: center; gap: 13px; color: #1c0c08; background: linear-gradient(135deg, #ff9675, var(--accent)); box-shadow: 0 18px 44px rgba(255,113,71,.18); transition: transform .18s ease, filter .18s ease; text-align: left; }
 .primary-button:hover { transform: translateY(-2px); filter: brightness(1.06); }
 .primary-button:disabled { cursor: wait; filter: saturate(.3); transform: none; }
@@ -56,8 +56,8 @@ h1 em { color: #9ca6b7; font-style: normal; font-weight: 530; }
 .live-status { color: var(--muted); font-size: 12px; text-align: center; margin: 0; min-height: 18px; }
 .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 52px; }
 .preferences-panel { background: var(--panel); border: 1px solid rgba(255,113,71,.2); border-radius: 22px; padding: 24px; margin: -16px 0 28px; backdrop-filter: blur(20px); }
-.linkedin-button { min-height: 42px; color: #d9ecff; background: rgba(10,102,194,.13); border: 1px solid rgba(74,153,230,.32); border-radius: 11px; font-size: 12px; font-weight: 750; }
-.linkedin-button:hover { border-color: rgba(74,153,230,.65); background: rgba(10,102,194,.2); }
+.linkedin-button { min-height: 38px; color: #9ec3e8; background: transparent; border: 1px solid rgba(74,153,230,.25); border-radius: 9px; font-size: 11px; font-weight: 650; }
+.linkedin-button:hover { border-color: rgba(74,153,230,.55); color: #cfe4f7; background: rgba(10,102,194,.08); }
 .linkedin-panel { background: linear-gradient(145deg, rgba(10,102,194,.11), var(--panel)); border: 1px solid rgba(74,153,230,.28); border-radius: 22px; padding: 24px; margin: -16px 0 28px; backdrop-filter: blur(20px); }
 .linkedin-eyebrow { color: #68a9e8; }
 .linkedin-searches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
@@ -135,7 +135,7 @@ td { padding: 15px 10px; border-bottom: 1px solid rgba(255,255,255,.055); color:
 tbody tr { transition: background .15s ease; }
 tbody tr:hover { background: rgba(255,255,255,.025); }
 .job-title { color: #edf1f7; font-size: 13px; font-weight: 700; max-width: 330px; }
-.job-meta { color: #687489; display: block; margin-top: 5px; font-size: 10px; }
+.job-meta { color: #7c8899; display: block; margin-top: 5px; font-size: 11px; }
 .source-pill, .match-pill, .status-pill { display: inline-flex; align-items: center; border-radius: 99px; padding: 6px 9px; font-size: 10px; font-weight: 700; }
 .source-pill { background: rgba(103,119,146,.12); color: #9da9bc; }
 .match-pill.new { background: rgba(110,168,254,.16); color: #8fb8ff; margin-left: 6px; }
@@ -223,13 +223,15 @@ footer { color: #515c6e; font-size: 10px; display: flex; justify-content: space-
 h1 { font-size: clamp(32px, 4.4vw, 52px); }
 .hero-copy { margin-top: 14px; font-size: 15px; }
 .primary-button { min-height: 66px; }
-.secondary-actions .linkedin-button, .secondary-actions .export-button { min-height: 40px; }
+.secondary-actions .export-button { min-height: 38px; }
 .secondary-actions .linkedin-button { grid-column: 1 / -1; }
 .summary-grid { margin-bottom: 30px; }
 .summary-card { min-height: 104px; }
 .summary-card.clickable { cursor: pointer; transition: transform .15s ease, border-color .15s ease; }
 .summary-card.clickable:hover, .summary-card.clickable:focus-visible { transform: translateY(-2px); border-color: rgba(255,113,71,.5); outline: none; }
 .filters { grid-template-columns: minmax(220px, 1.4fr) repeat(4, minmax(160px, 1fr)); }
+/* Filtros fixos: a lista rola por baixo sem perder os controles. */
+.workspace .filters { position: sticky; top: 10px; z-index: 15; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 14px; padding: 10px; margin-bottom: 14px; }
 .filters select { text-overflow: ellipsis; }
 .result-tools { display: inline-flex; align-items: center; gap: 10px; }
 .link-button { border: 0; background: none; color: var(--accent); font-size: 12px; text-decoration: underline; padding: 4px 6px; }
@@ -332,7 +334,7 @@ tr.expanded { background: rgba(255,113,71,.045); }
 .terms-builder-footer .primary-button { padding: 9px 16px; min-height: 0; font-size: 13px; border-radius: 10px; }
 
 /* --- v3: barra de trabalho, novidades, filtros rápidos e aviso com desfazer --- */
-.command-bar { grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); align-items: start; padding: 26px 0 22px; gap: 28px; }
+.command-bar { grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); align-items: start; padding: 22px 0 18px; gap: 28px; }
 .day-flow h1 { font-size: 30px; line-height: 1.1; letter-spacing: -.03em; margin: 0 0 14px; }
 .flow-steps { list-style: none; margin: 0 0 14px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .flow-steps li { padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }

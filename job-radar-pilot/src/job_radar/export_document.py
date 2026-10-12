@@ -14,6 +14,9 @@ _MARKDOWN_SPECIALS = "\\`*{}[]<>()#+-.!|"
 _COVERAGE_REASONS: dict[str, tuple[str, bool]] = {
     "EXHAUSTED": ("fim da lista de vagas", False),
     "PAGE_LIMIT": ("atingiu o limite de páginas configurado", False),
+    # Rolagem/clique parou no teto configurado (listas "infinitas" como o nube):
+    # cobertura parcial por decisão de configuração, não falha do coletor.
+    "SCROLL_LIMIT": ("atingiu o limite de carregamento configurado", False),
     "EMPTY_PAGE_AFTER_RECORDS": ("fim dos resultados", False),
     "STOPPED_BY_USER": ("interrompido por você", False),
     # Toda varredura tem consultas que o portal rejeita: estrutural, não alarme.

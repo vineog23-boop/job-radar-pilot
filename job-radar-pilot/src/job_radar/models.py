@@ -39,6 +39,14 @@ class BrowserOptions:
     disable_resources: bool = False
     blocked_domains: tuple[str, ...] = ()
     scroll_to_load: bool = False
+    # Seletor de um botão "carregar mais" clicado até sumir (ex.: trampos, ciee).
+    click_to_load: str = ""
+    # Teto de rodadas de rolagem quando scroll_to_load está ativo.
+    scroll_max_iterations: int = 40
+    # Seletor do botão "próxima página" de SPAs sem URL por página (quadros gupy).
+    paginate_next: str = ""
+    # Teto de páginas coletadas quando paginate_next está ativo.
+    paginate_max_pages: int = 6
 
 
 @dataclass(frozen=True, slots=True)

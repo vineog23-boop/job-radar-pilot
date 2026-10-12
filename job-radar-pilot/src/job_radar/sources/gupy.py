@@ -10,12 +10,18 @@ from job_radar.models import SourceConfig, VacancyRecord
 from job_radar.sources.base import (
     PaginatedAdapter,
     ParsedPage,
+    load_complete_state,
     make_record_with_fallback,
 )
 
 
 _LEGACY_CARD_SELECTOR = "[data-testid='job-card']"
 _CURRENT_CARD_SELECTOR = "#job-listing-results li"
+# Quadros públicos por empresa (<empresa>.gupy.io): markup próprio, paginação
+# só via clique (sem URL por página) — a coleta usa browser.paginate_next.
+_BOARD_CARD_SELECTOR = "[data-testid='job-list__listitem']"
+_BOARD_LINK_SELECTOR = "a[data-testid='job-list__listitem-href']"
+_BOARD_NEXT_SELECTOR = "[data-testid='pagination-next-button']"
 _PUBLISHED_TEXT = re.compile(
     r"publicad[ao]\s+em\s*:?\s*(\d{2}/\d{2}/\d{4})", re.IGNORECASE
 )
@@ -40,22 +46,37 @@ class GupyAdapter(PaginatedAdapter):
             card_method: str,
         ) -> VacancyRecord | None:
             current_layout = variant == "current"
+            board_layout = variant == "board"
             record = make_record_with_fallback(
                 card_method=card_method,
                 config=config,
                 page=page,
                 card=card,
-                id_selector=(None if current_layout else "::attr(data-job-id)"),
-                title_selector=("h3" if current_layout else "h2"),
+                id_selector=(None if current_layout or board_layout else "::attr(data-job-id)"),
+                title_selector=(
+                    f"{_BOARD_LINK_SELECTOR} > div > div:nth-of-type(1)"
+                    if board_layout
+                    else ("h3" if current_layout else "h2")
+                ),
                 url_selector=(
-                    "a[href*='/job/']::attr(href)"
-                    if current_layout
-                    else "a::attr(href)"
+                    f"{_BOARD_LINK_SELECTOR}::attr(href)"
+                    if board_layout
+                    else (
+                        "a[href*='/job/']::attr(href)"
+                        if current_layout
+                        else "a::attr(href)"
+                    )
                 ),
                 company_selector=(
-                    "p" if current_layout else "[data-testid='company-name']"
+                    None
+                    if board_layout
+                    else ("p" if current_layout else "[data-testid='company-name']")
                 ),
-                location_selector="[data-testid='job-location']",
+                location_selector=(
+                    f"{_BOARD_LINK_SELECTOR} > div > div:nth-of-type(2)"
+                    if board_layout
+                    else "[data-testid='job-location']"
+                ),
                 validated_fallback=True,
             )
             if record is not None and record.published_at is None:
@@ -66,7 +87,18 @@ class GupyAdapter(PaginatedAdapter):
 
         legacy_configured = tuple(page.css(_LEGACY_CARD_SELECTOR))  # type: ignore[attr-defined]
         current_configured = tuple(page.css(_CURRENT_CARD_SELECTOR))  # type: ignore[attr-defined]
+        board_configured = tuple(page.css(_BOARD_CARD_SELECTOR))  # type: ignore[attr-defined]
         candidates: list[tuple[CardSelection, str, str]] = []
+        if board_configured:
+            # Quadro de empresa tem markup próprio e precede as heurísticas
+            # adaptativas (que misturariam cargo, cidade e tipo no título).
+            candidates.append(
+                (
+                    CardSelection(board_configured, "CONFIGURED"),
+                    "board",
+                    _BOARD_CARD_SELECTOR,
+                )
+            )
         if legacy_configured:
             candidates.append(
                 (
@@ -83,7 +115,7 @@ class GupyAdapter(PaginatedAdapter):
                     _CURRENT_CARD_SELECTOR,
                 )
             )
-        if not legacy_configured:
+        if not legacy_configured and not board_configured:
             candidates.append(
                 (
                     self.select_cards(
@@ -99,7 +131,7 @@ class GupyAdapter(PaginatedAdapter):
                     _LEGACY_CARD_SELECTOR,
                 )
             )
-        if not current_configured:
+        if not current_configured and not board_configured:
             candidates.append(
                 (
                     self.select_cards(
@@ -118,6 +150,7 @@ class GupyAdapter(PaginatedAdapter):
 
         selection = candidates[-1][0]
         card_selector = candidates[-1][2]
+        used_variant: str | None = None
         card_records: tuple[tuple[object, VacancyRecord], ...] = ()
         first_nonempty: tuple[CardSelection, str] | None = None
         for candidate, variant, card_selector in candidates:
@@ -131,6 +164,7 @@ class GupyAdapter(PaginatedAdapter):
             if candidate_records:
                 selection = candidate
                 card_records = candidate_records
+                used_variant = variant
                 break
         else:
             if first_nonempty is not None:
@@ -145,6 +179,23 @@ class GupyAdapter(PaginatedAdapter):
             selection,
             valid_card,
         )
+        load_state = load_complete_state(page)
+        if used_variant == "board":
+            # Quadro de empresa: a paginação é só por clique (SPA), sem URL por
+            # página. A exaustão vem do botão "próxima" desabilitado após a
+            # ação de paginação ou do marcador data-jr-load-complete.
+            board_next = tuple(page.css(_BOARD_NEXT_SELECTOR))  # type: ignore[attr-defined]
+            board_exhausted = bool(board_next) and not any(
+                self._is_enabled(button) for button in board_next
+            )
+            return ParsedPage(
+                records,
+                len(cards),
+                next_url=None,
+                pagination_observable=board_exhausted or load_state == "1",
+                card_method=selection.method,
+                load_capped=load_state == "0",
+            )
         next_buttons = page.css("button[aria-label='Próxima página']")  # type: ignore[attr-defined]
         page_buttons = page.css("button[aria-label^='Página ']")  # type: ignore[attr-defined]
         enabled_next_exists = any(self._is_enabled(button) for button in next_buttons)

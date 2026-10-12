@@ -139,7 +139,7 @@ def _scroll_until_stable(
     selector: str,
     max_iterations: int,
     wait_milliseconds: int = 700,
-) -> None:
+) -> bool:
     previous = -1
     stable_rounds = 0
     for _ in range(max_iterations):
@@ -148,15 +148,32 @@ def _scroll_until_stable(
             stable_rounds += 1
         else:
             stable_rounds = 0
-            previous = count
+        previous = count
         if stable_rounds >= 2:
-            break
+            return True
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         try:
             page.mouse.wheel(0, 4000)
         except Exception:
             pass
         page.wait_for_timeout(wait_milliseconds)
+    return False
+
+
+# Marcador injetado no <body> pelas ações de rolagem/clique: "1" quando a lista
+# estabilizou (completa), "0" quando parou no teto configurado. O parser lê esse
+# atributo no HTML final para distinguir EXHAUSTED de SCROLL_LIMIT.
+LOAD_COMPLETE_ATTRIBUTE = "data-jr-load-complete"
+
+
+def _mark_load_complete(page: Any, complete: bool) -> None:
+    try:
+        page.evaluate(
+            "([name, value]) => document.body.setAttribute(name, value)",
+            [LOAD_COMPLETE_ATTRIBUTE, "1" if complete else "0"],
+        )
+    except Exception:
+        pass
 
 
 def _scroll_infojobs_until_stable(page: Any) -> None:
@@ -167,15 +184,16 @@ def _scroll_infojobs_until_stable(page: Any) -> None:
     )
 
 
-def _make_scroll_action(selector: str) -> Callable[[Any], None]:
+def _make_scroll_action(selector: str, max_iterations: int = 40) -> Callable[[Any], None]:
     def action(page: Any) -> None:
         page.wait_for_timeout(1500)
-        _scroll_until_stable(
+        stabilized = _scroll_until_stable(
             page,
             selector=selector,
-            max_iterations=40,
+            max_iterations=max_iterations,
             wait_milliseconds=1000,
         )
+        _mark_load_complete(page, stabilized)
 
     return action
 
@@ -188,17 +206,26 @@ def _wait_gupy_results(page: Any) -> None:
         page.wait_for_timeout(500)
 
 
-def _load_ciee_until_stable(page: Any) -> None:
-    card_selector = "a.vaga-row[href*='codigoVaga=']"
-    for _ in range(12):
+def _click_until_stable(
+    page: Any,
+    *,
+    button_selector: str,
+    card_selector: str,
+    max_clicks: int = 30,
+) -> bool:
+    """Clica no botão "carregar mais" até ele sumir. Retorna True só quando o
+    botão desapareceu — ou seja, a lista terminou de verdade."""
+    for _ in range(max_clicks):
         count_before = page.locator(card_selector).count()
-        button = page.locator(".btn-exibir-mais-vagas")
-        if button.count() == 0 or not button.last.is_visible():
-            break
+        button = page.locator(button_selector)
+        if button.count() == 0:
+            return True
         try:
+            if not button.last.is_visible():
+                return False
             button.last.click(force=True, timeout=5_000)
         except Exception:
-            break
+            return False
         grew = False
         for _ in range(5):
             page.wait_for_timeout(500)
@@ -206,7 +233,127 @@ def _load_ciee_until_stable(page: Any) -> None:
                 grew = True
                 break
         if not grew:
+            return False
+    return page.locator(button_selector).count() == 0
+
+
+def _make_click_action(
+    button_selector: str, card_selector: str
+) -> Callable[[Any], None]:
+    def action(page: Any) -> None:
+        page.wait_for_timeout(1500)
+        complete = _click_until_stable(
+            page,
+            button_selector=button_selector,
+            card_selector=card_selector,
+        )
+        _mark_load_complete(page, complete)
+
+    return action
+
+
+# Serializa os cards visíveis da página atual.
+_SNAPSHOT_CARDS_JS = (
+    "(selector) => Array.from(document.querySelectorAll(selector))"
+    ".map((el) => el.outerHTML)"
+)
+
+# Estado do botão de próxima página: 'absent' | 'disabled' | 'enabled'.
+_NEXT_STATE_JS = (
+    "(selector) => { const button = document.querySelector(selector);"
+    " if (!button) return 'absent';"
+    " return (button.disabled || button.getAttribute('aria-disabled') === 'true')"
+    " ? 'disabled' : 'enabled'; }"
+)
+
+# Substitui a lista visível pelos cards acumulados de todas as páginas.
+_INJECT_CARDS_JS = (
+    "({selector, items}) => { const first = document.querySelector(selector);"
+    " if (!first || !first.parentElement) return false;"
+    " first.parentElement.innerHTML = items.join(''); return true; }"
+)
+
+
+def _first_card_text(page: Any, card_selector: str) -> str:
+    try:
+        return str(page.locator(card_selector).first.inner_text() or "")
+    except Exception:
+        return ""
+
+
+def _paginate_collect(
+    page: Any,
+    *,
+    next_selector: str,
+    card_selector: str,
+    max_pages: int,
+) -> bool:
+    """Clica em "próxima página" acumulando os cards de cada página e, ao final,
+    reescreve a lista visível com todos eles. SPAs de quadro (ex.: gupy empresa)
+    não mudam a URL ao paginar; sem isso só a 1ª página seria coletada.
+
+    Retorna True quando o botão ficou desabilitado ou sumiu (última página).
+    """
+    seen: set[str] = set()
+    collected: list[str] = []
+    complete = False
+    for _ in range(max_pages):
+        try:
+            current = page.evaluate(_SNAPSHOT_CARDS_JS, card_selector) or []
+        except Exception:
+            current = []
+        for html in current:
+            if html not in seen:
+                seen.add(html)
+                collected.append(html)
+        try:
+            state = page.evaluate(_NEXT_STATE_JS, next_selector)
+        except Exception:
             break
+        if state != "enabled":
+            complete = state in {"disabled", "absent"}
+            break
+        before = _first_card_text(page, card_selector)
+        try:
+            page.locator(next_selector).last.click(force=True, timeout=5_000)
+        except Exception:
+            break
+        changed = False
+        for _ in range(10):
+            page.wait_for_timeout(500)
+            current_first = _first_card_text(page, card_selector)
+            if current_first and current_first != before:
+                changed = True
+                break
+        if not changed:
+            break
+    if collected:
+        try:
+            page.evaluate(
+                _INJECT_CARDS_JS, {"selector": card_selector, "items": collected}
+            )
+        except Exception:
+            pass
+    return complete
+
+
+def _make_paginate_action(
+    next_selector: str, card_selector: str, max_pages: int = 6
+) -> Callable[[Any], None]:
+    def action(page: Any) -> None:
+        for _ in range(20):
+            if page.locator(card_selector).count() > 0:
+                break
+            page.wait_for_timeout(500)
+        complete = _paginate_collect(
+            page,
+            next_selector=next_selector,
+            card_selector=card_selector,
+            max_pages=max_pages,
+        )
+        _mark_load_complete(page, complete)
+
+    return action
 
 
 def _normalize(value: str) -> str:
@@ -622,16 +769,26 @@ class FetchPolicy:
             fetch_options["blocked_domains"] = set(source.browser.blocked_domains)
         if wait_selector:
             fetch_options["wait_selector"] = wait_selector
-        if source.kind is SourceKind.GUPY:
+        if source.browser.paginate_next and source.selectors.get("card"):
+            fetch_options["page_action"] = _make_paginate_action(
+                source.browser.paginate_next,
+                source.selectors["card"],
+                max_pages=source.browser.paginate_max_pages,
+            )
+        elif source.kind is SourceKind.GUPY:
             fetch_options["page_action"] = _wait_gupy_results
         elif source.code == "infojobs":
             fetch_options["page_action"] = _scroll_infojobs_until_stable
+        elif source.browser.click_to_load and source.selectors.get("card"):
+            fetch_options["page_action"] = _make_click_action(
+                source.browser.click_to_load,
+                source.selectors["card"],
+            )
         elif source.browser.scroll_to_load and source.selectors.get("card"):
             fetch_options["page_action"] = _make_scroll_action(
-                source.selectors["card"]
+                source.selectors["card"],
+                max_iterations=source.browser.scroll_max_iterations,
             )
-        elif source.code == "ciee":
-            fetch_options["page_action"] = _load_ciee_until_stable
         return self._open_browser_session(source, profile_dir).fetch(
             url, **fetch_options
         )

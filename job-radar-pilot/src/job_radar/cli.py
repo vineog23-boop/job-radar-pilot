@@ -267,7 +267,10 @@ def _collect(args: argparse.Namespace) -> int:
                 f"accept_language={HTTP_ACCEPT_LANGUAGE}, block_ads=false, "
                 f"disable_resources={str(source.browser.disable_resources).lower()}, "
                 f"blocked_domains={blocked_domains}, "
-                f"scroll_to_load={str(source.browser.scroll_to_load).lower()}"
+                f"scroll_to_load={str(source.browser.scroll_to_load).lower()}, "
+                f"click_to_load={source.browser.click_to_load or '-'}, "
+                f"scroll_max_iterations={source.browser.scroll_max_iterations}, "
+                f"paginate_next={source.browser.paginate_next or '-'}"
             )
         return 0
 

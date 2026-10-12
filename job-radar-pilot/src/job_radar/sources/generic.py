@@ -10,6 +10,7 @@ from job_radar.sources.base import (
     _is_excluded_card,
     absolute_url,
     extract_value,
+    load_complete_state,
     make_record_with_fallback,
     public_list_has_more,
 )
@@ -64,6 +65,7 @@ class GenericListAdapter(PaginatedAdapter):
         declared_complete = (
             declared_count is not None and declared_count <= len(records)
         )
+        load_state = load_complete_state(page)
         return ParsedPage(
             records,
             len(cards),
@@ -72,6 +74,8 @@ class GenericListAdapter(PaginatedAdapter):
                 "next" in config.selectors
                 or declared_complete
                 or config.single_page
+                or load_state == "1"
             ),
             card_method=selection.method,
+            load_capped=load_state == "0",
         )

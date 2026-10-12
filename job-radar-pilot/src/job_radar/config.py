@@ -80,7 +80,15 @@ _API_FIELD_KEYS = {
 }
 _API_PAGE_MODES = {"offset", "page0", "page1", "single"}
 _SOURCE_KEYS = _REQUIRED_SOURCE_KEYS | _OPTIONAL_SOURCE_KEYS
-_BROWSER_KEYS = {"disable_resources", "blocked_domains", "scroll_to_load"}
+_BROWSER_KEYS = {
+    "disable_resources",
+    "blocked_domains",
+    "scroll_to_load",
+    "click_to_load",
+    "scroll_max_iterations",
+    "paginate_next",
+    "paginate_max_pages",
+}
 _REQUIRED_GENERIC_SELECTORS = {"card", "title", "url"}
 _HOSTNAME_PATTERN = re.compile(
     r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*",
@@ -200,6 +208,38 @@ def _load_browser_options(value: Any, index: int) -> BrowserOptions:
             f"sources[{index}].browser.scroll_to_load deve ser booleano."
         )
 
+    click_to_load = value.get("click_to_load", "")
+    if not isinstance(click_to_load, str) or (click_to_load and not click_to_load.strip()):
+        raise ConfigError(
+            f"sources[{index}].browser.click_to_load deve ser um seletor de texto."
+        )
+
+    scroll_max_iterations = value.get("scroll_max_iterations", 40)
+    if (
+        not isinstance(scroll_max_iterations, int)
+        or isinstance(scroll_max_iterations, bool)
+        or not 1 <= scroll_max_iterations <= 500
+    ):
+        raise ConfigError(
+            f"sources[{index}].browser.scroll_max_iterations deve ser inteiro entre 1 e 500."
+        )
+
+    paginate_next = value.get("paginate_next", "")
+    if not isinstance(paginate_next, str) or (paginate_next and not paginate_next.strip()):
+        raise ConfigError(
+            f"sources[{index}].browser.paginate_next deve ser um seletor de texto."
+        )
+
+    paginate_max_pages = value.get("paginate_max_pages", 6)
+    if (
+        not isinstance(paginate_max_pages, int)
+        or isinstance(paginate_max_pages, bool)
+        or not 1 <= paginate_max_pages <= 50
+    ):
+        raise ConfigError(
+            f"sources[{index}].browser.paginate_max_pages deve ser inteiro entre 1 e 50."
+        )
+
     blocked_domains = value.get("blocked_domains", [])
     if not isinstance(blocked_domains, list):
         raise ConfigError(
@@ -230,6 +270,10 @@ def _load_browser_options(value: Any, index: int) -> BrowserOptions:
         disable_resources=disable_resources,
         blocked_domains=tuple(normalized_domains),
         scroll_to_load=scroll_to_load,
+        click_to_load=click_to_load.strip(),
+        scroll_max_iterations=scroll_max_iterations,
+        paginate_next=paginate_next.strip(),
+        paginate_max_pages=paginate_max_pages,
     )
 
 
@@ -341,8 +385,8 @@ def _load_source(item: Any, index: int) -> SourceConfig:
     fixed_queries = item.get("fixed_queries", False)
     if not isinstance(fixed_queries, bool):
         raise ConfigError(f"sources[{index}].fixed_queries deve ser booleano.")
-    if fixed_queries and not queries_raw:
-        raise ConfigError(f"sources[{index}].fixed_queries exige queries.")
+    # fixed_queries sem queries é válido: impede a injeção dos termos do
+    # perfil e a fonte coleta apenas a start_url (ex.: quadros de empresa).
     tech_focus = item.get("tech_focus", False)
     if not isinstance(tech_focus, bool):
         raise ConfigError(f"sources[{index}].tech_focus deve ser booleano.")

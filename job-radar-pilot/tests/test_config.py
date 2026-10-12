@@ -14,6 +14,8 @@ PROJECT = Path(__file__).resolve().parents[1]
 EXPECTED_SOURCES = {
     "inhire-programmers", "inhire-bionexo", "ciandt", "greenhouse-abinbev",
     "gupy",
+    "gupy-compass", "gupy-boticario", "gupy-spread", "gupy-montreal",
+    "gupy-qualitydigital", "gupy-softdesign",
     "querovagastech",
     "indeed",
     "estagiotrainee",
@@ -79,11 +81,39 @@ def test_loads_complete_profile_and_sources() -> None:
     )
     scrolling = {source.code for source in sources if source.browser.scroll_to_load}
     assert scrolling == {
-        "eureca", "nube", "cia-de-talentos", "trampos", "remotar", "coodesh"
+        "eureca", "nube", "cia-de-talentos", "remotar", "coodesh"
+    }
+    clicking = {
+        source.code: source.browser.click_to_load
+        for source in sources
+        if source.browser.click_to_load
+    }
+    assert clicking == {
+        "ciee": ".btn-exibir-mais-vagas",
+        "trampos": "a:has-text('Mostre-me mais vagas')",
+    }
+    paginating = {
+        source.code
+        for source in sources
+        if source.browser.paginate_next
+    }
+    assert paginating == {
+        "gupy-compass", "gupy-boticario", "gupy-spread", "gupy-montreal",
+        "gupy-qualitydigital", "gupy-softdesign",
     }
     assert all(
         source.browser
-        == models.BrowserOptions(scroll_to_load=source.code in scrolling)
+        == models.BrowserOptions(
+            scroll_to_load=source.code in scrolling,
+            click_to_load=clicking.get(source.code, ""),
+            scroll_max_iterations=60 if source.code == "nube" else 40,
+            paginate_next=(
+                "[data-testid='pagination-next-button']"
+                if source.code in paginating
+                else ""
+            ),
+            paginate_max_pages=6,
+        )
         for source in sources
     )
 
@@ -256,7 +286,9 @@ def test_source_browser_options_default_and_accept_explicit_values(
         "    requires_auth: false\n"
         "    browser:\n"
         "      disable_resources: true\n"
-        "      blocked_domains: [ads.example.com, metrics.example.org]\n",
+        "      blocked_domains: [ads.example.com, metrics.example.org]\n"
+        '      click_to_load: ".load-more"\n'
+        "      scroll_max_iterations: 25\n",
         encoding="utf-8",
     )
 
@@ -267,6 +299,8 @@ def test_source_browser_options_default_and_accept_explicit_values(
     assert sources[2].browser == models.BrowserOptions(
         disable_resources=True,
         blocked_domains=("ads.example.com", "metrics.example.org"),
+        click_to_load=".load-more",
+        scroll_max_iterations=25,
     )
 
 
@@ -316,6 +350,15 @@ def test_rejects_non_string_source_browser_key_with_config_error(
         ("      unknown: true\n", "browser invalido; chaves desconhecidas"),
         ('      disable_resources: "yes"\n', "disable_resources deve ser booleano"),
         ("      disable_resources: 1\n", "disable_resources deve ser booleano"),
+        ("      scroll_to_load: 1\n", "scroll_to_load deve ser booleano"),
+        ("      click_to_load: 123\n", "click_to_load deve ser um seletor de texto"),
+        ('      click_to_load: "   "\n', "click_to_load deve ser um seletor de texto"),
+        ('      scroll_max_iterations: "alto"\n', "scroll_max_iterations deve ser inteiro entre 1 e 500"),
+        ("      scroll_max_iterations: 0\n", "scroll_max_iterations deve ser inteiro entre 1 e 500"),
+        ("      scroll_max_iterations: true\n", "scroll_max_iterations deve ser inteiro entre 1 e 500"),
+        ("      paginate_next: 123\n", "paginate_next deve ser um seletor de texto"),
+        ("      paginate_max_pages: 0\n", "paginate_max_pages deve ser inteiro entre 1 e 50"),
+        ('      paginate_max_pages: "muitas"\n', "paginate_max_pages deve ser inteiro entre 1 e 50"),
         ("      blocked_domains: ads.example.com\n", "blocked_domains deve ser uma lista"),
         ("      blocked_domains: ['']\n", r"blocked_domains\[0\].*hostname valido"),
         ("      blocked_domains: [123]\n", r"blocked_domains\[0\].*hostname valido"),
@@ -450,8 +493,9 @@ def test_tech_focus_and_fixed_queries_defaults_and_validation(tmp_path: Path) ->
 
     no_queries = tmp_path / "noq.yaml"
     no_queries.write_text(base + "    fixed_queries: true\n", encoding="utf-8")
-    with pytest.raises(ConfigError):
-        load_sources(no_queries)
+    # Válido: sem queries próprias, a fonte coleta apenas a start_url.
+    source = load_sources(no_queries)[0]
+    assert source.fixed_queries is True and source.queries == ()
 
     bad_type = tmp_path / "bad.yaml"
     bad_type.write_text(base + "    tech_focus: talvez\n", encoding="utf-8")

@@ -110,6 +110,94 @@ sources:
     default_country: BR
     tech_focus: true
     queries: [desenvolvedor java junior, backend junior, estagio desenvolvimento, estagio tecnologia, engenheiro de software junior]
+
+  # Quadros públicos por empresa na Gupy (markup e paginação próprios, por
+  # clique — ver browser.paginate_next). Empresas mineradas do histórico de
+  # vagas relevantes; subdomínios validados em 11/10/2026.
+  - code: gupy-compass
+    kind: gupy
+    start_url: https://compass.gupy.io/
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    default_company: Compass UOL
+    tech_focus: true
+    fixed_queries: true
+    browser: {paginate_next: "[data-testid='pagination-next-button']", paginate_max_pages: 6}
+    selectors: {card: "[data-testid='job-list__listitem']"}
+  - code: gupy-boticario
+    kind: gupy
+    start_url: https://grupoboticario.gupy.io/
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    default_company: Grupo Boticário
+    tech_focus: true
+    fixed_queries: true
+    browser: {paginate_next: "[data-testid='pagination-next-button']", paginate_max_pages: 6}
+    selectors: {card: "[data-testid='job-list__listitem']"}
+  - code: gupy-spread
+    kind: gupy
+    start_url: https://spread.gupy.io/
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    default_company: Spread Tecnologia
+    tech_focus: true
+    fixed_queries: true
+    browser: {paginate_next: "[data-testid='pagination-next-button']", paginate_max_pages: 6}
+    selectors: {card: "[data-testid='job-list__listitem']"}
+  - code: gupy-montreal
+    kind: gupy
+    start_url: https://montreal.gupy.io/
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    default_company: Montreal | Tecnologia e Inovação
+    tech_focus: true
+    fixed_queries: true
+    browser: {paginate_next: "[data-testid='pagination-next-button']", paginate_max_pages: 6}
+    selectors: {card: "[data-testid='job-list__listitem']"}
+  - code: gupy-qualitydigital
+    kind: gupy
+    start_url: https://qualitydigital.gupy.io/
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    default_company: Quality Digital
+    tech_focus: true
+    fixed_queries: true
+    browser: {paginate_next: "[data-testid='pagination-next-button']", paginate_max_pages: 6}
+    selectors: {card: "[data-testid='job-list__listitem']"}
+  - code: gupy-softdesign
+    kind: gupy
+    start_url: https://softdesign.gupy.io/
+    enabled: true
+    max_pages: 1
+    min_interval_seconds: 2
+    requires_auth: false
+    adaptive: false
+    default_country: BR
+    default_company: SoftDesign
+    tech_focus: true
+    fixed_queries: true
+    browser: {paginate_next: "[data-testid='pagination-next-button']", paginate_max_pages: 6}
+    selectors: {card: "[data-testid='job-list__listitem']"}
   - code: indeed
     kind: indeed
     start_url: https://br.indeed.com/jobs?q=java+junior
@@ -130,6 +218,8 @@ sources:
     requires_auth: false
     adaptive: true
     default_country: BR
+    # Listagem única comprovada por probe: /page/2 e ?offset=16 devolvem os mesmos 16 cards.
+    single_page: true
     selectors: {company_from_title: "^(?:[^:\u2013-]*[-\u2013:]\\s*)?([A-Z\u00c0-\u00da][\\w&.-]*(?: [A-Z\u00c0-\u00da][\\w&.-]*){0,3}) abre |Est[a\u00e1]gio (?:da |do |de )?([A-Z\u00c0-\u00da][\\w&.-]*(?: [A-Z\u00c0-\u00da][\\w&.-]*){0,2}) 20\\d\\d|Programa de Est[a\u00e1]gio (?:da |do )([A-Z\u00c0-\u00da][\\w&.-]*(?: [A-Z\u00c0-\u00da][\\w&.-]*){0,2})", card: ".gallery-item-container", title: "a.O16KGI[href*='/post/']::all-text", url: "a.O16KGI[href*='/post/']::attr(href)", published: "span.post-metadata__date::all-text"}
   - code: eureca
     kind: dynamic
@@ -175,6 +265,8 @@ sources:
     requires_auth: false
     adaptive: true
     default_country: BR
+    # A lista cresce pelo botão "Carregar mais"; o coletor clica até ele sumir.
+    browser: {click_to_load: ".btn-exibir-mais-vagas"}
     selectors: {card: "a.vaga-row[href*='codigoVaga=']", id: ".cod-vaga::all-text", title: "h2.tipo-vaga::all-text", title_extra: "div.descricao::all-text", url: "::attr(href)", location: "li.info-local::all-text", summary: "li.info-area::all-text"}
   - code: nube
     kind: dynamic
@@ -185,7 +277,9 @@ sources:
     requires_auth: false
     adaptive: true
     default_country: BR
-    browser: {scroll_to_load: true}
+    # Rolagem infinita sem fim observável (2.4k+ vagas e crescendo): rola fundo
+    # e o marcador data-jr-load-complete informa se a lista estabilizou.
+    browser: {scroll_to_load: true, scroll_max_iterations: 60}
     selectors: {card: "a.flex.flex-col[href^='/detalhes-vaga/']", title: "div.p-3 > p:nth-of-type(1)::all-text", title_extra: "p.font-bold.text-sm::all-text", url: "::attr(href)", location: "div.p-3 > p:nth-of-type(2)::all-text", summary: "::all-text"}
   - code: vagas-com
     kind: generic
@@ -296,6 +390,9 @@ sources:
     adaptive: true
     default_country: BR
     tech_focus: true
+    # Paginação é 100% client-side: ?page=2 devolve HTML idêntico e não há
+    # controle de página acessível no DOM. Lista visível = 20 vagas.
+    single_page: true
     selectors: {card: "article[class*='jobRow']", title: "h3 a::all-text", url: "h3 a::attr(href)", company: "a[class*='companyLink']::all-text", location: "dl[class*='jobFacts'] dd::all-text", summary: "::all-text", published: "dl[class*='jobTiming'] dd::all-text"}
   - code: geekhunter
     kind: generic
@@ -331,7 +428,8 @@ sources:
     requires_auth: false
     adaptive: true
     default_country: BR
-    browser: {scroll_to_load: true}
+    # A lista cresce pelo botão "Mostre-me mais vagas!" (probe: 12 → 197 cards).
+    browser: {click_to_load: "a:has-text('Mostre-me mais vagas')"}
     selectors: {card: "div.opportunity-box", title: "h4::all-text", url: "a.inner::attr(href)", company: "h5::all-text", location: ".location::all-text", summary: "::all-text"}
   - code: remotar
     kind: dynamic

@@ -330,6 +330,36 @@ def test_pipeline_prefers_editable_search_terms_for_supported_search_sources() -
     ]
 
 
+def test_pipeline_keeps_fixed_query_gupy_company_boards_unswept() -> None:
+    # Quadros de empresa na gupy (gupy-*) não aceitam /job-search: sem
+    # fixed_queries o pipeline aplicaria os termos do perfil e quebraria a URL.
+    sources = (
+        replace(
+            _source("gupy-boticario"),
+            kind=SourceKind.GUPY,
+            start_url="https://grupoboticario.gupy.io/",
+            queries=(),
+            fixed_queries=True,
+        ),
+    )
+    profile = replace(PROFILE, search_terms=("java remoto junior",))
+    calls: list[str] = []
+
+    class QueryAdapter:
+        def collect(self, config: SourceConfig, fetcher: object) -> SourceRunResult:
+            calls.append(config.start_url)
+            return SourceRunResult(config.code, CollectionStatus.EMPTY)
+
+    JobRadarPipeline(
+        sources,
+        profile,
+        fetcher=object(),
+        adapter_factory=lambda config: QueryAdapter(),
+    ).run()
+
+    assert calls == ["https://grupoboticario.gupy.io/"]
+
+
 def test_pipeline_builds_casado_dev_search_urls() -> None:
     source = replace(
         _source("casado-dev"),

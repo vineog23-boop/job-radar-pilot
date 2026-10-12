@@ -7,7 +7,12 @@ from typing import Callable, Protocol
 from urllib.parse import parse_qs, urlsplit
 
 from job_radar.adaptive import AdaptiveCardLocator, CardSelection, select_cards
-from job_radar.fetching import BlockReason, FetchPolicy, _visible_response_text
+from job_radar.fetching import (
+    LOAD_COMPLETE_ATTRIBUTE,
+    BlockReason,
+    FetchPolicy,
+    _visible_response_text,
+)
 from job_radar.company import clean_company, company_from_ats_url, company_from_title
 from job_radar.identity import canonicalize_url
 from job_radar.dates import parse_published_at
@@ -40,6 +45,8 @@ class ParsedPage:
     explicit_empty: bool = False
     pagination_observable: bool = True
     card_method: str = "CONFIGURED"
+    # Ação de rolagem/clique parou no teto configurado (lista pode continuar).
+    load_capped: bool = False
 
 
 # Texto visível do nó: ignora <script>, <style>, <noscript> e <template> internos
@@ -389,7 +396,9 @@ class PaginatedAdapter:
                     pages_observed=len(visited),
                     cards_observed=cards_observed,
                     has_more=True,
-                    stop_reason="PAGINATION_UNVERIFIED",
+                    stop_reason=(
+                        "SCROLL_LIMIT" if parsed.load_capped else "PAGINATION_UNVERIFIED"
+                    ),
                     visited_urls=tuple(visited),
                     warnings=tuple(warnings),
                 )
@@ -609,6 +618,22 @@ def _is_excluded_card(config: SourceConfig, card: object) -> bool:
 
 def adaptive_card_allowed(config: SourceConfig, card: object) -> bool:
     return not _is_excluded_card(config, card)
+
+
+def load_complete_state(page: object) -> str | None:
+    """Estado gravado no <body> pela ação de rolagem/clique (ver fetching.py).
+
+    Retorna "1" quando a lista estabilizou (completa), "0" quando parou no
+    teto configurado, None quando o marcador não existe (ação não rodou).
+    """
+    try:
+        bodies = page.css("body")  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    if not bodies:
+        return None
+    value = getattr(bodies[0], "attrib", {}).get(LOAD_COMPLETE_ATTRIBUTE)
+    return value if value in {"0", "1"} else None
 
 
 def public_list_has_more(page: object, config: SourceConfig) -> bool:

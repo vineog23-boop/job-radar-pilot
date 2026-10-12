@@ -6,6 +6,7 @@ from job_radar.sources.base import (
     ParsedPage,
     absolute_url,
     extract_value,
+    load_complete_state,
     make_record_with_fallback,
     public_list_has_more,
 )
@@ -62,12 +63,16 @@ class DynamicAdapter(PaginatedAdapter):
         valid_card = card_records[0][0] if card_records else None
         self.remember_cards(page, config, card_selector, selection, valid_card)
         next_url = absolute_url(page, extract_value(page, config.selectors.get("next")))
+        load_state = load_complete_state(page)
         return ParsedPage(
             records,
             len(cards),
             next_url or None,
             pagination_observable=not public_list_has_more(page, config) and (
-                "next" in config.selectors or config.single_page
+                "next" in config.selectors
+                or config.single_page
+                or load_state == "1"
             ),
             card_method=selection.method,
+            load_capped=load_state == "0",
         )

@@ -187,6 +187,63 @@ def test_single_page_limit_does_not_prove_unobservable_pagination_exhausted() ->
     assert len(result.records) == 1
 
 
+def test_load_complete_marker_proves_exhaustion() -> None:
+    url = "https://example.com/jobs"
+    config = _config(
+        SourceKind.DYNAMIC,
+        max_pages=1,
+        selectors={
+            "card": "article.job",
+            "title": "h2",
+            "url": "a::attr(href)",
+        },
+    )
+    page = _html_page(
+        '<body data-jr-load-complete="1">'
+        '<article class="job"><a href="/jobs/1"><h2>Java Junior</h2></a></article>'
+        "</body>",
+        url,
+    )
+
+    result = DynamicAdapter().collect(
+        config,
+        FixtureFetcher({url: page}),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.SUCCESS
+    assert result.has_more is False
+    assert len(result.records) == 1
+
+
+def test_load_capped_marker_reports_scroll_limit() -> None:
+    url = "https://example.com/jobs"
+    config = _config(
+        SourceKind.DYNAMIC,
+        max_pages=1,
+        selectors={
+            "card": "article.job",
+            "title": "h2",
+            "url": "a::attr(href)",
+        },
+    )
+    page = _html_page(
+        '<body data-jr-load-complete="0">'
+        '<article class="job"><a href="/jobs/1"><h2>Java Junior</h2></a></article>'
+        "</body>",
+        url,
+    )
+
+    result = DynamicAdapter().collect(
+        config,
+        FixtureFetcher({url: page}),  # type: ignore[arg-type]
+    )
+
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "SCROLL_LIMIT"
+    assert result.has_more is True
+    assert len(result.records) == 1
+
+
 def test_generic_can_join_descendant_text_and_capture_summary() -> None:
     url = "https://example.com/jobs"
     page = _html_page(
@@ -416,6 +473,91 @@ def test_gupy_page_limit_with_continuation_stays_partial() -> None:
     assert result.status is CollectionStatus.PARTIAL
     assert result.stop_reason == "PAGE_LIMIT"
     assert result.has_more is True
+
+
+def _board_card(job_id: str, title: str, location: str, kind: str = "Efetivo") -> str:
+    return (
+        f'<li data-testid="job-list__listitem">'
+        f'<a data-testid="job-list__listitem-href" href="/jobs/{job_id}?jobBoardSource=gupy_public_page">'
+        f"<div><div>{title}</div><div>{location}</div><div>{kind}</div></div></a></li>"
+    )
+
+
+def test_gupy_board_extracts_cards_and_reads_disabled_next_as_exhausted() -> None:
+    from dataclasses import replace
+
+    url = "https://grupoboticario.gupy.io/"
+    page = _html_page(
+        '<ul data-testid="job-list__list">'
+        + _board_card("12653596", "Agile Specialist I", "São Paulo - SP")
+        + _board_card("12676048", "Estágio em TI", "Remoto", "Estágio")
+        + "</ul>"
+        '<button data-testid="pagination-next-button" aria-disabled="true" disabled>></button>',
+        url,
+    )
+    config = replace(
+        _config(SourceKind.GUPY, code="gupy-boticario", url=url, max_pages=1),
+        default_company="Grupo Boticário",
+    )
+
+    result = GupyAdapter().collect(config, FixtureFetcher({url: page}))  # type: ignore[arg-type]
+
+    assert result.status is CollectionStatus.SUCCESS
+    assert len(result.records) == 2
+    first = result.records[0]
+    assert first.title == "Agile Specialist I"
+    assert first.location == "São Paulo - SP"
+    assert first.company == "Grupo Boticário"
+    assert first.canonical_url == "https://grupoboticario.gupy.io/jobs/12653596"
+
+
+def test_gupy_board_capped_pagination_reports_scroll_limit() -> None:
+    from dataclasses import replace
+
+    url = "https://spread.gupy.io/"
+    page = _html_page(
+        '<body data-jr-load-complete="0">'
+        '<ul data-testid="job-list__list">'
+        + _board_card("1", "Dev Java", "Remoto")
+        + "</ul>"
+        '<button data-testid="pagination-next-button" aria-disabled="false">></button>'
+        "</body>",
+        url,
+    )
+    config = replace(
+        _config(SourceKind.GUPY, code="gupy-spread", url=url, max_pages=1),
+        default_company="Spread Tecnologia",
+    )
+
+    result = GupyAdapter().collect(config, FixtureFetcher({url: page}))  # type: ignore[arg-type]
+
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "SCROLL_LIMIT"
+    assert result.has_more is True
+
+
+def test_gupy_board_single_page_without_next_button_is_exhausted_by_marker() -> None:
+    from dataclasses import replace
+
+    url = "https://softdesign.gupy.io/"
+    page = _html_page(
+        '<body data-jr-load-complete="1">'
+        '<ul data-testid="job-list__list">'
+        + _board_card("9", "Estágio Backend", "Porto Alegre - RS", "Estágio")
+        + "</ul>"
+        "</body>",
+        url,
+    )
+    config = replace(
+        _config(SourceKind.GUPY, code="gupy-softdesign", url=url, max_pages=1),
+        default_company="SoftDesign",
+    )
+
+    result = GupyAdapter().collect(config, FixtureFetcher({url: page}))  # type: ignore[arg-type]
+
+    assert result.status is CollectionStatus.SUCCESS
+    assert result.records[0].title == "Estágio Backend"
+    assert result.records[0].location == "Porto Alegre - RS"
 
 
 def test_99jobs_declared_total_proves_collection_exhausted() -> None:

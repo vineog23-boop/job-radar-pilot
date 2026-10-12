@@ -1070,6 +1070,8 @@ function statusLabel(status) {
 const STOP_REASON_INFO = {
   EXHAUSTED: { text: "fim da lista de vagas", attention: false },
   PAGE_LIMIT: { text: "atingiu o limite de páginas configurado", attention: false },
+  // Listas "infinitas" (rolagem/clique) paradas no teto configurado: parcial por configuração.
+  SCROLL_LIMIT: { text: "atingiu o limite de carregamento configurado", attention: false },
   EMPTY_PAGE_AFTER_RECORDS: { text: "fim dos resultados", attention: false },
   STOPPED_BY_USER: { text: "interrompido por você", attention: false },
   QUERY_SWEEP_PARTIAL: { text: "varredura de consultas incompleta", attention: false }, // estrutural: portais rejeitam parte das consultas

@@ -1006,10 +1006,11 @@ def test_gupy_readiness_action_stops_after_four_seconds_without_results() -> Non
     assert waits == [500] * 8
 
 
-def test_ciee_load_more_waits_for_delayed_card_growth() -> None:
+def test_click_to_load_waits_for_delayed_card_growth_and_marks_capped() -> None:
     counts = iter((6, 6, 12, 12, 18, 18, 18, 18, 18, 18, 18))
     clicks: list[bool] = []
     waits: list[int] = []
+    marks: list[list[object]] = []
 
     class CardLocator:
         def count(self) -> int:
@@ -1039,10 +1040,205 @@ def test_ciee_load_more_waits_for_delayed_card_growth() -> None:
         def wait_for_timeout(self, milliseconds: int) -> None:
             waits.append(milliseconds)
 
-    fetching._load_ciee_until_stable(Page())
+        def evaluate(self, script: str, arg: object = None) -> None:
+            marks.append(list(arg) if isinstance(arg, list) else [arg])
+
+    action = fetching._make_click_action(
+        ".btn-exibir-mais-vagas",
+        "a.vaga-row[href*='codigoVaga=']",
+    )
+    action(Page())
 
     assert clicks == [True, True, True]
-    assert waits == [500] * 8
+    assert waits == [1500] + [500] * 8
+    # O botão nunca sumiu: lista não comprovada como completa.
+    assert marks == [[fetching.LOAD_COMPLETE_ATTRIBUTE, "0"]]
+
+
+def test_click_to_load_marks_complete_when_button_disappears() -> None:
+    marks: list[list[object]] = []
+
+    def make_page():
+        counts = iter((6, 12, 12, 18, 18))
+        button_states = iter((1, 1, 0))
+
+        class CardLocator:
+            def count(self) -> int:
+                return next(counts)
+
+        class ButtonLocator:
+            @property
+            def last(self) -> "ButtonLocator":
+                return self
+
+            def count(self) -> int:
+                return next(button_states)
+
+            def is_visible(self) -> bool:
+                return True
+
+            def click(self, **kwargs: object) -> None:
+                pass
+
+        class Page:
+            def locator(self, selector: str) -> CardLocator | ButtonLocator:
+                if "vaga-row" in selector:
+                    return CardLocator()
+                return ButtonLocator()
+
+            def wait_for_timeout(self, milliseconds: int) -> None:
+                pass
+
+            def evaluate(self, script: str, arg: object = None) -> None:
+                marks.append(list(arg) if isinstance(arg, list) else [arg])
+
+        return Page()
+
+    complete = fetching._click_until_stable(
+        make_page(),
+        button_selector=".btn",
+        card_selector="a.vaga-row",
+    )
+    assert complete is True
+
+    action = fetching._make_click_action(".btn", "a.vaga-row")
+    action(make_page())
+    assert marks == [[fetching.LOAD_COMPLETE_ATTRIBUTE, "1"]]
+
+
+def test_scroll_action_marks_complete_only_when_stable() -> None:
+    marks: list[list[object]] = []
+
+    class Locator:
+        def __init__(self, counts) -> None:
+            self._counts = counts
+
+        def count(self) -> int:
+            return next(self._counts)
+
+    class Page:
+        def __init__(self, counts) -> None:
+            self._counts = counts
+
+        def locator(self, selector: str) -> Locator:
+            return Locator(self._counts)
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            pass
+
+        def evaluate(self, script: str, arg: object = None) -> None:
+            if "setAttribute" in script:
+                marks.append(list(arg) if isinstance(arg, list) else [arg])
+
+        class mouse:
+            @staticmethod
+            def wheel(x: int, y: int) -> None:
+                pass
+
+    # Estabiliza: 3, 5, 5, 5 -> completa
+    action = fetching._make_scroll_action(".card", max_iterations=10)
+    action(Page(iter((3, 5, 5, 5))))
+    assert marks == [[fetching.LOAD_COMPLETE_ATTRIBUTE, "1"]]
+
+    # Cresce sem parar até o teto -> não completa
+    marks.clear()
+    action = fetching._make_scroll_action(".card", max_iterations=3)
+    action(Page(iter((3, 6, 9, 12))))
+    assert marks == [[fetching.LOAD_COMPLETE_ATTRIBUTE, "0"]]
+
+
+def _paginate_fake_page(pages, states, clicks, injected, marks):
+    state = {"page": 0}
+
+    class CardFirst:
+        def inner_text(self) -> str:
+            return f"primeiro-card-p{state['page']}"
+
+    class CardLocator:
+        def count(self) -> int:
+            return 1
+
+        @property
+        def first(self) -> CardFirst:
+            return CardFirst()
+
+    class ButtonLocator:
+        @property
+        def last(self) -> "ButtonLocator":
+            return self
+
+        def count(self) -> int:
+            return 1
+
+        def click(self, **kwargs: object) -> None:
+            clicks.append(True)
+            state["page"] += 1
+
+    class Page:
+        def locator(self, selector: str):
+            if selector == ".next-page":
+                return ButtonLocator()
+            return CardLocator()
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            pass
+
+        def evaluate(self, script: str, arg: object = None):
+            if "Array.from" in script:
+                return pages[state["page"]]
+            if "aria-disabled" in script:
+                return states[state["page"]] if state["page"] < len(states) else "disabled"
+            if "innerHTML" in script:
+                injected.append(arg)
+                return True
+            if "setAttribute" in script:
+                marks.append(list(arg) if isinstance(arg, list) else [arg])
+                return None
+            return None
+
+    return Page()
+
+
+def test_paginate_action_collects_every_page_and_marks_complete() -> None:
+    clicks: list[bool] = []
+    injected: list[dict] = []
+    marks: list[list[object]] = []
+    page = _paginate_fake_page(
+        pages=[["<li>A1</li>", "<li>A2</li>"], ["<li>B1</li>"], ["<li>C1</li>"]],
+        states=["enabled", "enabled", "disabled"],
+        clicks=clicks,
+        injected=injected,
+        marks=marks,
+    )
+
+    action = fetching._make_paginate_action(".next-page", "li.card", max_pages=6)
+    action(page)
+
+    assert clicks == [True, True]
+    assert injected == [
+        {"selector": "li.card", "items": ["<li>A1</li>", "<li>A2</li>", "<li>B1</li>", "<li>C1</li>"]}
+    ]
+    assert marks == [[fetching.LOAD_COMPLETE_ATTRIBUTE, "1"]]
+
+
+def test_paginate_action_marks_capped_at_page_ceiling() -> None:
+    clicks: list[bool] = []
+    injected: list[dict] = []
+    marks: list[list[object]] = []
+    page = _paginate_fake_page(
+        pages=[["<li>A1</li>"], ["<li>B1</li>"], ["<li>C1</li>"]],
+        states=["enabled", "enabled", "enabled"],
+        clicks=clicks,
+        injected=injected,
+        marks=marks,
+    )
+
+    action = fetching._make_paginate_action(".next-page", "li.card", max_pages=2)
+    action(page)
+
+    assert clicks == [True, True]
+    assert injected == [{"selector": "li.card", "items": ["<li>A1</li>", "<li>B1</li>"]}]
+    assert marks == [[fetching.LOAD_COMPLETE_ATTRIBUTE, "0"]]
 
 
 def test_robots_parser_is_cached_per_origin_but_evaluates_each_path(

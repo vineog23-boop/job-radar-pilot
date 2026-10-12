@@ -473,4 +473,4 @@ sources:
     fetch_details: false
     api:
       locations: ["Brasil", "São Paulo, São Paulo, Brasil", "Florianópolis, Santa Catarina, Brasil"]
-      queries: [java, spring boot, "full stack", backend]
+      queries: [java, spring boot, "full stack", backend, desenvolvedor, programador]

@@ -299,8 +299,13 @@ em `script`, `style` ou elementos ocultos não declara `NO_RESULTS`.
 
 - `next`: seletor do link da próxima página (programathor, casado-dev, seja-trainee).
 - `declared_count`: total declarado pelo portal (99jobs, vagas-com).
-- `single_page: true`: portal verificado com página 2 vazia/inexistente (otrainee, companhia-de-estagios).
-- Ainda sem paginação observável (carregam mais por scroll/botão em JavaScript): estagiotrainee, eureca, ciee, nube, cia-de-talentos e infojobs; ficam `PARTIAL/PAGINATION_UNVERIFIED`.
+- `single_page: true`: portal verificado com página 2 vazia/inexistente (otrainee, companhia-de-estagios, estagiotrainee, mytechjobs).
+- Rolagem/botão em JavaScript virou observável: as ações de browser gravam
+  `data-jr-load-complete` no HTML e o parser distingue lista completa
+  (`EXHAUSTED`) de parada no teto (`SCROLL_LIMIT`, parcial por configuração).
+  `browser.scroll_to_load` cobre eureca, nube, cia-de-talentos, remotar e
+  coodesh; `browser.click_to_load` cobre ciee e trampos ("Mostre-me mais
+  vagas!"); `browser.paginate_next` cobre os quadros de empresa da Gupy.
 
 O fallback adaptativo só é aceito na primeira página, sem marcador de vazio e com
 pelo menos duas vagas válidas (sem link de login/listagem e título com 8+ caracteres).
@@ -326,6 +331,16 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 - **Quickin** e **Recrutei**: cada empresa tem o próprio quadro
   (`jobs.quickin.io/<empresa>/jobs`, `jobs.recrutei.com.br/<empresa>`); não há listagem
   geral. Os quadros são acessíveis, mas exigiriam uma lista de empresas.
+
+### Quadros de empresa na Gupy (outubro/2026)
+
+Quadros `<empresa>.gupy.io` têm markup e paginação próprios (por clique, sem URL por
+página); o adaptador da Gupy ganhou a variante de quadro e a ação `paginate_next`.
+Empresas mineradas do histórico de vagas relevantes e validadas ao vivo:
+Compass UOL, Grupo Boticário, Spread, Montreal, Quality Digital e SoftDesign
+(`gupy-compass`, `gupy-boticario`, `gupy-spread`, `gupy-montreal`,
+`gupy-qualitydigital`, `gupy-softdesign`). Subdomínios InHire foram testados e
+descartados: respondem 200 para qualquer nome (catch-all), sem prova de quadro real.
 - **APInfo**: só ~8 vagas por lista, sem paginação, busca por formulário e o `robots.txt`
   bloqueia explicitamente bots de IA.
 - **Wellfound**: sem login só 2 vagas aparecem no HTML e são sêniores/internacionais.
@@ -333,8 +348,15 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 ## Rolagem, termos de busca e histórico
 
 - `browser: {scroll_to_load: true}`: rola a página até a quantidade de cards estabilizar
-  (eureca, nube, cia-de-talentos). No nube o limite é de 40 rolagens (~1.200 vagas mais
-  recentes de ~3.500), então continua `PARTIAL` por escolha.
+  (eureca, nube, cia-de-talentos). No nube o limite é de 60 rolagens (~1.800 vagas mais
+  recentes; a lista completa passa de 2.400 e nunca estabiliza), então termina em
+  `SCROLL_LIMIT` por escolha — o marcador `data-jr-load-complete` informa se a lista
+  estabilizou de verdade.
+- `browser: {click_to_load: "<seletor>"}`: clica no botão "carregar mais" até ele sumir
+  (ciee, trampos). Lista completa só quando o botão desaparece.
+- `browser: {paginate_next: "<seletor>", paginate_max_pages: 6}`: para SPAs de quadro
+  sem URL por página (Gupy empresa): clica em "próxima", acumula os cards de cada
+  página e reescreve a listagem com todos antes do parse.
 - `query_path: "/vagas-de-{query}"` ou `query_param: q`: fazem qualquer fonte receber a
   varredura de vários termos (vagas-com e infojobs já usam). O texto vira slug sem acento.
 - Enriquecimento: vagas `CONDITIONAL`/`AMBIGUOUS` com tecnologia compatível têm a página de
@@ -401,6 +423,10 @@ Avaliadas em 29/09/2026 e **não** incluídas:
 | `selectors.next` | Link da próxima página. |
 | `single_page` | Portal verificado sem página 2. |
 | `browser.scroll_to_load` | Rola até a quantidade de cards estabilizar. |
+| `browser.scroll_max_iterations` | Teto de rolagens quando `scroll_to_load` está ativo (padrão 40). |
+| `browser.click_to_load` | Seletor do botão "carregar mais", clicado até sumir (ciee, trampos). |
+| `browser.paginate_next` / `browser.paginate_max_pages` | Botão "próxima página" de SPA sem URL por página (quadros Gupy de empresa) e o teto de páginas (padrão 6). |
+| `fixed_queries` | Não injeta os termos do perfil; sem `queries`, a fonte coleta só a `start_url` (quadros de empresa). |
 | `browser.disable_resources`, `browser.blocked_domains` | Bloqueios opcionais por fonte. |
 | `query_path` / `query_param` | Habilita a varredura de termos de busca. |
 | `default_country` | País assumido para vagas remotas sem país explícito. |

@@ -9,6 +9,33 @@ from job_radar.fit import fit_state
 
 _MARKDOWN_SPECIALS = "\\`*{}[]<>()#+-.!|"
 
+# Razões de parada da coleta: texto amigável + se é um limite esperado (False)
+# ou algo a verificar (True). Códigos desconhecidos contam como "a verificar".
+_COVERAGE_REASONS: dict[str, tuple[str, bool]] = {
+    "EXHAUSTED": ("fim da lista de vagas", False),
+    "PAGE_LIMIT": ("atingiu o limite de páginas configurado", False),
+    "EMPTY_PAGE_AFTER_RECORDS": ("fim dos resultados", False),
+    "STOPPED_BY_USER": ("interrompido por você", False),
+    # Toda varredura tem consultas que o portal rejeita: estrutural, não alarme.
+    "QUERY_SWEEP_PARTIAL": ("varredura de consultas incompleta", False),
+    "PAGINATION_UNVERIFIED": ("paginação não confirmada", True),
+    "SELECTOR_RELOCATED": ("seletor fora do lugar", True),
+    "NO_RESULTS": ("nenhum resultado", True),
+    "LAYOUT_CHANGED": ("layout do portal mudou", True),
+    # O "próxima página" do portal apontou para uma página já visitada: fim
+    # detectado por repetição, não há o que corrigir no coletor.
+    "PAGINATION_LOOP": ("paginação repetida no portal", False),
+}
+
+
+def _coverage_reason(stop_reason: str, status: str) -> tuple[str, bool]:
+    """(texto, precisa_verificar) de uma razão de parada."""
+
+    text, attention = _COVERAGE_REASONS.get(stop_reason, ("", True))
+    if status not in {"SUCCESS", "EMPTY", "PARTIAL"}:
+        attention = True
+    return text, attention
+
 
 def _safe_text(value: Any, fallback: str) -> str:
     text = " ".join(str(value or "").split()) or fallback
@@ -77,16 +104,35 @@ def build_markdown_report(
         partial_count = statuses.count("PARTIAL")
         empty_count = statuses.count("EMPTY")
         problem_count = len(statuses) - complete_count - partial_count - empty_count
-        lines.append(
-            f"Completos: {complete_count}; parciais: {partial_count}; "
-            f"sem vagas: {empty_count}; bloqueados ou com erro: {problem_count}."
-        )
+        attention = 0
+        rendered: list[str] = []
         for source in sources:
             source_name = _safe_text(source.get("source"), "Portal nao informado")
             status = str(source.get("status") or "DESCONHECIDO")
             stop_reason = str(source.get("stop_reason") or "EXHAUSTED")
-            source_state = _safe_text(f"{status} ({stop_reason})", "DESCONHECIDO")
-            lines.append(f"- {source_name}: {source_state}")
+            reason_text, needs_check = _coverage_reason(stop_reason, status)
+            if needs_check:
+                attention += 1
+            detail = f"{stop_reason} — {reason_text}" if reason_text else stop_reason
+            suffix = " (verificar)" if needs_check and status == "PARTIAL" else ""
+            source_state = _safe_text(f"{status} ({detail}){suffix}", "DESCONHECIDO")
+            rendered.append(f"- {source_name}: {source_state}")
+        partial_note = ""
+        if partial_count:
+            expected = partial_count - sum(
+                1
+                for source in sources
+                if str(source.get("status")) == "PARTIAL"
+                and _coverage_reason(
+                    str(source.get("stop_reason") or ""), "PARTIAL"
+                )[1]
+            )
+            partial_note = f" ({expected} no limite esperado, {partial_count - expected} a verificar)"
+        lines.append(
+            f"Completos: {complete_count}; parciais: {partial_count}{partial_note}; "
+            f"sem vagas: {empty_count}; bloqueados ou com erro: {problem_count}."
+        )
+        lines.extend(rendered)
     else:
         lines.append("Cobertura detalhada nao disponivel.")
 

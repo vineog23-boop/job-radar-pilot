@@ -257,7 +257,7 @@ sources:
     kind: generic
     start_url: https://sejatrainee.com.br/trainee/
     enabled: true
-    max_pages: 5
+    max_pages: 10
     min_interval_seconds: 2
     requires_auth: false
     adaptive: true
@@ -279,7 +279,7 @@ sources:
     kind: generic
     start_url: https://www.nerdin.com.br/vagas
     enabled: true
-    max_pages: 8
+    max_pages: 16
     min_interval_seconds: 2
     requires_auth: false
     adaptive: true
@@ -315,7 +315,7 @@ sources:
     kind: generic
     start_url: https://www.empregos.com.br/vagas/java
     enabled: true
-    max_pages: 3
+    max_pages: 6
     min_interval_seconds: 3
     requires_auth: false
     adaptive: true

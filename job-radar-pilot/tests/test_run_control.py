@@ -48,7 +48,9 @@ def _record(source: str, url: str) -> VacancyRecord:
         source=source,
         source_job_id=None,
         canonical_url=url,
-        title="Desenvolvedor Java Junior",
+        # Cargo único por URL: vagas diferentes não dividem cargo+empresa,
+        # ou a deduplicação semântica do banco as funde corretamente.
+        title=f"Desenvolvedor Java Junior {url.rsplit('/', 1)[-1]}",
         company="Acme",
         location="Remoto",
     )

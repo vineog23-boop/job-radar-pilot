@@ -108,6 +108,7 @@ _TITLE_SYNONYMS = {
     "developer": "desenvolvedor",
     "dev": "desenvolvedor",
     "engenheira": "engenheiro",
+    "engineer": "engenheiro",
     "programadora": "programador",
     "jr": "junior",
     "sr": "senior",
@@ -126,7 +127,9 @@ def _title_key(title: str | None) -> str:
     for spaced, joined in _TITLE_JOINED:
         text = text.replace(f" {spaced} ", f" {joined} ")
     words = [_TITLE_SYNONYMS.get(word, word) for word in text.split()]
-    return " ".join(word for word in words if word not in _TITLE_NOISE)
+    # Ordem não importa: "Junior Java Developer" e "Java Junior Developer"
+    # são o mesmo anúncio (portais variam a ordem entre si e entre republicações).
+    return " ".join(sorted(word for word in words if word not in _TITLE_NOISE))
 
 
 def _company_key(company: str | None) -> str:
@@ -151,13 +154,78 @@ def _is_remote(record: VacancyRecord) -> bool:
     return any(marker in text for marker in _REMOTE_MARKERS)
 
 
+# Palavras que portais acrescentam ao fim do local sem mudar a vaga.
+_LOCATION_GENERIC_TAIL = {"brasil", "brazil"}
+_UF_TOKEN = re.compile(r"^[a-z]{2}$")
+
+
+_LOCATION_UNKNOWN = {"nao informado", "nao informada", "n informado", "nao divulgado", "confidencial"}
+
+
+def _location_tokens(record: VacancyRecord) -> list[str]:
+    text = _semantic_text(record.location)
+    if text in _LOCATION_UNKNOWN:
+        return []  # "Não informado" não diferencia vagas: conta como ausência.
+    # Alguns portais truncam a cidade: "Rio de Jan... - RJ".
+    text = re.sub(r"\.\.\.|…", " ", text)
+    return text.split()
+
+
+def _city_prefix_compatible(shorter: list[str], longer: list[str]) -> bool:
+    """Cidade truncada ("rio de jan") casa com a completa ("rio de janeiro").
+
+    Exige o mesmo estado no fim e prefixo por palavra; a última palavra da
+    versão curta pode estar cortada (mínimo de 3 letras).
+    """
+
+    if not shorter or len(shorter) > len(longer):
+        return False
+    if shorter[:-1] != longer[: len(shorter) - 1]:
+        return False
+    last_short, last_long = shorter[-1], longer[len(shorter) - 1]
+    return last_short != last_long and len(last_short) >= 3 and last_long.startswith(last_short)
+
+
 def _locations_compatible(first: VacancyRecord, second: VacancyRecord) -> bool:
     """Mesma vaga se o local bate, se uma é remota ou se uma não diz o local."""
 
     first_location = _semantic_text(first.location)
     second_location = _semantic_text(second.location)
+    if first_location in _LOCATION_UNKNOWN:
+        first_location = ""
+    if second_location in _LOCATION_UNKNOWN:
+        second_location = ""
     if not first_location or not second_location or first_location == second_location:
         return True
+    first_tokens = _location_tokens(first)
+    second_tokens = _location_tokens(second)
+    if first_tokens == second_tokens:
+        return True
+    # "São Paulo, SP" e "São Paulo, SP, Brasil": cauda genérica não diferencia.
+    trimmed_first = first_tokens
+    trimmed_second = second_tokens
+    while trimmed_first and trimmed_first[-1] in _LOCATION_GENERIC_TAIL:
+        trimmed_first = trimmed_first[:-1]
+    while trimmed_second and trimmed_second[-1] in _LOCATION_GENERIC_TAIL:
+        trimmed_second = trimmed_second[:-1]
+    if trimmed_first and trimmed_first == trimmed_second:
+        return True
+    # Cidade truncada com o mesmo estado: "Rio de Jan… - RJ" = "Rio de Janeiro, RJ".
+    if (
+        trimmed_first
+        and trimmed_second
+        and _UF_TOKEN.match(trimmed_first[-1])
+        and trimmed_first[-1] == trimmed_second[-1]
+    ):
+        first_city, second_city = trimmed_first[:-1], trimmed_second[:-1]
+        if len(first_city) <= len(second_city) and _city_prefix_compatible(
+            first_city, second_city
+        ):
+            return True
+        if len(second_city) <= len(first_city) and _city_prefix_compatible(
+            second_city, first_city
+        ):
+            return True
     return _is_remote(first) or _is_remote(second)
 
 

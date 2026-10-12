@@ -1065,6 +1065,30 @@ function statusLabel(status) {
   }[status] || status || "Pendente";
 }
 
+// Razões de parada da coleta em português; "attention" marca as que valem
+// verificar (as demais são limites esperados, ex.: teto de páginas configurado).
+const STOP_REASON_INFO = {
+  EXHAUSTED: { text: "fim da lista de vagas", attention: false },
+  PAGE_LIMIT: { text: "atingiu o limite de páginas configurado", attention: false },
+  EMPTY_PAGE_AFTER_RECORDS: { text: "fim dos resultados", attention: false },
+  STOPPED_BY_USER: { text: "interrompido por você", attention: false },
+  QUERY_SWEEP_PARTIAL: { text: "varredura de consultas incompleta", attention: false }, // estrutural: portais rejeitam parte das consultas
+  PAGINATION_UNVERIFIED: { text: "paginação não confirmada", attention: true },
+  SELECTOR_RELOCATED: { text: "seletor fora do lugar", attention: true },
+  NO_RESULTS: { text: "nenhum resultado", attention: true },
+  LAYOUT_CHANGED: { text: "layout do portal mudou", attention: true },
+  // "Próxima página" do portal apontou para página já visitada: fim por repetição.
+  PAGINATION_LOOP: { text: "paginação repetida no portal", attention: false },
+};
+
+function stopReasonInfo(source) {
+  const reason = String(source.stop_reason || "");
+  if (!reason) return { text: "concluído", attention: false };
+  const info = STOP_REASON_INFO[reason] || { text: reason, attention: true };
+  const attention = info.attention && !["SUCCESS", "EMPTY"].includes(String(source.status || ""));
+  return { text: info.text, attention };
+}
+
 function countWarningText(warning) {
   const match = /^SOURCE_COUNT_(DROP|ZERO):(\d+)<(\d+)$/.exec(String(warning));
   if (!match) return "";
@@ -1083,14 +1107,22 @@ function renderSources() {
     const row = document.createElement("article");
     row.className = "source-row";
     const copy = document.createElement("div");
+    const reason = stopReasonInfo(source);
     copy.append(
       textElement("strong", "", sourceLabel(source.source)),
       textElement(
         "small",
         "",
-        `${source.records ?? 0} registros · ${source.stop_reason === "STOPPED_BY_USER" ? "interrompido por você" : source.stop_reason || "concluído"}`
+        `${source.records ?? 0} registros · ${reason.text}`
       )
     );
+    if (reason.attention) {
+      copy.appendChild(textElement(
+        "small",
+        "source-warning",
+        "Coleta incompleta fora do limite esperado — vale verificar este portal."
+      ));
+    }
     const reported = reportSources.find((item) => item.source === source.source);
     if (reported && Number.isFinite(reported.useful)) {
       const useful = reported.useful;
@@ -1121,6 +1153,7 @@ function renderSources() {
     );
     elements.sourceStatuses.appendChild(row);
   });
+  updateSourcesToggleCopy();
 }
 
 function renderRunState() {
@@ -2819,10 +2852,22 @@ document.addEventListener("keydown", (event) => {
     }
   }
 });
+function updateSourcesToggleCopy() {
+  if (!elements.sourceStatuses.hidden) return; // aberto: o handler já diz "Ocultar detalhes"
+  const liveSources = Object.values(dashboardState.sources ?? {});
+  const reportSources = dashboardState.report?.sources ?? [];
+  const sources = liveSources.length ? liveSources : reportSources;
+  const attention = sources.filter((source) => stopReasonInfo(source).attention).length;
+  elements.toggleSources.textContent = attention
+    ? `Ver detalhes (${attention} a verificar)`
+    : "Ver detalhes";
+}
+
 elements.toggleSources.addEventListener("click", () => {
   const willShow = elements.sourceStatuses.hidden;
   elements.sourceStatuses.hidden = !willShow;
   elements.toggleSources.textContent = willShow ? "Ocultar detalhes" : "Ver detalhes";
+  if (!willShow) updateSourcesToggleCopy();
 });
 
 restoreFilters();

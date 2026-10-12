@@ -20,7 +20,10 @@ OLD = '2026-09-01T12:00:00+00:00'
 URL = 'https://example.com/jobs/1'
 
 
-def record(url=URL, *, source='programathor', title='Java Junior'):
+def record(url=URL, *, source='programathor', title=None):
+    # Título único por URL: vagas diferentes nunca têm cargo+empresa iguais,
+    # senão a deduplicação semântica do banco as funde corretamente.
+    title = title or f'Java Junior {url.rsplit("/", 1)[-1]}'
     return VacancyRecord(source=source, source_job_id=None, company="Acme", canonical_url=url, title=title,
                          observed_at=OLD, match_labels=('FIT:READY',))
 

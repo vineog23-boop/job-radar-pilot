@@ -31,6 +31,24 @@ _TERM_ALIASES: dict[str, tuple[str, ...]] = {
     "c#": ("c#", "csharp", "c sharp"),
     ".net": (".net", "dotnet"),
     "golang": ("golang", "go"),
+    # Liderança/função fora do perfil júnior: variantes de gênero e inglês.
+    "lider tecnico": (
+        "lider tecnico",
+        "lider tecnica",
+        "lideranca tecnica",
+        "technical leader",
+        "technical lead",
+    ),
+    "tech lead": ("tech lead", "techlead", "team lead"),
+    "arquiteto": ("arquiteto", "arquiteta", "architect", "arquitetura"),
+    "coordenador": ("coordenador", "coordenadora", "coordinator"),
+    "gerente": ("gerente", "manager"),
+    "supervisor": ("supervisor", "supervisora"),
+    "diretor": ("diretor", "diretora", "director"),
+    "chief": ("chief", "cto", "cio"),
+    "head": ("head",),
+    "master": ("master",),
+    "product owner": ("product owner",),
 }
 # Termos de até 2 letras ("go", "js", "r", "c", "c#") colidem com siglas e
 # palavras comuns: exigem limites mais rígidos que \w (ver _alias_pattern).
@@ -58,6 +76,13 @@ LEADERSHIP_TERMS = (
     "arquiteto",
     "arquiteta",
     "architect",
+    "coordenador",
+    "gerente",
+    "supervisor",
+    "diretor",
+    "chief",
+    "head",
+    "master",
 )
 # Ferramentas de apoio: aparecem em quase toda vaga e sozinhas não indicam a
 # stack principal do perfil (não contam como "tecnologia central").

@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
-from typing import Any
+from typing import Any, Collection
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -279,6 +279,58 @@ def rewrite_payloads(output_dir: Path, payloads: list[dict[str, Any]]) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def _dedupe_store_payloads(
+    payloads: list[dict[str, Any]], preferred_urls: Collection[str]
+) -> tuple[list[dict[str, Any]], int]:
+    """Dedupe semântico do banco inteiro: lote novo + vagas preservadas de
+    coletas anteriores (a deduplicação do pipeline cobre só o lote, então
+    republicações e a mesma vaga em outro portal se acumulam entre buscas).
+
+    A conversão payload → registro → payload é sem perda (todos os campos do
+    JSONL constam em ``VacancyRecord``); só os rótulos do registro que fica
+    mudam (``ALSO_SEEN_IN:``/``REPOSTED:``).
+    """
+
+    from job_radar.identity import deduplicate, identity_key
+    from job_radar.reclassify import record_from_payload
+
+    records: list[VacancyRecord] = []
+    positions: list[int] = []
+    for position, payload in enumerate(payloads):
+        try:
+            records.append(record_from_payload(payload))
+        except (TypeError, ValueError):
+            continue
+        positions.append(position)
+    if len(records) < 2:
+        return payloads, 0
+
+    result = deduplicate(records, preferred_urls=preferred_urls)
+    if not result.duplicate_count:
+        return payloads, 0
+
+    # identity_key não muda durante o dedupe (rótulos mudam, identidade não):
+    # casa cada registro mantido com o payload de origem pela fila da chave.
+    queues: dict[tuple[str, str], list[int]] = {}
+    for position, record in enumerate(records):
+        queues.setdefault(identity_key(record), []).append(position)
+
+    kept: list[tuple[int, VacancyRecord]] = []
+    for record in (*result.unique, *result.ambiguous):
+        queue = queues.get(identity_key(record))
+        if not queue:
+            continue
+        kept.append((queue.pop(0), record))
+
+    merged: list[dict[str, Any]] = []
+    for position, record in kept:
+        payload = payloads[positions[position]]
+        if record is not records[position]:
+            payload = _record_payload(record)
+        merged.append(payload)
+    return merged, len(payloads) - len(merged)
+
+
 def write_outputs(
     result: PipelineResult,
     output_dir: Path,
@@ -342,6 +394,7 @@ def write_outputs(
             seen.add(identity)
     carried_count = len(carried)
     payloads_list.extend(carried)
+    payloads_list, store_duplicates = _dedupe_store_payloads(payloads_list, keep_urls)
     carried_sources = (
         _previous_report_sources(final_report, refreshed) if merge_unrefreshed else []
     )
@@ -394,7 +447,7 @@ def write_outputs(
                 "raw": result.raw_record_count + carried_count,
                 "unique": len(payloads),
                 "ambiguous": len(result.ambiguous),
-                "duplicates": result.duplicate_count,
+                "duplicates": result.duplicate_count + store_duplicates,
                 "discarded": sum(discarded.values()),
                 "discarded_by_reason": discarded,
             },

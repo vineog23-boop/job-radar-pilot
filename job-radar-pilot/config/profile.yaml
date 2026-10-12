@@ -36,6 +36,15 @@ excluded_terms:
 - arquiteto
 - arquiteta
 - architect
+- coordenador
+- gerente
+- supervisor
+- diretor
+- chief
+- head
+- master
+- product owner
+- suporte
 search_terms:
 - desenvolvedor java junior
 - backend junior

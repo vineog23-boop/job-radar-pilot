@@ -30,7 +30,7 @@ def _record(*, partial: bool = False) -> VacancyRecord:
     return VacancyRecord(
         source="programathor",
         source_job_id=None if partial else "123",
-        canonical_url="https://programathor.com.br/jobs/123",
+        canonical_url="https://programathor.com.br/jobs/456" if partial else "https://programathor.com.br/jobs/123",
         title="Estágio Java com acentuação" if partial else "Java Junior",
         company=None if partial else "Acme",
         description_summary=None if partial else "API REST com Spring Boot",
@@ -249,7 +249,12 @@ def test_partial_run_keeps_previous_records_of_other_sources(tmp_path: Path) -> 
     from dataclasses import replace
 
     previous = _result()
-    other = replace(_record(), source="gupy", canonical_url="https://gupy.io/1")
+    other = replace(
+        _record(),
+        source="gupy",
+        canonical_url="https://gupy.io/1",
+        title="Backend Java Pleno",
+    )
     previous = replace(
         previous,
         records=previous.records + (other,),
@@ -300,3 +305,64 @@ def test_new_collection_retains_verification_without_old_fit(tmp_path):
     newer = replace(fresh, match_labels=("FIT:EXCLUDE", "LINK:DEAD", "LINK_CHECKED_AT:2026-10-06T00:00:00+00:00", "LINK_CHECK_METHOD:JOB_DETAIL_V2"))
     write_outputs(replace(_result(), records=(newer,)), tmp_path)
     assert json.loads((tmp_path / "vagas.jsonl").read_text())["match_labels"] == list(newer.match_labels)
+
+
+def test_store_dedupe_merges_carried_cross_portal_duplicates(tmp_path: Path) -> None:
+    """A mesma vaga vista em portais diferentes em coletas diferentes vira uma só."""
+    from dataclasses import replace
+
+    first = replace(
+        _record(),
+        title="Junior Java Developer - Remote Work",
+        location="Remoto",
+        workplace_model=WorkplaceModel.REMOTE,
+        canonical_url="https://programathor.com.br/jobs/777",
+    )
+    base = _result()
+    write_outputs(
+        replace(
+            base,
+            records=(first,),
+            raw_record_count=1,
+            source_results=(
+                SourceRunResult(
+                    source_code="programathor",
+                    status=CollectionStatus.SUCCESS,
+                    records=(first,),
+                ),
+            ),
+        ),
+        tmp_path,
+    )
+
+    second = replace(
+        first,
+        source="indeed",
+        canonical_url="https://br.indeed.com/viewjob?jk=abc123",
+    )
+    manifest = write_outputs(
+        replace(
+            base,
+            records=(second,),
+            raw_record_count=1,
+            source_results=(
+                SourceRunResult(
+                    source_code="indeed",
+                    status=CollectionStatus.SUCCESS,
+                    records=(second,),
+                ),
+            ),
+        ),
+        tmp_path,
+        merge_unrefreshed=True,
+    )
+
+    lines = [
+        json.loads(line)
+        for line in manifest.jsonl_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(lines) == 1
+    assert lines[0]["canonical_url"] == "https://br.indeed.com/viewjob?jk=abc123"
+    assert "ALSO_SEEN_IN:programathor" in lines[0]["match_labels"]
+    report = json.loads(manifest.report_path.read_text(encoding="utf-8"))
+    assert report["totals"]["duplicates"] == 1

@@ -449,3 +449,50 @@ def test_dashboard_custom_stack_tags_and_impact(tmp_path: Path) -> None:
     saved = json.loads((tmp_path / "search-preferences.json").read_text(encoding="utf-8"))
     assert saved["bonus_keywords"] == ["aws", "kafka"]
     assert saved["contract_types"] == ["CLT"]
+
+
+# --- termos de liderança/função fora do perfil júnior (revisão 11/10/2026) ------------
+
+
+@pytest.mark.parametrize(
+    ("title", "expected_label"),
+    [
+        ("Coordenador de Tecnologia (Java e Spring Boot)", "SENIORITY_MISMATCH:coordenador"),
+        ("Pessoa Coordenadora de Desenvolvimento", "SENIORITY_MISMATCH:coordenador"),
+        ("Líder técnica Java", "SENIORITY_MISMATCH:lider tecnico"),
+        ("Technical Leader Híbrido/SP", "SENIORITY_MISMATCH:lider tecnico"),
+        ("Gerente de Inovação Digital - IA", "SENIORITY_MISMATCH:gerente"),
+        ("TECHNICAL PROJECT MANAGER – DEVSECOPS", "SENIORITY_MISMATCH:gerente"),
+        ("Head de Engenharia", "SENIORITY_MISMATCH:head"),
+        ("Master Full Stack Developer (Python + React)", "SENIORITY_MISMATCH:master"),
+        ("Scrum Master", "SENIORITY_MISMATCH:master"),
+        ("Arquitetura de Software Remota", "SENIORITY_MISMATCH:arquiteto"),
+        ("Product Owner", "TITLE_EXCLUDED:product owner"),
+        ("Estágio em Suporte de TI | Infraestrutura", "TITLE_EXCLUDED:suporte"),
+        ("Diretor de Tecnologia", "SENIORITY_MISMATCH:diretor"),
+        ("Chief Technology Officer", "SENIORITY_MISMATCH:chief"),
+    ],
+)
+def test_leadership_and_role_exclusions(title, expected_label) -> None:
+    profile = replace(
+        PROFILE,
+        excluded_terms=(
+            "pleno", "senior", "lider tecnico", "tech lead", "arquiteto",
+            "coordenador", "gerente", "head", "master", "product owner",
+            "suporte", "diretor", "chief",
+        ),
+    )
+    rec = (
+        _record(title=f"{title} — Java", description="Java e Spring Boot")
+        if "Java" not in title
+        else _record(title=title, description="Java")
+    )
+    labels = _labels(rec, profile)
+    assert expected_label in labels
+    assert "FIT:EXCLUDE" in labels
+
+
+def test_junior_titles_with_collateral_words_are_not_excluded() -> None:
+    profile = replace(PROFILE, excluded_terms=("head", "master", "gerente", "suporte"))
+    labels = _labels(_record(title="Desenvolvedor Java Júnior", description="Spring Boot"), profile)
+    assert not any(label.startswith(("TITLE_EXCLUDED", "SENIORITY_MISMATCH")) for label in labels)

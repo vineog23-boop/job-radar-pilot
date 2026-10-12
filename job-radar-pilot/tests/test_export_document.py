@@ -55,8 +55,11 @@ def test_markdown_report_groups_fit_states_and_escapes_untrusted_values() -> Non
     assert "## Dados insuficientes (0)" in report
     assert "## Fora do perfil (1)" in report
     assert "## Cobertura da coleta" in report
-    assert "Completos: 1; parciais: 1; sem vagas: 0; bloqueados ou com erro: 0." in report
-    assert "indeed: PARTIAL \\(LOGIN_REQUIRED\\)" in report
+    assert (
+        "Completos: 1; parciais: 1 (0 no limite esperado, 1 a verificar); "
+        "sem vagas: 0; bloqueados ou com erro: 0." in report
+    )
+    assert "indeed: PARTIAL \\(LOGIN_REQUIRED\\) \\(verificar\\)" in report
     assert "Filtros aplicados:" in report
     assert "texto=java" in report
     assert "aderencia=review" in report
@@ -118,4 +121,26 @@ def test_markdown_report_does_not_describe_empty_or_error_as_partial() -> None:
         ],
     )
 
-    assert "Completos: 0; parciais: 1; sem vagas: 1; bloqueados ou com erro: 1." in report
+    assert (
+        "Completos: 0; parciais: 1 (0 no limite esperado, 1 a verificar); "
+        "sem vagas: 1; bloqueados ou com erro: 1." in report
+    )
+
+
+def test_markdown_report_marks_expected_page_limit_as_normal() -> None:
+    from job_radar.export_document import build_markdown_report
+
+    report = build_markdown_report(
+        [],
+        generated_at="11/10/2026 21:25",
+        sources=[
+            {"source": "nerdin", "status": "PARTIAL", "stop_reason": "PAGE_LIMIT"},
+            {"source": "gupy", "status": "PARTIAL", "stop_reason": "QUERY_SWEEP_PARTIAL"},
+            {"source": "eureca", "status": "SUCCESS", "stop_reason": "EXHAUSTED"},
+        ],
+    )
+
+    assert "parciais: 2 (2 no limite esperado, 0 a verificar)" in report
+    assert "nerdin: PARTIAL \\(PAGE_LIMIT — atingiu o limite de páginas configurado\\)" in report
+    assert "gupy: PARTIAL \\(QUERY_SWEEP_PARTIAL — varredura de consultas incompleta\\)" in report
+    assert "eureca: SUCCESS \\(EXHAUSTED — fim da lista de vagas\\)" in report

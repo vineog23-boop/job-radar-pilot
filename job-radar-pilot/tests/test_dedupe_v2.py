@@ -139,3 +139,62 @@ def test_real_sample_duplicates_collapse() -> None:
     assert titles.count(("Especialista Dev Back | Java", "VR Benefícios")) == 1
     assert sum(1 for title, company in titles if (company or "").casefold() == "insi") == 1
     assert 280 <= len(result.unique) < 300
+
+
+def test_word_order_variants_are_the_same_job() -> None:
+    """"Junior Java Developer" e "Java Junior Developer" (caso real BairesDev)."""
+    first = _record("indeed", "https://br.indeed.com/viewjob?jk=a1", "Junior Java Developer - Remote Work", "BairesDev", "São Paulo, SP")
+    second = _record("indeed", "https://br.indeed.com/viewjob?jk=b2", "Java Junior Developer - Remote Work", "BairesDev", "São Paulo, SP")
+
+    result = deduplicate([first, second])
+
+    assert len(result.unique) == 1
+    assert "REPOSTED:1" in result.unique[0].match_labels
+
+
+def test_role_word_order_swap_is_the_same_job() -> None:
+    """"FullStack Developer" × "Developer Fullstack" (caso real Stefanini)."""
+    first = _record("empregostec", "https://a.com/1", "FullStack Developer", "Stefanini Latam", "Remoto")
+    second = _record("empregostec", "https://a.com/2", "Developer Fullstack", "Stefanini Latam", "Remoto")
+
+    assert len(deduplicate([first, second]).unique) == 1
+
+
+def test_truncated_city_with_same_state_is_the_same_job() -> None:
+    """"Rio de Jan... - RJ" (Gupy) = "Rio de Janeiro, RJ" (Indeed)."""
+    first = _record("gupy", "https://a.com/1", "Desenvolvedor(a) Full Stack Júnior", "Claro", "Rio de Jan... - RJ")
+    second = _record("indeed", "https://b.com/2", "Desenvolvedor(a) Full Stack Júnior", "Claro", "Rio de Janeiro, RJ")
+
+    assert len(deduplicate([first, second]).unique) == 1
+
+
+def test_country_tail_does_not_make_locations_differ() -> None:
+    """"São Paulo, SP" = "São Paulo, SP, Brasil"."""
+    first = _record("primeiravagatech", "https://a.com/1", "Desenvolvedor FullStack Java/React Júnior", "Nava Technology for Business", "São Paulo, SP")
+    second = _record("geekhunter", "https://b.com/2", "Desenvolvedor FullStack Java/React Júnior", "Nava Technology For Business", "São Paulo, SP, Brasil")
+
+    result = deduplicate([first, second])
+
+    assert len(result.unique) == 1
+    assert "ALSO_SEEN_IN:geekhunter" in result.unique[0].match_labels
+
+
+def test_different_states_are_still_different_openings() -> None:
+    """Truncamento não pode juntar estados diferentes."""
+    second = _record("indeed", "https://b.com/2", "Desenvolvedor Java Júnior", "Acme", "Rio de Janeiro, RJ", workplace_model=WorkplaceModel.ONSITE)
+    third = _record("indeed", "https://b.com/3", "Desenvolvedor Java Júnior", "Acme", "São Paulo, SP", workplace_model=WorkplaceModel.ONSITE)
+
+    result = deduplicate([second, third])
+
+    assert len(result.unique) == 2
+
+
+def test_uninformed_location_counts_as_missing() -> None:
+    """"Não informado" (Gupy) não diferencia: casa com "Campinas - SP"."""
+    first = _record("gupy", "https://a.com/1", "Estágio em Desenvolvimento de Software / Data Mining", "Instituto de Pesquisas Eldorado", "Não informado")
+    second = _record("gupy", "https://a.com/2", "Estágio em Desenvolvimento de Software / Data Mining", "Instituto de Pesquisas Eldorado", "Campinas - SP")
+
+    result = deduplicate([first, second])
+
+    assert len(result.unique) == 1
+    assert "REPOSTED:1" in result.unique[0].match_labels

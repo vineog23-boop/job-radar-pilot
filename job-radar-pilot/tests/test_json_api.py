@@ -196,3 +196,32 @@ def test_shipped_config_declares_json_sources() -> None:
     assert sources["gupy-api"].kind is SourceKind.JSON
     assert sources["primeiravagatech"].kind is SourceKind.JSON
     assert sources["gupy-api"].api["fields"]["url"] == "jobUrl"
+
+
+# --- Quero Vagas Tech (10/10/2026): API JSON pública do agregador ------------------
+
+
+def test_querovagastech_maps_api_item_to_record() -> None:
+    sources = {s.code: s for s in load_sources(Path(__file__).resolve().parents[1] / "config" / "sources.yaml")}
+    source = sources["querovagastech"]
+    assert source.kind is SourceKind.JSON and source.tech_focus
+    assert source.query_param == "q" and source.api["page_mode"] == "page1"
+    item = {
+        "id": "eb2daa8d-0000-0000-0000-000000000000",
+        "title": "Desenvolvedor Java Júnior",
+        "company": "Empresa Exemplo",
+        "location": "Br",
+        "workMode": "Remote",
+        "seniority": "Junior",
+        "employmentType": "CLT",
+        "applyUrl": "https://exemplo.inhire.app/vagas/abc/desenvolvedor-java-junior",
+        "sourceName": "Manual",
+        "postedAt": "2026-09-24T23:13:56.0469385+00:00",
+    }
+    record = record_from_item(item, source, "2026-10-10T00:00:00+00:00")
+    assert record is not None
+    assert record.canonical_url == item["applyUrl"]
+    assert record.company == "Empresa Exemplo"
+    assert record.workplace_model is WorkplaceModel.REMOTE
+    assert record.published_at is not None and record.published_at.startswith("2026-09-24T23:13:56")
+    assert record.employment_type == "CLT"

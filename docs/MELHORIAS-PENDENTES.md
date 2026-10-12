@@ -34,6 +34,17 @@ o usuário perceber a mudança, e marcar aqui o que foi feito.
 - [x] Ativar novas fontes após validação: InHire por empresa (Programmers/Bionexo),
   CI&T somente listagem/manual e Greenhouse por board (AB InBev). Pesquisa pública
   concluída; nenhuma cobertura global desses ATS é prometida.
+- [x] Qualidade da coleta (10/10/2026): enriquecimento lê data/prazo/empresa do
+  `__NEXT_DATA__` do Remotar e a modalidade (Gupy `workplaceType`, JSON-LD
+  `TELECOMMUTE`); fila prioriza vagas sem data com rodízio entre portais;
+  `default_workplace` (Remotar = REMOTE) e `selectors.company_from_url` (GeekHunter).
+- [x] Nova fonte `querovagastech` (API JSON pública, link de candidatura original).
+- [ ] Fontes avaliadas e NÃO adicionadas (10/10/2026): VagasPraJr (busca ignora o
+  termo, ~10 vagas mais recentes sem paginação, quase só suporte/infra, sem link de
+  candidatura), TalenTI (HTTP 403 para robôs: regra 3), VagasLume (site não
+  encontrado), Symplicity (exige login institucional). Reavaliar se mudarem.
+- [ ] Sem data na listagem nem no detalhe: Indeed, InfoJobs (detalhe dinâmico), Nube.
+  Empresa ausente em Seja Trainee, Estágio Trainee, Nube, oTrainee, Quickin, Coodesh.
 - [ ] 99Freelas em categoria freelance separada; Telegram depende de canais
   públicos fornecidos. LinkedIn permanece exclusivamente pesquisa/importação manual.
 - [ ] Coordenador: revisão completa, validação visual e instalação do launcher
@@ -331,7 +342,17 @@ real desde então (07/10) rodou de verdade e revelou duas falhas que só aparece
 - 3 testes Playwright liam a tabela sem esperar a primeira linha renderizar; no Windows do CI
   (mais lento) a leitura corria antes do primeiro `/api/state` terminar.
 
-#### `test_own_tracking_change_keeps_status_keyboard_focus` — investigado, sem correção (07/10)
+#### `test_own_tracking_change_keeps_status_keyboard_focus` — **causa achada e corrigida (10/10)**
+
+Causa: `updateTracking()` desabilita o `<select>` focado durante o `fetch`. No mesmo instante o
+foco continua nele (por isso o teste isolado de 07/10 não viu nada), mas **no quadro seguinte o
+Chromium aplica o "focus fixup" e move o foco para o `<body>`**, e reabilitar não o devolve.
+Resposta mais rápida que um quadro (máquina local) = passa; mais lenta (CI) = falha. Correção:
+ao terminar, se o seletor tinha o foco e ele caiu no `<body>`, o foco volta ao seletor da mesma
+vaga. Regressão determinística: `test_tracking_change_keeps_focus_even_when_the_server_is_slow`
+(atrasa a resposta em 300 ms; falhava 3/3 antes, passa 5/5 depois).
+
+##### Histórico da investigação de 07/10
 
 Falhou **duas vezes seguidas** no Windows do CI, sempre a mesma asserção (`to_be_focused()`).
 Não é flakiness aleatória entre testes — é sempre o mesmo. Investigado a fundo sem achar bug:

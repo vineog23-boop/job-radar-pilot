@@ -14,6 +14,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 EXPECTED_SOURCES = {
     "inhire-programmers", "inhire-bionexo", "ciandt", "greenhouse-abinbev",
     "gupy",
+    "querovagastech",
     "indeed",
     "estagiotrainee",
     "eureca",
@@ -36,6 +37,7 @@ EXPECTED_SOURCES = {
     "trampos",
     "remotar",
     "coodesh",
+    "linkedin",
 }
 
 
@@ -66,7 +68,9 @@ def test_loads_complete_profile_and_sources() -> None:
     assert all(source.start_url.startswith("https://") for source in sources)
     assert all(1 <= source.max_pages <= 100 for source in sources)
     assert all(source.min_interval_seconds >= 1 for source in sources)
-    assert "linkedin" not in {source.code for source in sources}
+    linkedin = {source.code: source for source in sources}["linkedin"]
+    assert linkedin.kind is SourceKind.LINKEDIN
+    assert linkedin.requires_auth is False
     # Boards corporativos podem conter vagas globais: não inventar país.
     company_boards = {"inhire-programmers", "inhire-bionexo", "ciandt", "greenhouse-abinbev"}
     assert all(

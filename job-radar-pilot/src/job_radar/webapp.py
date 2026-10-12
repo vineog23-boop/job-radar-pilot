@@ -58,7 +58,7 @@ def output_version(output_dir: Path) -> str:
     """Muda sempre que vagas.jsonl ou o relatório são regravados."""
 
     parts = []
-    for name in ("vagas.jsonl", "relatorio-execucao.json"):
+    for name in ("vagas.jsonl", "relatorio-execucao.json", EXTERNAL_SCORES_FILE):
         try:
             info = (output_dir / name).stat()
         except OSError:
@@ -66,6 +66,20 @@ def output_version(output_dir: Path) -> str:
             continue
         parts.append(f"{info.st_mtime_ns}.{info.st_size}.{info.st_ino}")
     return "-".join(parts)
+
+
+# Notas de um avaliador externo (ex.: automação que envia vagas ao Telegram). Opcional e só
+# leitura: arquivo ausente ou ilegível não afeta o painel. Ver README "Notas externas".
+EXTERNAL_SCORES_FILE = "notas.json"
+
+
+def _external_scores(output_dir: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads((output_dir / EXTERNAL_SCORES_FILE).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}
+    scores = payload.get("notas") if isinstance(payload, dict) else None
+    return scores if isinstance(scores, dict) else {}
 
 
 def load_output(output_dir: Path) -> dict[str, Any]:
@@ -86,6 +100,12 @@ def load_output(output_dir: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         return {"jobs": [], "report": {}, "read_error": str(exc)}
 
+    scores = _external_scores(output_dir)
+    if scores:
+        for job in jobs:
+            score = scores.get(job.get("canonical_url"))
+            if isinstance(score, dict):
+                job["external_score"] = score
     return {"jobs": jobs, "report": report, "read_error": None}
 
 

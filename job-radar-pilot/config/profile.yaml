@@ -1,36 +1,75 @@
 positive_keywords:
-  - java
-  - java 17
-  - java 21
-  - spring boot
-  - backend
-  - api rest
-  - jpa
-  - hibernate
-  - sql
-  - maven
-  - docker
-  - junit
-  - mockito
-  - testes
+- backend
+- full stack
+- javascript
+- typescript
+- react
+- node
+- api rest
+- sql
+- java
+- spring boot
+- jpa
+- hibernate
+- maven
+- junit
+- docker
 seniority_levels:
-  - estagio
-  - junior
+- estagio
+- junior
 location_scopes:
-  - remoto-brasil
+- remoto-brasil
+- sao-carlos-sp
+- florianopolis-sc
+- sao-jose-sc
+- palhoca-sc
+- biguacu-sc
+- brasil
+excluded_terms:
+- pleno
+- senior
+- staff
+- principal
+- especialista
+- lider tecnico
+- tech lead
+- arquiteto
+- arquiteta
+- architect
+search_terms:
+- desenvolvedor java junior
+- backend junior
+- estagio desenvolvimento
+- estagio tecnologia
+- engenheiro de software junior
+- Java junior
+- spring boot junior
+- estagio java
+- desenvolvedor software junior
+- spring boot
+- full stack estagio
+- java estagio
+- full stack junior
+- desenvolvedor full stack estagio
+- desenvolvedor java estagio
+- estagio ti
+- desenvolvedor full stack junior
+- desenvolvedor junior
+- fullstack estagio
+- spring boot estagio
+workplace_location_scopes:
+  HYBRID:
+  - sp
+  - florianopolis-sc
+  - sao-jose-sc
+  - palhoca-sc
+  - biguacu-sc
+  ONSITE:
   - sao-carlos-sp
   - florianopolis-sc
   - sao-jose-sc
   - palhoca-sc
   - biguacu-sc
-excluded_terms:
-  - pleno
-  - senior
-  - staff
-  - principal
-  - especialista
-  - lider tecnico
-  - tech lead
-  - arquiteto
-  - arquiteta
-  - architect
+primary_technologies:
+- full stack
+- java

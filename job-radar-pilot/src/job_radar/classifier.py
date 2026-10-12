@@ -703,9 +703,22 @@ def classify(
     has_seniority_mismatch = any(
         label.startswith("SENIORITY_MISMATCH:") for label in labels
     )
+    region_rules = dict(profile.workplace_location_scopes)
+    if region_rules:
+        vacancy_workplace = record.workplace_model
+        if vacancy_workplace is WorkplaceModel.UNKNOWN and len(inferred_workplaces) == 1:
+            (vacancy_workplace,) = inferred_workplaces
+        region = region_rules.get(vacancy_workplace.value)
+        if (
+            region
+            and normalized_location
+            and not _is_generic_brazilian_location(normalized_location)
+            and not any(_matches_location_scope(normalized_location, scope) for scope in region)
+        ):
+            labels.add(f"REGION_MISMATCH:{vacancy_workplace.value.lower()}")
     has_location = any(label.startswith("LOCATION_MATCH:") for label in labels)
     has_location_mismatch = any(
-        label.startswith("LOCATION_MISMATCH:") for label in labels
+        label.startswith(("LOCATION_MISMATCH:", "REGION_MISMATCH:")) for label in labels
     )
     has_eligibility_unclear = any(
         label.startswith("ELIGIBILITY_UNCLEAR:") for label in labels

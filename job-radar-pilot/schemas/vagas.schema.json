@@ -52,6 +52,9 @@
     "observed_at": {
       "oneOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]
     },
+    "first_seen_at": {
+      "oneOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]
+    },
     "application_deadline": {
       "oneOf": [
         {"type": "string", "format": "date-time"},

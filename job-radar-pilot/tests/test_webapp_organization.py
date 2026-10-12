@@ -256,3 +256,23 @@ def test_own_tracking_change_keeps_status_keyboard_focus(page):
     control.select_option('SAVED')
     expect(control).to_have_value('SAVED')
     expect(control).to_be_focused()
+
+
+def test_tracking_change_keeps_focus_even_when_the_server_is_slow(page):
+    """Regressão da instabilidade do CI (10/10/2026): desabilitar o <select> focado durante o
+    fetch faz o Chromium mover o foco para o <body> no quadro seguinte. Com resposta lenta o
+    foco se perdia sempre; com resposta rápida, às vezes. O atraso aqui torna isso determinístico."""
+    import time
+
+    from playwright.sync_api import expect
+
+    def slow(route):
+        time.sleep(0.3)
+        route.continue_()
+
+    page.route("**/api/tracking", slow)
+    control = page.get_by_label('Acompanhamento da vaga Java 1')
+    control.focus()
+    control.select_option('SAVED')
+    expect(control).to_have_value('SAVED')
+    expect(control).to_be_focused()

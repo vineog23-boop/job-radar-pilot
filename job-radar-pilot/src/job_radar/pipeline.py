@@ -28,6 +28,7 @@ from job_radar.geo import state_names_from_scopes
 from job_radar import run_control
 from job_radar.run_control import RunControl
 from job_radar.sources import SourceAdapter, adapter_for
+from job_radar.sources.base import apply_source_defaults
 
 
 @dataclass(frozen=True, slots=True)
@@ -540,8 +541,14 @@ class JobRadarPipeline:
                 for result in source_results
             ]
 
+        sources_by_code = {source.code: source for source in selected}
         raw_records = [
-            replace(record, collection_status=result.status)
+            apply_source_defaults(
+                replace(record, collection_status=result.status),
+                sources_by_code[record.source],
+            )
+            if record.source in sources_by_code
+            else replace(record, collection_status=result.status)
             for result in source_results
             for record in result.records
         ]

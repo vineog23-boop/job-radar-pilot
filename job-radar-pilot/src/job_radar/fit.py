@@ -58,6 +58,8 @@ REASON_LABELS = (
     ("PRIMARY_TECH_MISSING:", "stack principal não confirmada na vaga"),
     ("RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"),
     ("SENIORITY_MISMATCH:", "nível acima do desejado"),
+    ("REGION_MISMATCH:hybrid", "híbrido fora da região permitida para híbrido"),
+    ("REGION_MISMATCH:onsite", "presencial fora da região permitida para presencial"),
     ("LOCATION_MISMATCH:", "fora das localidades escolhidas"),
     ("WORKPLACE_MISMATCH:", "modelo de trabalho diferente"),
     ("LOCATION_UNCLEAR:", "local não confirmado"),

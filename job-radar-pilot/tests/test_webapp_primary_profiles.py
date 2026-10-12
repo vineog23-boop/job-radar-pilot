@@ -231,3 +231,27 @@ def test_missing_primary_is_warning_not_satisfied_criterion(tmp_path):
             assert 'principal' not in criteria.lower()
             assert any('Atenção' in fact and 'stack principal não confirmada' in fact for fact in facts)
             browser.close()
+
+
+def test_ui_save_keeps_region_rule_and_shows_it(tmp_path):
+    """Modalidade por região ainda não tem campo no formulário: salvar não pode apagá-la."""
+    from playwright.sync_api import sync_playwright
+
+    regra = {"HYBRID": ["sp"], "ONSITE": ["sao-carlos-sp", "florianopolis-sc"]}
+    with _api(tmp_path) as (_, _, base):
+        prefs_path = tmp_path / 'prefs.json'
+        prefs = json.loads(prefs_path.read_text(encoding='utf-8'))
+        prefs['workplace_location_scopes'] = regra
+        prefs_path.write_text(json.dumps(prefs), encoding='utf-8')
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(base)
+            page.get_by_role('button', name='Configurar busca').click()
+            nota = page.locator('#region-rules')
+            nota.wait_for(state='visible')
+            assert 'híbrido só em sp' in nota.inner_text()
+            page.get_by_role('button', name='Salvar configurações', exact=True).click()
+            page.get_by_text('Perfil aplicado às vagas salvas.').wait_for()
+            browser.close()
+        assert json.loads(prefs_path.read_text(encoding='utf-8'))['workplace_location_scopes'] == regra

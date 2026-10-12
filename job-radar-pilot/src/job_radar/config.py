@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from job_radar.models import BrowserOptions, SearchProfile, SourceConfig, SourceKind
+from job_radar.models import BrowserOptions, SearchProfile, SourceConfig, SourceKind, WorkplaceModel
 
 
 class ConfigError(ValueError):
@@ -20,6 +20,9 @@ _PROFILE_KEYS = {
     "seniority_levels",
     "location_scopes",
     "excluded_terms",
+    "search_terms",
+    "primary_technologies",
+    "workplace_location_scopes",
 }
 _REQUIRED_SOURCE_KEYS = {
     "code",
@@ -35,6 +38,7 @@ _OPTIONAL_SOURCE_KEYS = {
     "queries",
     "default_country",
     "default_company",
+    "default_workplace",
     "fetch_details",
     "adaptive",
     "single_page",
@@ -135,7 +139,42 @@ def load_profile(path: Path) -> SearchProfile:
         excluded_terms=tuple(
             item.strip().casefold() for item in raw.get("excluded_terms", [])
         ),
+        search_terms=_string_tuple(raw.get("search_terms", []), "search_terms"),
+        primary_technologies=_string_tuple(
+            raw.get("primary_technologies", []), "primary_technologies"
+        ),
+        workplace_location_scopes=_scopes_by_model(
+            raw.get("workplace_location_scopes"), "workplace_location_scopes"
+        ),
     )
+
+
+def _scopes_by_model(value: Any, label: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Modalidade por região.
+
+    Aceita o formato natural de mapping YAML — ``{HYBRID: [sp, ...]}`` — e a
+    forma de lista de pares — ``[["HYBRID", [sp, ...]], ...]``.
+    """
+    if value is None:
+        return ()
+    valid = {item.value for item in WorkplaceModel} - {WorkplaceModel.UNKNOWN.value}
+    if isinstance(value, Mapping):
+        entries = [(model, scopes) for model, scopes in value.items()]
+    elif isinstance(value, list):
+        entries = []
+        for entry in value:
+            if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                raise ConfigError(f"{label}: cada entrada deve ser [modelo, [escopos]].")
+            entries.append((entry[0], entry[1]))
+    else:
+        raise ConfigError(f"{label} deve ser um mapa de modalidade por escopos.")
+    pairs: list[tuple[str, tuple[str, ...]]] = []
+    for raw_model, scopes in entries:
+        model = str(raw_model).strip().upper()
+        if model not in valid:
+            raise ConfigError(f"{label}: modalidade invalida={model!r}.")
+        pairs.append((model, _string_tuple(scopes, label)))
+    return tuple(pairs)
 
 
 def _load_browser_options(value: Any, index: int) -> BrowserOptions:
@@ -254,6 +293,15 @@ def _load_source(item: Any, index: int) -> SourceConfig:
             f"sources[{index}].default_country deve usar codigo ISO alfa-2 maiusculo."
         )
 
+    raw_workplace = item.get("default_workplace")
+    default_workplace = None
+    if raw_workplace is not None:
+        allowed = {model.value for model in WorkplaceModel if model is not WorkplaceModel.UNKNOWN}
+        if not isinstance(raw_workplace, str) or raw_workplace not in allowed:
+            raise ConfigError(
+                f"sources[{index}].default_workplace aceita apenas REMOTE, HYBRID ou ONSITE."
+            )
+        default_workplace = WorkplaceModel(raw_workplace)
     default_company = item.get("default_company")
     if default_company is not None and (
         not isinstance(default_company, str) or not default_company.strip()
@@ -314,6 +362,7 @@ def _load_source(item: Any, index: int) -> SourceConfig:
         queries=tuple(query.strip() for query in queries_raw),
         default_country=default_country,
         default_company=default_company.strip() if default_company else None,
+        default_workplace=default_workplace,
         fetch_details=fetch_details,
         adaptive=adaptive,
         single_page=single_page,
@@ -328,6 +377,30 @@ def _load_source(item: Any, index: int) -> SourceConfig:
 
 def _load_api_options(value: Any, kind: SourceKind, index: int) -> dict[str, Any]:
     label = f"sources[{index}].api"
+    if kind is SourceKind.LINKEDIN:
+        # A fonte LinkedIn aceita a lista de localizações e de termos de busca.
+        # Os termos vivem em `api` porque o pipeline zera `queries` antes de
+        # chamar o adaptador (o sweep de termos é feito por ele, por URL).
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping) or set(value) - {"locations", "queries"}:
+            raise ConfigError(f"{label} invalido; use so {{locations: [...]}}")
+        locations = value.get("locations")
+        if not isinstance(locations, list) or not all(
+            isinstance(item, str) and item.strip() for item in locations
+        ):
+            raise ConfigError(f"{label}.locations deve ser uma lista de textos")
+        options: dict[str, Any] = {
+            "locations": [str(item).strip() for item in locations]
+        }
+        queries = value.get("queries")
+        if queries is not None:
+            if not isinstance(queries, list) or not all(
+                isinstance(item, str) and item.strip() for item in queries
+            ):
+                raise ConfigError(f"{label}.queries deve ser uma lista de textos")
+            options["queries"] = [str(item).strip() for item in queries]
+        return options
     if kind is not SourceKind.JSON:
         if value is not None:
             raise ConfigError(f"{label} so vale para fontes kind: json.")

@@ -426,6 +426,10 @@ function detailRow(job) {
     scoreText,
     criteria.length ? `Critérios atendidos — ${criteria.join(" · ")}` : "Nenhum critério do perfil confirmado",
   ];
+  const confirmedAt = confirmedDetailTime(job);
+  if (confirmedAt !== null && activityState(job) === "ACTIVE_CONFIRMED") {
+    facts.push(`Página de detalhes confirmada em ${new Date(confirmedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`);
+  }
   const reasons = fitReasons(job);
   if (reasons.length) facts.push(`Atenção — ${reasons.join(" · ")}`);
   const also = alsoSeenIn(job);
@@ -600,6 +604,15 @@ function searchValues(value) {
 // somente em "Qualquer data". Prazo vencido é tratado pelo filtro de situação.
 // Espelha job_radar/activity.py: situação derivada dos dados salvos.
 const LISTING_FRESH_MS = 7 * 86400000;
+function confirmedDetailTime(job) {
+  const labels = (job.match_labels ?? []).map(String);
+  if (!labels.includes("LINK:LIVE") || !labels.includes("LINK_CHECK_METHOD:JOB_DETAIL_V2")) return null;
+  const label = labels.find((value) => value.startsWith("LINK_CHECKED_AT:"));
+  const checked = Date.parse(label?.slice("LINK_CHECKED_AT:".length) ?? "");
+  const age = Date.now() - checked;
+  return !Number.isNaN(checked) && age >= 0 && age <= LISTING_FRESH_MS ? checked : null;
+}
+
 function activityState(job) {
   const now = Date.now();
   const published = Date.parse(job.published_at ?? "");
@@ -637,6 +650,7 @@ function passesActivityFilter(job) {
   const choice = elements.activityFilter.value;
   if (choice === "all") return true;
   const state = activityState(job);
+  if (choice === "confirmed") return state === "ACTIVE_CONFIRMED" && confirmedDetailTime(job) !== null;
   if (choice === "closed") return state === "CLOSED";
   if (choice === "unproven") return state === "UNKNOWN";
   return state === "ACTIVE_CONFIRMED" || state === "ACTIVE_LISTED";

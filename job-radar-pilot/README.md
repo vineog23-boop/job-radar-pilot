@@ -371,6 +371,12 @@ de quadro real.
   período), com rodízio entre portais para que um portal grande não gaste o orçamento todo.
   Da página de detalhe saem data, prazo, empresa e **modalidade** (JSON-LD `datePosted`,
   `validThrough`, `jobLocationType: TELECOMMUTE`; `__NEXT_DATA__` da Gupy e do Remotar).
+  O limite conta páginas distintas por portal: repetições da mesma URL nas buscas por
+  termos são consultadas uma vez e recebem os mesmos detalhes, sem juntar IDs de vaga
+  diferentes nos parâmetros da URL. Bloqueios também não são repetidos nessa rodada.
+  `ENRICHED:DETAIL_AT:<ISO>` registra quando o texto foi obtido; `ENRICHED:DETAIL_COMPLETE`
+  só aparece se o texto cabe inteiro, sem corte. O Hermes pode reaproveitar esses detalhes
+  por até 24 horas; descrições antigas, sem data ou cortadas continuam sendo consultadas.
 - Histórico local em `%LOCALAPPDATA%\JobRadar\history.json` (só chave da vaga e data da
   primeira observação). Da segunda coleta em diante, vagas inéditas ganham `STATUS:NEW` e
   o selo "Nova" no painel. `collect --no-history` desliga.
@@ -804,6 +810,12 @@ e reaplicação aguardam a verificação terminar. Evidência de link vale por s
 dias; LIVE antigo, futuro ou legado sem o marcador de método não confirma a
 vaga. Prazo vencido prevalece mesmo sobre LIVE. Uma nova coleta preserva a
 verificação anterior da mesma URL sem renovar sua data.
+
+Em **Situação da vaga → Disponibilidade confirmada**, a tabela mostra somente
+páginas de detalhes confirmadas nos últimos sete dias pelo método atual de verificação.
+Listagem recente, prazo futuro, verificação antiga ou inconclusiva não bastam para
+esse filtro. Ao expandir a vaga, aparece a data e hora da confirmação. A escolha é
+lembrada no navegador e vale também para a exportação exata da tabela.
 
 Os scripts
 em `scripts/exportar_verificadas.py` (XLSX) e `scripts/exportar_csv_verificadas.py`

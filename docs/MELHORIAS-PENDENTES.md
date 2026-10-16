@@ -13,6 +13,19 @@ o usuário perceber a mudança, e marcar aqui o que foi feito.
 
 ---
 
+### Qualidade e execução — 16/10/2026
+
+- [x] Orçamento de enriquecimento por URL distinta de cada portal; duplicatas
+  reaproveitam detalhes e bloqueios não geram novas tentativas na mesma coleta.
+  Evidência na coleta anterior: 241 consultas, 156 URLs distintas, 85 repetições.
+- [x] Texto completo e momento do enriquecimento identificados explicitamente;
+  integração Hermes reaproveita somente texto íntegro obtido há até 24 horas,
+  mantendo a verificação final dos links e os critérios pessoais.
+- [x] Filtro do painel “Disponibilidade confirmada”: exige detalhe confirmado
+  recente, não só listagem ou prazo; data/hora da confirmação nos detalhes.
+- [x] Hermes: Greenhouse usa publicação original da API oficial, nunca edição
+  como publicação; datas futuras não entram como vagas novas.
+
 ### Radar confiável — 06/10/2026
 
 - [x] Exportação exata da tabela em CSV, Markdown, XLSX e texto para IA: seleção

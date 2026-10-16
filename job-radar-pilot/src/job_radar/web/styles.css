@@ -229,7 +229,7 @@ h1 { font-size: clamp(32px, 4.4vw, 52px); }
 .summary-card { min-height: 104px; }
 .summary-card.clickable { cursor: pointer; transition: transform .15s ease, border-color .15s ease; }
 .summary-card.clickable:hover, .summary-card.clickable:focus-visible { transform: translateY(-2px); border-color: rgba(255,113,71,.5); outline: none; }
-.filters { grid-template-columns: minmax(220px, 1.4fr) repeat(4, minmax(160px, 1fr)); }
+.filters { grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(140px, 1fr)) minmax(220px, 1.25fr); }
 /* Filtros fixos: a lista rola por baixo sem perder os controles. */
 .workspace .filters { position: sticky; top: 10px; z-index: 15; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 14px; padding: 10px; margin-bottom: 14px; }
 .filters select { text-overflow: ellipsis; }

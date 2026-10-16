@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from html import unescape
 import json
 import re
 from typing import Any, Callable, Iterator, Sequence
+from urllib.parse import urldefrag
 
 from job_radar.dates import is_expired, is_stale, parse_deadline, parse_published_at
 from job_radar.fetching import FetchPolicy, _visible_response_text, page_html
@@ -23,7 +25,7 @@ from job_radar.models import (
 
 MAX_DETAIL_CHARS = 3000
 DEFAULT_ENRICH_LIMIT = 120
-_SKIP_SOURCES = {"indeed"}
+_SKIP_SOURCES = {"indeed", "linkedin"}
 
 _JSON_LD = re.compile(
     r"<script[^>]+type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
@@ -91,6 +93,54 @@ def _walk_json_ld(node: Any) -> Iterator[dict[str, Any]]:
         if "JobPosting" in kinds:
             yield node
         yield from _walk_json_ld(node.get("@graph"))
+
+
+def _covers_description_evidence(response: object, text: str) -> bool:
+    """Texto curto não basta: requisitos podem estar só no JSON-LD/NEXT_DATA.
+
+    O reaproveitamento é conservador: exige a cobertura de todo texto visível
+    (inclusive avisos de encerramento) e dos campos estruturados lidos pelo Hermes.
+    """
+    evidence = [_visible_response_text(response)]
+    html = page_html(response)
+
+    def descriptions(node: Any) -> None:
+        # A garantia cobre também tipos qualificados (schema.org/JobPosting),
+        # arrays e @graph, sem depender das formas lidas pelo extrator de datas.
+        if isinstance(node, list):
+            for value in node:
+                descriptions(value)
+        elif isinstance(node, dict):
+            if "description" in node:
+                evidence.append(str(node["description"] or ""))
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    descriptions(value)
+
+    try:
+        for block in re.findall(r"(?is)<script[^>]*application/ld\+json[^>]*>(.*?)</script>", html):
+            descriptions(json.loads(block))
+        match = _NEXT_DATA.search(html)
+        if match:
+            props = json.loads(match.group(1)).get("props", {}).get("pageProps", {})
+            job = props.get("job") or props.get("jobData") or {}
+            if isinstance(job, dict):
+                # Texto simples não preserva o estado de encerramento usado
+                # pelo Hermes. Nesses portais ele continua consultando o HTML.
+                if any(key in job for key in ("status", "expiresAt", "registerEndDate", "expired")):
+                    return False
+                evidence.extend(str(job.get(key) or "") for key in (
+                    "description", "responsibilities", "prerequisites", "relevantExperiences",
+                    "requirements", "subtitle",
+                ))
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+    def plain(value: str) -> str:
+        return " ".join(unescape(re.sub(r"<[^>]+>", " ", unescape(value))).split()).casefold()
+
+    normalized = plain(text)
+    return bool(normalized) and all(plain(part) in normalized for part in evidence)
 
 
 def _walk_next_data(node: Any) -> Iterator[dict[str, Any]]:
@@ -262,14 +312,21 @@ def enrich_records(
             turn = per_source.get(record.source, 0)
             per_source[record.source] = turn + 1
             ranked.append((priority, has_date, turn, index, source))
-    picked = sorted(ranked, key=lambda item: item[:4])[:limit]
+    # A varredura por termos pode devolver a mesma vaga várias vezes. O limite
+    # vale para páginas distintas por portal, preservando a política de cada fonte.
+    grouped: dict[tuple[str, str], list[tuple[int, SourceConfig]]] = {}
+    for *_, index, source in sorted(ranked, key=lambda item: item[:4]):
+        key = (source.code, urldefrag(raw_records[index].canonical_url).url)
+        grouped.setdefault(key, []).append((index, source))
+    picked = list(grouped.values())[:limit]
     if not picked:
         return tuple(raw_records), 0
 
     updated = list(raw_records)
     enriched = 0
     with fetcher_factory() as fetcher:
-        for *_, index, source in picked:
+        for copies in picked:
+            index, source = copies[0]
             record = raw_records[index]
             static_source = replace(source, kind=SourceKind.GENERIC, adaptive=False)
             try:
@@ -279,29 +336,31 @@ def enrich_records(
             if fetched.status is not CollectionStatus.SUCCESS or fetched.response is None:
                 continue
             text = _main_text(fetched.response)
-            metadata = extract_detail_metadata(page_html(fetched.response))
-            new_fields: dict[str, Any] = {}
-            if not record.published_at and metadata.published_at:
-                new_fields["published_at"] = metadata.published_at
-            if not record.application_deadline and metadata.application_deadline:
-                new_fields["application_deadline"] = metadata.application_deadline
-            if not record.company and metadata.company:
-                new_fields["company"] = metadata.company
-            if record.workplace_model is WorkplaceModel.UNKNOWN and metadata.workplace:
-                new_fields["workplace_model"] = metadata.workplace
-            if len(text) < 80 and not new_fields:
-                continue
-            if len(text) >= 80:
-                base = record.description_summary or ""
-                new_fields["description_summary"] = f"{base} {text}".strip()[
-                    :MAX_DETAIL_CHARS
-                ]
-            updated[index] = replace(
-                record,
-                match_labels=tuple(
-                    dict.fromkeys((*record.match_labels, "ENRICHED:DETAIL"))
-                ),
-                **new_fields,
-            )
-            enriched += 1
+            metadata = extract_detail_metadata(page_html(fetched.response), now=moment)
+            for index, _ in copies:
+                record = raw_records[index]
+                new_fields: dict[str, Any] = {}
+                if not record.published_at and metadata.published_at:
+                    new_fields["published_at"] = metadata.published_at
+                if not record.application_deadline and metadata.application_deadline:
+                    new_fields["application_deadline"] = metadata.application_deadline
+                if not record.company and metadata.company:
+                    new_fields["company"] = metadata.company
+                if record.workplace_model is WorkplaceModel.UNKNOWN and metadata.workplace:
+                    new_fields["workplace_model"] = metadata.workplace
+                if len(text) < 80 and not new_fields:
+                    continue
+                labels = list(record.match_labels)
+                if len(text) >= 80:
+                    labels = [label for label in labels if not label.startswith("ENRICHED:DETAIL_AT:")
+                              and label != "ENRICHED:DETAIL_COMPLETE"]
+                    combined = f"{record.description_summary or ''} {text}".strip()
+                    new_fields["description_summary"] = combined[:MAX_DETAIL_CHARS]
+                    labels.append(f"ENRICHED:DETAIL_AT:{moment.isoformat(timespec='seconds')}")
+                    if len(combined) <= MAX_DETAIL_CHARS and _covers_description_evidence(fetched.response, combined):
+                        labels.append("ENRICHED:DETAIL_COMPLETE")
+                updated[index] = replace(
+                    record, match_labels=tuple(dict.fromkeys((*labels, "ENRICHED:DETAIL"))), **new_fields,
+                )
+                enriched += 1
     return tuple(updated), enriched

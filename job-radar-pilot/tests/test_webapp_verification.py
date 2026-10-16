@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import json
+from datetime import datetime, timedelta, timezone
 from threading import Event, Thread
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -8,6 +9,55 @@ import pytest
 
 from job_radar.output_lock import OutputBusyError, OutputLock
 from job_radar.webapp import SearchController, create_server
+
+
+def test_confirmed_filter_requires_recent_detail_evidence_and_persists(tmp_path):
+    from pathlib import Path
+    from playwright.sync_api import expect, sync_playwright
+
+    now = datetime.now(timezone.utc)
+    fresh = f"LINK_CHECKED_AT:{now.isoformat()}"
+    live = ["LINK:LIVE", "LINK_CHECK_METHOD:JOB_DETAIL_V2"]
+    variants = [
+        ("Confirmada", [*live, fresh], None),
+        ("Só listada", [], None),
+        ("Prazo futuro", [], (now + timedelta(days=30)).isoformat()),
+        ("Verificação antiga", [*live, f"LINK_CHECKED_AT:{(now-timedelta(days=8)).isoformat()}"], (now + timedelta(days=30)).isoformat()),
+        ("Método antigo", ["LINK:LIVE", fresh], None),
+        ("Verificação futura", [*live, f"LINK_CHECKED_AT:{(now+timedelta(days=1)).isoformat()}"], None),
+        ("Encerrada", [*live, fresh], (now - timedelta(days=1)).isoformat()),
+    ]
+    output = tmp_path / "output"
+    output.mkdir()
+    jobs = [{"title": title, "source": "example", "company": "Acme",
+             "canonical_url": f"https://example.com/jobs/{i}", "observed_at": now.isoformat(),
+             "match_labels": ["FIT:READY", "FIT_SCORE:4", *labels], "application_deadline": deadline}
+            for i, (title, labels, deadline) in enumerate(variants)]
+    (output / "vagas.jsonl").write_text("\n".join(json.dumps(j) for j in jobs))
+    web = Path(__file__).resolve().parents[1] / "src/job_radar/web"
+    server = create_server("127.0.0.1", 0, SearchController(output, runner=lambda *_: 0), web)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.select_option("#age-filter", "")
+            page.select_option("#activity-filter", "confirmed", timeout=1500)
+            expect(page.locator("#jobs-table-body .job-title")).to_have_text(["Confirmada"])
+            page.locator(".title-cell").click()
+            expect(page.locator(".detail-row")).to_contain_text("Página de detalhes confirmada em")
+            page.reload()
+            expect(page.locator("#activity-filter")).to_have_value("confirmed")
+            expect(page.locator("#jobs-table-body .job-title")).to_have_text(["Confirmada"])
+            page.select_option("#activity-filter", "all")
+            expect(page.locator("#jobs-table-body .job-title")).to_have_count(7)
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 @contextmanager

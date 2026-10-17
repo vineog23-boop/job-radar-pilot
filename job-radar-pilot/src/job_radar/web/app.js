@@ -9,6 +9,20 @@ const PUBLIC_SOURCE_NAMES = {
 function sourceLabel(code) { return PUBLIC_SOURCE_NAMES[code] || code || "—"; }
 
 const elements = {
+  workspaceNav: [...document.querySelectorAll('[data-workspace]')],
+  workspaceTitle: document.querySelector('#workspace-title'),
+  resultsWorkspace: document.querySelector('#results-workspace'),
+  resultsTitle: document.querySelector('#results-title'),
+  workspaceDescription: document.querySelector('#workspace-description'),
+  settingsHub: document.querySelector('#settings-hub'),
+  sourcesHealth: document.querySelector('#sources-health'),
+  exportCurrent: document.querySelector('#export-current'),
+  currentExportFormat: document.querySelector('#current-export-format'),
+  currentExportStatus: document.querySelector('#current-export-status'),
+  developmentOnly: document.querySelector('#development-only'),
+  internshipAi: document.querySelector('#internship-ai'),
+  internshipFullStack: document.querySelector('#internship-full-stack'),
+  ruleOtherStack: document.querySelector('#rule-other-stack'),
   verifyLinksButton: document.querySelector("#verify-links-button"),
   verificationStatus: document.querySelector("#verification-status"),
   searchButton: document.querySelector("#search-button"),
@@ -187,6 +201,13 @@ const elements = {
 
 const FILTER_KEY = "radar.filters";
 const FILTER_DEFAULTS = { match: "", sort: "fit", tracked: "active", age: "30", activity: "active" };
+const WORKSPACE_KEY = 'radar.workspace.v1';
+let currentWorkspace = 'opportunities';
+try {
+  const saved = localStorage.getItem(WORKSPACE_KEY);
+  if (['opportunities', 'review', 'tracking', 'settings', 'all'].includes(saved)) currentWorkspace = saved;
+} catch { /* segue no recorte seguro */ }
+const workspaceFilters = new Map();
 const expandedJobs = new Set();
 // Filtros rápidos (chips): somam aos selects.
 const QUICK_FILTERS = ["unseen", "remote", "estagio", "junior", "recent"];
@@ -230,6 +251,13 @@ function isUnseen(job) {
 }
 
 function saveFilters() {
+  workspaceFilters.set(currentWorkspace, {
+    text: elements.textFilter.value, source: elements.sourceFilter.value,
+    match: elements.matchFilter.value, sort: elements.sortOrder.value,
+    age: elements.ageFilter.value, activity: elements.activityFilter.value,
+    tracked: elements.trackingFilter.value, ageFrom: elements.ageFrom.value,
+    ageTo: elements.ageTo.value, quick: [...quickFilters],
+  });
   try {
     localStorage.setItem(FILTER_KEY, JSON.stringify({
       match: elements.matchFilter.value,
@@ -242,6 +270,87 @@ function saveFilters() {
       quick: [...quickFilters],
     }));
   } catch (error) { /* armazenamento indisponível: segue sem lembrar */ }
+}
+
+function isFocusCandidate(job) {
+  const labels = (job.match_labels ?? []).map(String);
+  return !isOffTopic(job) && !['EXCLUDE', 'OTHER_STACK'].includes(fitState(job))
+    && !labels.includes('ROLE:OTHER') && !labels.some((value) => value.startsWith('ROLE_MISMATCH:'));
+}
+
+function isConfirmedOpportunity(job) {
+  return isFocusCandidate(job) && !trackingStatus(job) && fitState(job) === 'READY'
+    && activityState(job) === 'ACTIVE_CONFIRMED' && confirmedDetailTime(job) !== null;
+}
+
+function passesWorkspace(job) {
+  if (currentWorkspace === 'all') return true;
+  if (currentWorkspace === 'tracking') return Boolean(trackingStatus(job));
+  if (currentWorkspace === 'opportunities') return isConfirmedOpportunity(job);
+  if (currentWorkspace === 'review') return isFocusCandidate(job) && !trackingStatus(job)
+    && activityState(job) !== 'CLOSED' && !isConfirmedOpportunity(job);
+  return false;
+}
+
+function updateWorkspaceChrome() {
+  const jobs = dashboardState.jobs ?? [];
+  const counts = {
+    opportunities: jobs.filter(isConfirmedOpportunity).length,
+    review: jobs.filter((job) => isFocusCandidate(job) && !trackingStatus(job)
+      && activityState(job) !== 'CLOSED' && !isConfirmedOpportunity(job)).length,
+    tracking: Object.values(trackingState).filter((entry) => entry.status !== 'DISCARDED').length,
+  };
+  for (const [key, count] of Object.entries(counts)) document.querySelector(`#count-${key}`).textContent = count;
+  const names = { opportunities: 'Oportunidades para você', review: 'Vale conferir com mais atenção',
+    tracking: 'Suas candidaturas', settings: 'Configurações do Radar', all: 'Todos os resultados guardados' };
+  elements.workspaceTitle.textContent = names[currentWorkspace];
+  elements.workspaceNav.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.workspace === currentWorkspace)));
+  const settings = currentWorkspace === 'settings';
+  elements.settingsHub.hidden = !(settings || currentWorkspace === "all");
+  elements.sourcesHealth.hidden = !(settings || currentWorkspace === "all");
+  elements.resultsWorkspace.hidden = settings;
+  document.querySelector('#summary-cards').hidden = settings;
+  elements.resultsTitle.textContent = currentWorkspace === 'opportunities' ? 'Prontas para avaliar'
+    : currentWorkspace === 'review' ? 'A conferir' : currentWorkspace === 'tracking' ? 'Meu acompanhamento' : 'Resultados guardados';
+  elements.workspaceDescription.textContent = currentWorkspace === 'opportunities'
+    ? 'Compatíveis com seu perfil, com a página de detalhes confirmada nos últimos 7 dias.'
+    : currentWorkspace === 'review' ? 'Falta confirmar algum critério ou a disponibilidade. Estas vagas ainda não são recomendações.'
+    : currentWorkspace === 'tracking' ? 'Salvas e candidaturas continuam aqui mesmo quando o anúncio encerra.'
+    : 'Visão ampliada para diagnóstico. A seleção recomendada fica em Oportunidades.';
+  for (const select of [elements.matchFilter, elements.activityFilter]) {
+    select.closest('label').hidden = ['opportunities', 'review'].includes(currentWorkspace);
+  }
+  elements.trackingFilter.closest('label').hidden = ['opportunities', 'review'].includes(currentWorkspace);
+  elements.quickChips.forEach((chip) => { chip.hidden = currentWorkspace === 'tracking'; });
+  elements.exportCurrent.textContent = `Exportar resultados (${filteredJobs().length})`;
+}
+
+function setWorkspace(view, { initial = false } = {}) {
+  if (!initial) saveFilters();
+  currentWorkspace = view;
+  try { localStorage.setItem(WORKSPACE_KEY, view); } catch { /* sem persistência */ }
+  for (const [panel, button] of [[elements.preferencesPanel, elements.preferencesButton],
+    [elements.sourcesPicker, elements.sourcesButton], [elements.linkedinPanel, elements.linkedinButton],
+    [elements.cleanupPanel, elements.cleanupButton], [elements.exportPanel, elements.exportButton]]) {
+    panel.hidden = true; button.setAttribute('aria-expanded', 'false');
+  }
+  if (view !== 'settings') {
+    const saved = workspaceFilters.get(view);
+    elements.textFilter.value = saved?.text ?? '';
+    elements.sourceFilter.value = saved?.source ?? '';
+    elements.matchFilter.value = saved?.match ?? '';
+    elements.sortOrder.value = saved?.sort ?? 'fit';
+    elements.ageFilter.value = saved?.age ?? '';
+    elements.ageFrom.value = saved?.ageFrom ?? '';
+    elements.ageTo.value = saved?.ageTo ?? '';
+    elements.activityFilter.value = saved?.activity ?? 'all';
+    elements.trackingFilter.value = saved?.tracked ?? 'active';
+    quickFilters.clear(); (saved?.quick ?? []).forEach((name) => quickFilters.add(name));
+    syncAgeCustom(); syncQuickChips();
+  }
+  if (view !== "settings") saveFilters();
+  visibleRows = ROW_PAGE_SIZE;
+  render();
 }
 
 function syncQuickChips() {
@@ -299,29 +408,31 @@ function restoreFilters() {
 }
 
 function filtersAreDefault() {
+  const defaults = currentWorkspace === "all" ? FILTER_DEFAULTS : { ...FILTER_DEFAULTS, age: "", activity: "all" };
   return !elements.textFilter.value.trim()
     && !elements.sourceFilter.value
-    && elements.matchFilter.value === FILTER_DEFAULTS.match
-    && elements.sortOrder.value === FILTER_DEFAULTS.sort
-    && elements.ageFilter.value === FILTER_DEFAULTS.age
+    && elements.matchFilter.value === defaults.match
+    && elements.sortOrder.value === defaults.sort
+    && elements.ageFilter.value === defaults.age
     && !elements.ageFrom.value
     && !elements.ageTo.value
-    && elements.activityFilter.value === FILTER_DEFAULTS.activity
-    && elements.trackingFilter.value === FILTER_DEFAULTS.tracked
+    && elements.activityFilter.value === defaults.activity
+    && elements.trackingFilter.value === defaults.tracked
     && quickFilters.size === 0;
 }
 
 function resetFilters() {
+  const defaults = currentWorkspace === "all" ? FILTER_DEFAULTS : { ...FILTER_DEFAULTS, age: "", activity: "all" };
   elements.textFilter.value = "";
   elements.sourceFilter.value = "";
-  elements.matchFilter.value = FILTER_DEFAULTS.match;
-  elements.sortOrder.value = FILTER_DEFAULTS.sort;
-  elements.ageFilter.value = FILTER_DEFAULTS.age;
+  elements.matchFilter.value = defaults.match;
+  elements.sortOrder.value = defaults.sort;
+  elements.ageFilter.value = defaults.age;
   elements.ageFrom.value = "";
   elements.ageTo.value = "";
   syncAgeCustom();
-  elements.activityFilter.value = FILTER_DEFAULTS.activity;
-  elements.trackingFilter.value = FILTER_DEFAULTS.tracked;
+  elements.activityFilter.value = defaults.activity;
+  elements.trackingFilter.value = defaults.tracked;
   quickFilters.clear();
   syncQuickChips();
   saveFilters();
@@ -412,7 +523,7 @@ function detailRow(job) {
   const box = document.createElement("div");
   box.className = "job-detail";
   const summary = String(job.description_summary ?? "").trim();
-  box.appendChild(textElement("p", "detail-text", summary ? summary.slice(0, 700) + (summary.length > 700 ? "…" : "") : "Sem descrição disponível nesta fonte — abra a vaga para ler completa."));
+  box.appendChild(textElement("p", "detail-text", summary ? summary : "Sem descrição disponível nesta fonte — abra a vaga para ler completa."));
   const labels = (job.match_labels ?? []).map(String);
   const criteria = CRITERIA_LABELS.flatMap(([prefix, name]) =>
     labels.filter((l) => l.startsWith(prefix)).map((l) => `${name}: ${l.slice(prefix.length)}`)
@@ -458,6 +569,30 @@ function detailRow(job) {
     actions.appendChild(button);
   });
   box.appendChild(actions);
+  const entry = trackingState[job.canonical_url];
+  if (entry?.status) {
+    const label = document.createElement("label");
+    label.className = "tracking-note";
+    label.appendChild(textElement("span", "", "Observação da candidatura"));
+    const note = document.createElement("textarea");
+    note.value = entry.note ?? "";
+    label.appendChild(note);
+    const save = textElement("button", "ghost-button", "Salvar observação");
+    save.type = "button";
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      try {
+        const response = await fetch("/api/tracking", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: job.canonical_url, note: note.value }) });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Não foi possível salvar");
+        trackingState = payload.jobs ?? {};
+        showToast("Observação salva.");
+      } catch (error) { showToast(error.message); }
+      finally { save.disabled = false; }
+    });
+    box.append(label, save);
+    if (entry.applied_at) box.appendChild(textElement("p", "hint", `Candidatura em ${new Date(entry.applied_at).toLocaleDateString("pt-BR")}`));
+  }
   const techs = document.createElement("div");
   techs.className = "detail-techs";
   jobTechnologies(job).forEach((tech) => techs.appendChild(textElement("span", "tech-chip", tech)));
@@ -467,10 +602,12 @@ function detailRow(job) {
   return row;
 }
 
-const ROW_PAGE_SIZE = 300;
+const ROW_PAGE_SIZE = 25;
 let visibleRows = ROW_PAGE_SIZE;
 let configuredSources = [];
 const REASON_LABELS = [
+  ["ROLE_MISMATCH:", "fora do foco de programação"],
+  ["ROLE:UNKNOWN", "função de programação não confirmada"],
   ["PRIMARY_TECH_MISSING:", "stack principal não confirmada na vaga"],
   ["RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"],
   ["SENIORITY_MISMATCH:", "nível acima do desejado"],
@@ -480,7 +617,7 @@ const REASON_LABELS = [
   ["WORKPLACE_MISMATCH:", "modelo de trabalho diferente"],
   ["LOCATION_UNCLEAR:", "local não confirmado"],
   ["WORKPLACE_UNCLEAR:", "modelo de trabalho não confirmado"],
-  ["SENIORITY_UNCLEAR:", "faixa de nível ampla (júnior/pleno)"],
+  ["SENIORITY_UNCLEAR:", "nível amplo ou divergente entre título e descrição"],
   ["ELIGIBILITY_UNCLEAR:", "vaga com público restrito"],
   ["TITLE_EXCLUDED:", "cargo com um termo que você não quer"],
   ["KEYWORD_BLOCKED:", "cita uma palavra proibida"],
@@ -689,6 +826,7 @@ function filteredJobs() {
   const tracked = elements.trackingFilter.value;
 
   return (dashboardState.jobs ?? []).filter((job) => {
+    if (!passesWorkspace(job)) return false;
     const trackedStatus = trackingStatus(job);
     if (tracked === "active" && trackedStatus === "DISCARDED") return false;
     if (tracked === "new" && (trackedStatus || !(job.match_labels ?? []).includes("STATUS:NEW"))) return false;
@@ -973,7 +1111,7 @@ function renderTable() {
       .find((item) => item.dataset.jobUrl === focus.url);
     row?.querySelector(focus.selector)?.focus({ preventScroll: true });
   }
-  const undatedCount = (dashboardState.jobs ?? []).filter((job) => publishedTime(job) === -Infinity).length;
+  const undatedCount = (dashboardState.jobs ?? []).filter((job) => passesWorkspace(job) && publishedTime(job) === -Infinity).length;
   elements.showUndated.hidden = !undatedCount || !elements.ageFilter.value || elements.ageFilter.value === "undated";
   elements.showUndated.textContent = `Ver ${undatedCount} ${undatedCount === 1 ? "vaga sem data de publicação" : "vagas sem data de publicação"}`;
   elements.clearFilters.hidden = filtersAreDefault();
@@ -991,12 +1129,13 @@ function renderTable() {
     ? "Confira o seu perfil em \"Configurar busca\" e clique em \"Buscar vagas agora\". A busca completa leva alguns minutos; a \"Busca rápida (TI)\" é mais curta."
     : "Nenhuma vaga combina com todos os filtros ativos. Limpe os filtros ou faça uma nova busca.";
   elements.emptyClear.hidden = noJobsYet || filtersAreDefault();
+  updateWorkspaceChrome();
 }
 
 async function downloadTableExport(format) {
   const urls = filteredJobs().map((job) => job.canonical_url);
   const version = outputVersion;
-  elements.tableExportStatus.textContent = "Preparando exportação da tabela…";
+  elements.currentExportStatus.textContent = elements.tableExportStatus.textContent = "Preparando exportação da tabela…";
   try {
     const response = await fetch(`/api/export/${format}`, {
       method: "POST",
@@ -1016,16 +1155,16 @@ async function downloadTableExport(format) {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-    elements.tableExportStatus.textContent = `${urls.length} vagas exportadas na ordem da tabela.`;
+    elements.currentExportStatus.textContent = elements.tableExportStatus.textContent = `${urls.length} vagas exportadas na ordem da tabela.`;
   } catch (error) {
-    elements.tableExportStatus.textContent = `Não foi possível exportar a tabela: ${error.message}`;
+    elements.currentExportStatus.textContent = elements.tableExportStatus.textContent = `Não foi possível exportar a tabela: ${error.message}`;
   }
 }
 
 function updateSourceFilter() {
   const selected = elements.sourceFilter.value;
-  const sources = new Set((dashboardState.jobs ?? []).map((job) => job.source).filter(Boolean));
-  (dashboardState.report?.sources ?? []).forEach((source) => sources.add(source.source));
+  const sources = new Set((dashboardState.jobs ?? []).filter(passesWorkspace).map((job) => job.source).filter(Boolean));
+  if (currentWorkspace === "all") (dashboardState.report?.sources ?? []).forEach((source) => sources.add(source.source));
   const options = [new Option("Todos os portais", "")];
   [...sources].sort().forEach((source) => options.push(new Option(sourceLabel(source), source)));
   elements.sourceFilter.replaceChildren(...options);
@@ -1041,6 +1180,11 @@ function renderSummary() {
   const toReview = jobs.filter((job) => fitState(job) === "CONDITIONAL" && !isOffTopic(job)).length;
   elements.summaryReview.textContent = `mais compatíveis · ${toReview} a revisar`;
 
+  if (currentWorkspace !== "all") {
+    elements.summaryJobs.textContent = String(jobs.filter(isConfirmedOpportunity).length);
+    elements.summaryMatches.textContent = String(jobs.filter((job) => isFocusCandidate(job) && !trackingStatus(job) && activityState(job) !== "CLOSED" && !isConfirmedOpportunity(job)).length);
+    elements.summaryReview.textContent = "critérios ou disponibilidade a confirmar";
+  }
   const finishedAt = dashboardState.report?.finished_at || dashboardState.finished_at;
   if (finishedAt) {
     const date = new Date(finishedAt);
@@ -1264,6 +1408,7 @@ const FUNNEL_STAGES = [
 ];
 
 function setTrackingFilter(value) {
+  if (currentWorkspace !== "all" && currentWorkspace !== "tracking") setWorkspace("tracking");
   elements.textFilter.value = "";
   elements.sourceFilter.value = "";
   elements.matchFilter.value = "";
@@ -1281,6 +1426,7 @@ function setTrackingFilter(value) {
 }
 
 function renderFunnel() {
+  if (!["tracking", "all"].includes(currentWorkspace)) { elements.funnel.hidden = true; return; }
   const counts = {};
   Object.values(trackingState).forEach((entry) => {
     counts[entry.status] = (counts[entry.status] ?? 0) + 1;
@@ -1310,7 +1456,7 @@ function renderFunnel() {
 // Faixa "N vagas compatíveis novas para você".
 function newsJobs() {
   return (dashboardState.jobs ?? []).filter((job) =>
-    !isOffTopic(job)
+    !isOffTopic(job) && (currentWorkspace === "all" || isConfirmedOpportunity(job))
     && ["READY", "CONDITIONAL"].includes(fitState(job))
     && !trackingStatus(job)
     && isUnseen(job)
@@ -1319,7 +1465,7 @@ function newsJobs() {
 
 function renderNews() {
   const fresh = newsJobs();
-  elements.newsBanner.hidden = fresh.length === 0;
+  elements.newsBanner.hidden = fresh.length === 0 || currentWorkspace !== "all";
   if (!fresh.length) return;
   const ready = fresh.filter((job) => fitState(job) === "READY").length;
   const since = seen.known ? "que você ainda não viu" : "nesta última busca";
@@ -1350,6 +1496,8 @@ function render() {
   renderFunnel();
   renderSources();
   renderRunState();
+  updateWorkspaceChrome();
+  if (!["tracking", "all"].includes(currentWorkspace)) elements.funnel.hidden = true;
 }
 
 // Versão do vagas.jsonl já desenhada: o servidor só manda as vagas se ela mudou.
@@ -2004,6 +2152,9 @@ function showRegionRules(rules) {
 }
 
 function fillPreferencesForm(payload) {
+  elements.developmentOnly.checked = Boolean(payload.development_only);
+  elements.internshipAi.checked = (payload.internship_tracks ?? []).includes("ai");
+  elements.internshipFullStack.checked = (payload.internship_tracks ?? []).includes("full_stack");
   loadedRegionRules = payload.workplace_location_scopes ?? {};
   showRegionRules(loadedRegionRules);
   elements.searchTerms.value = (payload.search_terms ?? []).join("\n");
@@ -2320,6 +2471,8 @@ async function loadTrackingInsights() {
 
 function currentPreferencesPayload() {
   return {
+    development_only: elements.developmentOnly.checked,
+    internship_tracks: [...(elements.internshipAi.checked ? ["ai"] : []), ...(elements.internshipFullStack.checked ? ["full_stack"] : [])],
     search_terms: linesFrom(elements.searchTerms),
     seniority_levels: checkedValues(SENIORITY_BOXES()),
     workplace_models: checkedValues([
@@ -2460,6 +2613,7 @@ async function deleteProfile() {
 function applyRulesToForm(rules) {
   elements.ruleOffTopic.checked = rules.off_topic !== false;
   elements.ruleExcluded.checked = rules.excluded !== false;
+  elements.ruleOtherStack.checked = Boolean(rules.other_stack);
   elements.ruleExpired.checked = rules.expired !== false;
   elements.ruleAge.value = rules.max_age_days ? String(rules.max_age_days) : "";
 }
@@ -2482,6 +2636,7 @@ async function saveCleanupRules() {
       body: JSON.stringify({
         off_topic: elements.ruleOffTopic.checked,
         excluded: elements.ruleExcluded.checked,
+        other_stack: elements.ruleOtherStack.checked,
         expired: elements.ruleExpired.checked,
         max_age_days: elements.ruleAge.value ? Number(elements.ruleAge.value) : null,
       }),
@@ -2761,7 +2916,7 @@ elements.newStackSave.addEventListener("click", saveCustomStack);
 elements.profileSave.addEventListener("click", saveProfile);
 elements.profileSelect.addEventListener("change", switchProfile);
 elements.profileDelete.addEventListener("click", deleteProfile);
-[elements.ruleOffTopic, elements.ruleExcluded, elements.ruleExpired, elements.ruleAge].forEach(
+[elements.ruleOffTopic, elements.ruleExcluded, elements.ruleOtherStack, elements.ruleExpired, elements.ruleAge].forEach(
   (control) => control.addEventListener("change", saveCleanupRules)
 );
 elements.cleanupPreview.addEventListener("click", () => runCleanup(true));
@@ -2871,9 +3026,9 @@ elements.toastUndo.addEventListener("click", () => {
   if (undo) undo();
 });
 [[elements.cardAll, ""], [elements.cardReady, "ready"]].forEach(([card, match]) => {
-  card.addEventListener("click", () => focusResults(match));
+  card.addEventListener("click", () => currentWorkspace === "all" ? focusResults(match) : setWorkspace(match ? "review" : "opportunities"));
   card.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); focusResults(match); }
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); currentWorkspace === "all" ? focusResults(match) : setWorkspace(match ? "review" : "opportunities"); }
   });
 });
 document.addEventListener("keydown", (event) => {
@@ -2912,7 +3067,12 @@ elements.toggleSources.addEventListener("click", () => {
   if (!willShow) updateSourcesToggleCopy();
 });
 
+elements.workspaceNav.forEach((button) => button.addEventListener('click', () => setWorkspace(button.dataset.workspace)));
+document.querySelector('#explore-all').addEventListener('click', () => setWorkspace('all'));
+elements.exportCurrent.addEventListener('click', () => downloadTableExport(elements.currentExportFormat.value));
 restoreFilters();
+if (localStorage.getItem(WORKSPACE_KEY)) saveFilters();
+setWorkspace(currentWorkspace, { initial: true });
 // Acompanhamento primeiro: a lista é desenhada uma vez só, já com o status
 // de cada vaga (antes as duas cargas corriam e a tabela piscava na abertura).
 loadTracking().finally(refreshState);

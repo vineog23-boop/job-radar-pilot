@@ -6,6 +6,7 @@ import re
 import unicodedata
 
 from job_radar.models import SearchProfile, VacancyRecord, WorkplaceModel
+from job_radar.text_cleaning import clean_description
 
 
 _TERM_ALIASES: dict[str, tuple[str, ...]] = {
@@ -244,6 +245,53 @@ _IT_TITLE_SIGNALS = re.compile(
     r"abap|outsystems|uipath|power apps|power automate|ux|figma|pentest|cybersecurity|"
     r"seguranca cibernetica|swift|llm|mlops|desenvolvedor de jogos|game developer)(?!\w)"
 )
+# A função vem do título: ferramentas citadas no corpo não transformam suporte
+# ou um cargo genérico em programação. Essa política só atua por opção do perfil.
+_OTHER_ROLE = re.compile(
+    r"(?<!\w)(?:suporte|support|help\s?desk|service desk|infraestrutura|infrastructure|infra|dba|"
+    r"administrador\w* de banco|database administrator|sysadmin|bi|business intelligence|power\s?bi|"
+    r"seguranca|security|ciberseguranca|cybersecurity|pentest|qa|quality assurance|quality engineer|"
+    r"testador\w*|test engineer|software testing|analista de testes?|qualidade (?:de )?software|devops|devsecops|sre|redes|"
+    r"recursos humanos|rh|vendedor\w*|comercial|contabilidade|contabil|financas|financeir\w*|marketing|negocios)(?!\w)"
+)
+_DATA_ROLE = re.compile(r"(?<!\w)(?:dados|data|analytics|analista de informacoes)(?!\w)")
+_AI_ROLE = re.compile(
+    r"(?<!\w)(?:ia|ai|inteligencia artificial|artificial intelligence|machine learning|llm)(?!\w)"
+)
+_FULL_STACK_ROLE = re.compile(r"(?<!\w)full[ -]?stack(?!\w)")
+_DEVELOPMENT_ROLE = re.compile(
+    r"(?<!\w)(?:desenvolvedor\w*|desenvolvedora\w*|developer|dev|programador\w*|"
+    r"programadora\w*|software engineer\w*|engenh(?:eir\w*|aria) (?:de )?software|backend|back end|frontend|front end|"
+    r"desenvolvimento (?:de )?(?:sistemas|software|web|java|aplicacoes|mobile))(?!\w)"
+)
+_PL_SENIORITY = re.compile(r"(?<![\w.#+-])pl(?![\w#+$]|[-.]\w|\s*/\s*sql\b)")
+_EXPLICIT_INTERNSHIP = re.compile(
+    r"(?<!\w)(?:estagio|estagiario|estagiaria|intern|internship)(?!\w)"
+)
+
+
+def _development_role(title: str) -> str:
+    if _OTHER_ROLE.search(title):
+        return "OTHER"
+    if _AI_ROLE.search(title):
+        if (
+            _EXPLICIT_INTERNSHIP.search(title)
+            or _DEVELOPMENT_ROLE.search(title)
+            or _FULL_STACK_ROLE.search(title)
+            or re.search(r"(?<!\w)(?:engenheir\w*|engineer|pesquisador\w*|researcher)(?!\w)", title)
+        ):
+            return "AI"
+        return "UNKNOWN"
+    if _DATA_ROLE.search(title):
+        return "OTHER"
+    if _DEVELOPMENT_ROLE.search(title) or _FULL_STACK_ROLE.search(title):
+        return "DEVELOPMENT"
+    if _EXPLICIT_INTERNSHIP.search(title) and any(
+        _contains_term(title, term) for term in ("java", "spring boot", "software")
+    ):
+        return "DEVELOPMENT"
+    return "UNKNOWN"
+
 
 # Tipo de contrato citado na vaga (texto já normalizado, sem acento).
 _CONTRACT_MARKERS: dict[str, tuple[str, ...]] = {
@@ -568,6 +616,9 @@ def classify(
     *,
     default_country: str | None = None,
 ) -> VacancyRecord:
+    record = replace(
+        record, description_summary=clean_description(record.description_summary)
+    )
     searchable_text = _normalize(
         " ".join(
             part
@@ -629,6 +680,8 @@ def classify(
         for canonical in ("pleno", "senior")
         if _contains_term(explicit_seniority_text, canonical)
     }
+    if profile.development_only and _PL_SENIORITY.search(explicit_seniority_text):
+        detected_levels.add("pleno")
     matching_levels = detected_levels.intersection(selected_seniority)
     for canonical in matching_levels:
         labels.add(f"SENIORITY_MATCH:{canonical}")
@@ -642,6 +695,14 @@ def classify(
     )
     if entry_mid_range:
         labels.add("SENIORITY_UNCLEAR:range")
+    if profile.development_only:
+        body_level = re.search(
+            r"\b(?:nivel(?: de exigencia(?: de atuacao)?)?|senioridade)\s*[:–—-]?\s*(pleno|senior)\b",
+            _normalize(record.description_summary),
+        )
+        if body_level and body_level[1] not in selected_seniority:
+            entry_mid_range = True
+            labels.add("SENIORITY_UNCLEAR:description")
     for excluded in profile.excluded_terms:
         canonical = _canonical_term(excluded)
         if canonical in selected_seniority:
@@ -652,7 +713,7 @@ def classify(
         if canonical and _contains_term(explicit_seniority_text, canonical):
             is_level = canonical in SENIORITY_LEVELS or canonical in _LEADERSHIP_CANONICAL
             labels.add(f"{'SENIORITY_MISMATCH' if is_level else 'TITLE_EXCLUDED'}:{canonical}")
-    if not matching_levels:
+    if profile.development_only or not matching_levels:
         # Nível explícito de meio/topo que o perfil não escolheu.
         for canonical in ("pleno", "senior"):
             if canonical in detected_levels and canonical not in selected_seniority:
@@ -717,9 +778,48 @@ def classify(
         ):
             labels.add("LOCATION_MISMATCH:outside_scope")
 
-    has_technology = any(label.startswith("TECH_MATCH:") for label in labels)
+    role = _development_role(_normalize(record.title)) if profile.development_only else None
+    internship_track = None
+    title_text = _normalize(record.title)
+    explicit_internship = bool(_EXPLICIT_INTERNSHIP.search(title_text))
+    if not explicit_internship and not any(
+        _contains_term(title_text, level) for level in SENIORITY_LEVELS
+    ):
+        # O nível gravado por versões antigas pode ser uma inferência de
+        # "trainee"/"júnior": não pode autorizar uma exceção contra o título.
+        explicit_internship = bool(_EXPLICIT_INTERNSHIP.search(_normalize(record.seniority)))
+    if role is not None:
+        labels.add(f"ROLE:{role}")
+        if explicit_internship:
+            if role == "AI" and "ai" in profile.internship_tracks:
+                internship_track = "ai"
+            elif (
+                role == "DEVELOPMENT"
+                and "full_stack" in profile.internship_tracks
+                and _FULL_STACK_ROLE.search(_normalize(record.title))
+            ):
+                internship_track = "full_stack"
+        if internship_track:
+            labels.add(f"INTERNSHIP_TRACK:{internship_track}")
+            track_text = _normalize(" ".join(filter(None, (
+                record.title, record.description_summary,
+                " ".join(record.technologies), " ".join(record.requirements),
+            ))))
+            for excluded in profile.excluded_terms:
+                canonical = _canonical_term(excluded)
+                rejected_aliases = _STACK_SIGNALS[".net"] if canonical == ".net" else (canonical,)
+                if canonical in {".net", "c#"} and any(
+                    _contains_term(track_text, alias) for alias in rejected_aliases
+                ):
+                    labels.add(f"KEYWORD_BLOCKED:{canonical}")
+        if role == "OTHER" or (role == "AI" and internship_track != "ai"):
+            labels.add("ROLE_MISMATCH:outside_development")
+    has_role_mismatch = "ROLE_MISMATCH:outside_development" in labels
+    has_technology = bool(internship_track) or any(
+        label.startswith("TECH_MATCH:") for label in labels
+    )
     core_terms = _core_terms(profile)
-    has_core_technology = any(
+    has_core_technology = bool(internship_track) or any(
         label == f"TECH_MATCH:{term}" for label in labels for term in core_terms
     )
     if profile.primary_technologies and not has_core_technology:
@@ -729,10 +829,27 @@ def classify(
         label.startswith("SENIORITY_MISMATCH:") for label in labels
     )
     region_rules = dict(profile.workplace_location_scopes)
+    has_region_unclear = False
     if region_rules:
         vacancy_workplace = record.workplace_model
         if vacancy_workplace is WorkplaceModel.UNKNOWN and len(inferred_workplaces) == 1:
             (vacancy_workplace,) = inferred_workplaces
+        if (
+            vacancy_workplace is WorkplaceModel.UNKNOWN
+            and len(inferred_workplaces) > 1
+            and normalized_location
+            and not _is_generic_brazilian_location(normalized_location)
+        ):
+            has_region_unclear = any(
+                region_rules.get(model.value)
+                and not any(
+                    _matches_location_scope(normalized_location, scope)
+                    for scope in region_rules[model.value]
+                )
+                for model in inferred_workplaces
+            )
+            if has_region_unclear:
+                labels.add("WORKPLACE_UNCLEAR:multiple")
         region = region_rules.get(vacancy_workplace.value)
         if (
             region
@@ -745,6 +862,11 @@ def classify(
     has_location_mismatch = any(
         label.startswith(("LOCATION_MISMATCH:", "REGION_MISMATCH:")) for label in labels
     )
+    if profile.development_only and re.search(
+        r"\bvaga\s+afirmativa\b", _normalize(record.description_summary)
+    ):
+        # Não presume atributos pessoais: a pessoa confere a condição do anúncio.
+        labels.add("ELIGIBILITY_UNCLEAR:affirmative")
     has_eligibility_unclear = any(
         label.startswith("ELIGIBILITY_UNCLEAR:") for label in labels
     )
@@ -782,6 +904,7 @@ def classify(
         score = 0
     elif (
         has_seniority_mismatch
+        or has_role_mismatch
         or has_location_mismatch
         or has_workplace_mismatch
         or has_preference_block
@@ -797,10 +920,13 @@ def classify(
                 has_workplace_match,
             )
         )
-        workplace_confirmed = not profile.workplace_models or (
-            has_workplace_match and not has_workplace_unclear
+        workplace_confirmed = not has_region_unclear and (
+            not profile.workplace_models
+            or (has_workplace_match and not has_workplace_unclear)
         )
-        if (
+        if role == "UNKNOWN":
+            fit = "AMBIGUOUS"
+        elif (
             has_core_technology
             and has_seniority
             and has_location

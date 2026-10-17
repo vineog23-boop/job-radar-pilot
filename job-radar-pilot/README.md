@@ -1,8 +1,12 @@
 # Job Radar Pilot com Scrapling
 
-Ferramenta local e independente para pesquisar vagas e produzir um conjunto
-estruturado que outra IA possa ler e filtrar. O projeto usa o Scrapling
+Ferramenta local para encontrar vagas, conferir requisitos e acompanhar candidaturas,
+com exportação da seleção para planilha, CSV ou relatório. O projeto usa o Scrapling
 `v0.4.15`, instalado a partir do clone oficial fixado em `vendor/Scrapling`.
+
+O fluxo de curadoria abaixo foi validado e aplicado no macOS em 17/10/2026.
+Para instalar em outra máquina e conferir os requisitos, veja o
+[guia de implantação e reversão](../docs/GUIA-IMPLANTACAO-CURADORIA.md).
 
 ## Uso rapido
 
@@ -50,12 +54,13 @@ permite:
 - iniciar uma nova busca pelo botão **Buscar vagas agora**;
 - filtrar por texto, portal e aderência, e ordenar por aderência ou por data de
   publicação;
-- marcar cada vaga como **Salva**, **Aplicada** ou **Descartada** (descartadas
-  somem da lista por padrão);
-- baixar as vagas visíveis em relatório Markdown ou em **CSV** (`;` e UTF-8 com
-  BOM, abre direto no Excel).
+- marcar cada vaga como **Salva**, **Aplicada**, **Entrevista**, **Oferta**,
+  **Recusada** ou **Descartada**, com observação nas vagas acompanhadas;
+- usar **Exportar resultados (N)** para baixar o recorte atual em planilha,
+  relatório Markdown ou **CSV** (`;` e UTF-8 com BOM, abre direto no Excel).
 
-Salvar a configuração não inicia uma busca automaticamente. O servidor aceita
+**Salvar configurações** reclassifica as vagas já guardadas sem iniciar uma nova
+busca. Faça backup antes de alterar o perfil de uma base importante. O servidor aceita
 conexões somente deste computador; pressione `Ctrl+C` no terminal para encerrar.
 
 Para executar somente pelo terminal:
@@ -86,27 +91,42 @@ deduplicação.
 
 ## Seu dia a dia com o Radar
 
-O topo do painel mostra o fluxo em três passos:
+Use as quatro áreas da navegação:
 
-1. **Buscar** — **Buscar vagas agora** consulta todos os portais com o seu perfil;
-   **Busca rápida (TI)** consulta só os focados em tecnologia. Durante a busca o
-   painel mostra "N portais concluídos, M vagas lidas até agora". A busca diária
-   pode ser agendada (`scripts\agendar-coleta.ps1 -Horario 08:00`).
-2. **Revisar** — a faixa azul avisa "N vagas compatíveis novas que você ainda não
-   viu"; **Ver só as novidades** filtra direto nelas e **Marcar como vistas** limpa o
-   aviso. Uma vaga conta como vista quando você a abre, expande ou marca. Os
-   **filtros rápidos** (Não vistas, Remoto, Estágio, Júnior, Últimos 7 dias) somam
-   aos seletores e ficam lembrados. Em cada vaga, escolha Salva, Aplicada,
-   Entrevista, Oferta, Recusada ou Descartada; toda mudança mostra um aviso com
-   **Desfazer** (descartar não é mais caminho sem volta).
-3. **Exportar** — ao fim de cada busca (inclusive a agendada) o Radar grava em
+| Área | Para que serve |
+|---|---|
+| **Oportunidades** | Vagas ainda não acompanhadas, mais compatíveis com o perfil e com página de detalhes confirmada nos últimos sete dias. É uma seleção para avaliar; confirme o formulário no portal antes de se candidatar. |
+| **A conferir** | Vagas ainda não acompanhadas dentro do foco, sem encerramento comprovado, mas com algum critério ou disponibilidade pendente. Não são recomendações confirmadas. |
+| **Candidaturas** | Vagas salvas e demais etapas do acompanhamento, sem as descartadas. Inclui anúncios antigos ou encerrados. Abra o título para ler/editar a observação e ver a data de candidatura quando registrada. |
+| **Configurações** | Perfil, portais, importação manual, verificação de links, limpeza e exportação automática. **Ver todos os resultados guardados** abre a visão ampliada para diagnóstico, inclusive fora do foco. |
+
+Uma lista vazia em Oportunidades não significa que a base esteja vazia. Confira
+**A conferir**, os filtros de texto/portal/período e a saúde das fontes em
+Configurações. Os números das áreas medem seus conjuntos; filtros adicionais
+podem reduzir a tabela. Salvar uma vaga a leva para Candidaturas; **Me candidatei**
+registra uma ação sua, enquanto abrir o link apenas abre o anúncio.
+
+**Buscar vagas agora** consulta os portais com o perfil salvo. A busca rápida de
+TI e a seleção de portais ficam em Configurações. A busca diária Windows pode ser
+agendada com `scripts\agendar-coleta.ps1 -Horario 08:00`; evite duplicar uma
+rotina já atendida pelo Hermes.
+
+Para levar a seleção consigo, escolha o formato junto à lista e clique em
+**Exportar resultados (N)**. A exportação mantém os filtros, a área e a ordem
+atual, incluindo resultados além das linhas já exibidas. Zero resultados gera
+um arquivo sem vagas; se a base mudar durante a seleção, atualize antes de tentar
+novamente. O painel avançado de exportação em Configurações continua permitindo
+montar outra seleção, independente da tabela.
+
+**Exportação automática** — ao fim das buscas que não usam `--no-export`, o Radar grava em
    **Documentos\Radar de Vagas**: `melhores-vagas-AAAA-MM-DD-HHMM.xlsx` (mais
    compatíveis + a revisar, sem descartadas, ordenadas pelo Score),
    `melhores-vagas-AAAA-MM-DD-HHMM.md`, `todas-de-ti-AAAA-MM-DD-HHMM.csv`
-   e as cópias `ultima-busca.xlsx` / `ultima-busca.md` (sempre a mais recente,
-   bom para fixar um atalho). Em **Exportar vagas → Exportação automática** dá para
+   e as cópias `ultima-busca.xlsx` / `ultima-busca.md`. Confira a data dos arquivos:
+   uma seleção automática vazia pode manter a cópia anterior. Em **Configurações → Exportar vagas → Exportação automática** dá para
    desligar, trocar a pasta, **Abrir pasta** ou **Exportar agora**. Na linha de
-   comando, `collect --no-export` pula a exportação de uma coleta.
+   comando, `collect --no-export` pula a exportação de uma coleta. A integração
+   Hermes usa essa opção; seus avisos no Telegram não atualizam essas planilhas.
 
 No celular a tabela vira cartões (sem rolagem para os lados).
 
@@ -123,7 +143,7 @@ sem publicação ou encerrados, removendo os filtros de período e atividade; vo
 pode refinar a seleção depois. Salvar ou se candidatar a uma vaga protege seu
 registro na coleta e na limpeza, mas não comprova disponibilidade. Acompanhar
 em outra aba atualiza o painel sem perder o foco; o histórico continua na saída.
-Em **Exportar vagas → Exportar a tabela**, CSV, relatório,
+No botão **Exportar resultados (N)** junto à lista, e em **Configurações → Exportar vagas → Exportar a tabela**, CSV, relatório,
 planilha e texto para IA respeitam todos os filtros ativos (incluindo remoto,
 período, atividade e acompanhamento) e a ordem da tabela, inclusive além das
 300 primeiras linhas. Uma tabela vazia gera um arquivo sem vagas. Se a saída
@@ -138,9 +158,9 @@ senioridade, tecnologias, data de publicação, fonte, URL e nota.
 - **Publicada em** vem só do portal (campo estruturado ou texto "Publicada em"); a data de coleta (`observed_at`) nunca a substitui.
 - **Vista pela 1ª vez** (`first_seen_at`, do histórico local) aparece só quando o portal não informa a publicação (Indeed, InfoJobs, Nube...). É informação, não data de publicação: ordenação e filtros de período continuam usando apenas `published_at`.
 - **Prazo** (`application_deadline`) vem do `validThrough` da página oficial. Só a data vale até 23:59 de Brasília.
-- O painel abre em **Últimos 30 dias** (também 7 e 15). Vaga sem data de publicação fica fora dessas janelas e aparece em **Qualquer data**; nada é apagado. Prazo vencido afeta a **Situação**, não o período: uma vaga encerrada pode aparecer em **Últimos 30 dias** ao selecionar **Encerradas**. Os atalhos de melhores vagas continuam excluindo encerradas.
+- O período pode ser **Últimos 30 dias** (também 7 e 15) ou **Qualquer data**. A navegação entre áreas começa sem restringir a publicação e preserva os refinamentos feitos em cada área durante a sessão. Vaga sem data de publicação fica fora das janelas e aparece em **Qualquer data**; nada é apagado. Prazo vencido afeta a **Situação**, não o período: consulte anúncios encerrados em Candidaturas ou na visão ampliada de Configurações. Oportunidades e A conferir excluem encerradas.
 - **Período personalizado:** em "Personalizado…" informe data inicial e/ou final; os dois dias entram (horário de Brasília). Vaga sem data de publicação continua de fora.
-- **Situação** (derivada, nunca gravada): *ativa* quando há prazo oficial em aberto com publicação ou detalhe confirmado nos últimos 7 dias; *listada na última busca* quando observada há até 7 dias; *encerrada* por prazo vencido ou HTTP 404/410 recente comprovado; *não comprovada* quando falta evidência. Listagem recente não confirma que o formulário ainda aceita candidatura. O painel abre em "Ativas", incluindo ativas e listadas; registros antigos preservados viram "não comprovada".
+- **Situação** (derivada, nunca gravada): *ativa* quando há prazo oficial em aberto com publicação ou detalhe confirmado nos últimos 7 dias; *listada na última busca* quando observada há até 7 dias; *encerrada* por prazo vencido ou HTTP 404/410 recente comprovado; *não comprovada* quando falta evidência. Listagem recente não confirma que o formulário ainda aceita candidatura. Oportunidades exige confirmação recente da página de detalhes, além da compatibilidade; registros antigos preservados continuam acessíveis em Candidaturas ou na visão ampliada.
 - A coleta não abre a página de detalhe de vaga fora da janela ou com prazo vencido (`enrich_max_age_days`, padrão 30).
 - **Gupy:** a API anônima (`gupy-api`) retornou 404 e está desativada; a fonte `gupy` usa a busca pública do portal, respeitando robots.txt, sem login. É cobertura parcial, sem garantia de disponibilidade.
 
@@ -256,7 +276,7 @@ Comece por lotes pequenos: layouts, termos e limites dos portais podem mudar.
   contagens, bloqueios, warnings e erros sanitizados.
 - `output/vagas-descartadas-na-coleta.jsonl`: vagas que a limpeza automática da
   coleta descartou (fora do perfil, fora de TI, vencidas). Ficam guardadas para
-  voltar à lista se você ampliar o perfil (ver **Reaplicar**).
+  voltar à lista se você ampliar o perfil e usar **Salvar configurações**.
 - `output/.radar-output.lock`: trava entre a coleta (inclusive a agendada) e o
   painel, para um não regravar a lista por cima do outro.
 
@@ -650,6 +670,27 @@ verificação ou outra alteração da saída estiver em andamento, a operação 
 com aviso de ocupação (HTTP 409) e preserva o perfil anterior. `STATUS:NEW`,
 origem, evidências de disponibilidade e acompanhamento não viram classificação.
 
+### Foco de programação e exceções de estágio
+
+Em **Configurações → Configurar busca**, a opção **Somente desenvolvimento de
+software** ativa a curadoria por função. Suporte, infraestrutura, dados/BI,
+QA/testes e segurança não entram como desenvolvimento apenas por mencionar Java
+ou SQL. Cargo genérico sem função confirmada fica para conferir.
+
+Para um foco Java/Spring, escolha **Java** e **Spring Boot** nas tecnologias
+principais. Elas representam o núcleo aceito; não é obrigatório que a vaga cite
+as duas ao mesmo tempo. SQL, ferramentas de apoio e a expressão genérica “full
+stack” não devem ampliar esse núcleo por acidente.
+
+Com o foco de desenvolvimento ativado, marque, se desejar, **Estágios em
+Inteligência Artificial** e **Estágios full stack**. São exceções explícitas ao
+núcleo de tecnologia somente para anúncios identificados como estágio; não
+ampliam a seleção para júnior, pleno, sênior, trainee ou aprendiz. Continuam
+valendo os níveis escolhidos, local, modalidade e exclusões do perfil. Uma
+menção incidental a IA no corpo de um estágio genérico não prova a exceção.
+As opções vêm desligadas quando não foram configuradas; salvar é uma ação sua
+e não altera `config/profile.yaml`.
+
 ### Palavras-chave e filtros finos
 
 Tudo opcional; cada item vira um rótulo na vaga e aparece no detalhe e no motivo da exportação:
@@ -664,7 +705,7 @@ Tudo opcional; cada item vira um rótulo na vaga e aparece no detalhe e no motiv
 | **Tipo de contrato** | CLT, PJ, Freelance/temporário. Só exclui quando a vaga diz explicitamente um contrato não aceito; "CLT ou PJ" passa se um deles for aceito; vaga que não fala de contrato nunca é excluída. |
 | **Idioma** | "Esconder vagas que exigem inglês avançado ou fluente". Quando o inglês aparece como diferencial/desejável, a vaga continua (`LANGUAGE:english_plus`). |
 
-**Ver impacto** mostra, sem salvar, quantas vagas da lista ficariam "Mais compatíveis", "A revisar", "de outra stack" e "Fora do perfil" com as configurações da tela. Com **Reaplicar às vagas já salvas** marcado (padrão), salvar recalcula a aderência da lista atual na hora, sem consultar os portais e sem apagar nada (a limpeza continua sendo uma ação separada). As vagas que a coleta tinha descartado também são reavaliadas: se o perfil novo for mais amplo (ex.: passou a aceitar pleno), as que agora passam **voltam para a lista** ("N voltam das descartadas na coleta"). Se uma coleta (inclusive a agendada) estiver gravando a lista, a reaplicação espera e o painel avisa.
+**Ver impacto** mostra, sem salvar, quantas vagas da lista ficariam "Mais compatíveis", "A revisar", "de outra stack" e "Fora do perfil" com as configurações da tela. **Salvar configurações** sempre recalcula a aderência da lista atual, sem consultar os portais; a limpeza é uma ação separada. Faça backup antes dessa reaplicação. As vagas que a coleta tinha descartado também são reavaliadas: se o perfil novo for mais amplo, as que agora passam pelas regras de limpeza voltam para a lista. Se uma coleta ou verificação estiver gravando a saída, o painel informa ocupação e pede nova tentativa, preservando o perfil anterior.
 
 ### Faixas de aderência
 
@@ -685,11 +726,11 @@ As tecnologias aceitam apelidos nos dois sentidos: `springboot`/`spring-boot`, `
 Durante uma busca aparecem **⏸ Pausar busca** e **■ Parar e salvar**. Pausar congela a coleta depois da página atual (nenhuma requisição nova sai) e **▶ Retomar** continua de onde parou. Parar termina a consulta em andamento, não começa outra e grava o que já foi encontrado: portais que nem começaram e os interrompidos no meio mantêm as vagas da coleta anterior. Por baixo, o painel escreve `pause`/`stop` em `output/.radar-control`, e `job-radar collect --control-file <arquivo>` lê esse arquivo (código de saída 4 = parada pela pessoa).
 ### Exclusões e limpeza
 
-Em **Configurar busca**, a seção **Exclusões** guarda só os *termos que você nunca quer ver* (vagas com esses termos no cargo ficam fora do perfil; os níveis que você marcou nunca são excluídos).
+Em **Configurar busca**, a seção **Exclusões** guarda os *termos que você nunca quer ver*. Vagas com esses termos no cargo ficam fora do perfil. Com foco em desenvolvimento, um nível superior explícito não é anulado pela presença simultânea de “júnior”.
 
-Todo o resto da limpeza fica no menu próprio **Limpeza** (botão no topo do painel):
+Todo o resto da limpeza fica em **Configurações → Limpeza**:
 
-1. **Regras automáticas** — caixas para *fora da área de tecnologia*, *fora do meu perfil* (nível, local, modelo) e *inscrições encerradas*, mais idade máxima opcional (30 a 180 dias). Valem nas próximas coletas: vagas descartadas nem são salvas. São gravadas ao mudar (`cleanup-rules.json`); `--keep-all` ignora as regras e `--max-age-days N` sobrepõe a idade.
+1. **Regras automáticas** — caixas para *fora da área de tecnologia*, *fora do meu perfil*, *inscrições encerradas* e, opcionalmente, *Fora das tecnologias principais e dos estágios que considero*, mais idade máxima. A opção de outra stack (`other_stack`) vem desligada: esconder da curadoria não é o mesmo que remover da base. Ative-a somente se quiser descartar essas vagas nas próximas coletas. As regras são gravadas ao mudar (`cleanup-rules.json`); `--keep-all` ignora as regras e `--max-age-days N` sobrepõe a idade. Confira a prévia antes de limpar uma base existente.
 2. **Limpar o que já está salvo** — ao abrir o menu, a prévia já mostra quantas vagas seriam removidas, por motivo, com exemplos (título, empresa, portal). Há uma opção para remover também as vagas que você marcou como *descartadas*.
 3. **Desfazer** — antes de limpar, as vagas removidas vão para `vagas.antes-da-limpeza.jsonl`; o botão *Desfazer última limpeza* devolve todas (a cópia vale para a última limpeza).
 
@@ -741,7 +782,7 @@ workspace, mesmo quando a instalação editável da `.venv` ainda aponta para
 outro checkout. Os launchers `run-job-radar.ps1` e `abrir-interface.ps1` fazem
 essa priorização automaticamente.
 
-No Linux/macOS: `PYTHONPATH=job-radar-pilot/src python -m pytest job-radar-pilot/tests -q`.
+No Linux/macOS: `PYTHONPATH=job-radar-pilot/src job-radar-pilot/.venv/bin/python -m pytest job-radar-pilot/tests -q -p no:cacheprovider`.
 O GitHub Actions (`.github/workflows/tests.yml`) roda a suíte completa a cada
 push com Python 3.13, Scrapling `v0.4.15` e Chromium do Playwright.
 
@@ -758,9 +799,11 @@ externos continuam sujeitos a mudanças de layout, bloqueios e paginação não
 observável; nesses casos, o coletor retorna estado parcial ou erro explícito em
 vez de declarar cobertura completa.
 
-## Exportar planilha (só as melhores vagas)
+## Exportação atual e seleção avançada
 
-O botão **Exportar planilha** abre um painel com atalhos e filtros e baixa um
+Use primeiro **Exportar resultados (N)** junto à lista para preservar a seleção
+atual e sua ordem. Para montar outro recorte, **Configurações → Exportar vagas**
+abre um painel independente com atalhos e filtros e baixa um
 `.xlsx` no formato de acompanhamento (Empresa, Cargo, Nível, Modalidade,
 Localização, Score, Status, Publicada em, Link da Vaga, Tecnologias, Portal,
 Observações), com cabeçalho fixo, filtros automáticos, links clicáveis e cores por
@@ -823,28 +866,30 @@ em `scripts/exportar_verificadas.py` (XLSX) e `scripts/exportar_csv_verificadas.
 
 ## Organização do painel
 
-- **Barra de trabalho:** o fluxo 1 Buscar · 2 Revisar · 3 Exportar, o status da
-  busca e as ações agrupadas em **Buscar** (busca rápida, portais, configurar,
-  LinkedIn) e **Lista** (limpeza, exportar); a tabela aparece na primeira tela.
+- **Navegação:** Oportunidades, A conferir, Candidaturas e Configurações.
+  Perfil, fontes e manutenção ficam em Configurações; a ação de exportar a
+  seleção fica junto à lista.
 - **Configurar busca:** linha "Você procura: …" com o resumo do perfil, seções
   numeradas na ordem de preenchimento e **Filtros avançados (opcional)** recolhidos
   com contador (abrem sozinhos quando algum está em uso).
-- **Cards clicáveis:** "Vagas coletadas" mostra tudo de TI e "Compatíveis" filtra só
-  as mais compatíveis.
+- **Contagens:** os números das áreas resumem seus conjuntos; os filtros
+  adicionais podem deixar menos linhas na tabela. A visão de todos os resultados
+  guardados fica em Configurações.
 - **Detalhes por vaga:** clique no cargo para abrir descrição, score, critérios
   atendidos (tecnologia, nível, local, modelo), alertas e tecnologias.
-- **Filtros lembrados:** aderência, ordenação e acompanhamento persistem entre
-  aberturas do painel; **Limpar filtros** aparece quando algo foge do padrão.
+- **Contexto:** o navegador lembra a área; refinamentos de cada área são mantidos
+  durante a sessão. **Limpar filtros** permite remover restrições adicionais.
 - **Atalhos:** `/` foca a busca; `Esc` fecha painéis e limpa a busca.
-- **Exportar vagas:** um só botão com planilha `.xlsx`, CSV, relatório e **Texto para
-  IA** (Markdown enxuto, ordenado por score, para outra IA revisar).
+- **Exportar resultados (N):** planilha `.xlsx`, CSV ou relatório com o recorte
+  atual. Configurações mantém a seleção avançada e a opção **Texto para IA**.
 
 ### Stack principal e aplicação do perfil
 
 Em **Configurar busca**, defina a **Stack principal** (por exemplo, Java) e as
 **Tecnologias complementares** (Spring Boot, SQL, Docker). Para aparecer como
 "Mais compatível", a vaga precisa citar ao menos uma principal no texto ou nas
-tecnologias informadas pelo portal. Várias principais são alternativas: Java e
+tecnologias informadas pelo portal, exceto quando se enquadra em uma trilha de
+estágio explicitamente aceita no foco de desenvolvimento. Várias principais são alternativas: Java e
 Python aceitam evidência de qualquer uma. Sem principal explícita, as preferências
 antigas mantêm a classificação anterior. Uma vaga sem evidência recebe o motivo
 "stack principal não confirmada na vaga"; os filtros de nível, local e exclusões

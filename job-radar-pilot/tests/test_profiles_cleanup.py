@@ -873,3 +873,37 @@ def test_undo_cleanup_with_valid_backup_restores_without_duplicates(tmp_path: Pa
         "https://a.example.com/2",
     ]
     assert not backup_path.exists()
+
+
+def test_cleanup_age_override_preserves_other_stack_rule(tmp_path: Path) -> None:
+    output = tmp_path / "output"
+    output.mkdir()
+    (output / "vagas.jsonl").write_text(json.dumps({"title": "Dev outra stack", "canonical_url": "https://example.com/1", "match_labels": ["FIT:OTHER_STACK"]}) + "\n")
+    server, thread, base = _server(tmp_path)
+    try:
+        _call(f"{base}/api/cleanup/rules", "PUT", {"other_stack": True})
+        status, preview = _call(f"{base}/api/cleanup", "POST", {"dry_run": True, "max_age_days": None})
+        assert status == 200
+        assert preview["removed"] == {"other_stack": 1}
+    finally:
+        server.shutdown(); server.server_close(); thread.join(timeout=2)
+
+
+def test_note_only_request_preserves_latest_application_stage(tmp_path: Path) -> None:
+    write_outputs(_result(_mixed_records()), tmp_path / "output")
+    server, thread, base = _server(tmp_path)
+    url = "https://x.com/3"
+    try:
+        _call(f"{base}/api/tracking", "PUT", {"url": url, "status": "APPLIED"})
+        _, interview = _call(f"{base}/api/tracking", "PUT", {"url": url, "status": "INTERVIEW"})
+        status, noted = _call(f"{base}/api/tracking", "PUT", {"url": url, "note": "Aguardar retorno"})
+        assert status == 200
+        entry = noted["jobs"][url]
+        assert entry["status"] == "INTERVIEW"
+        assert entry["note"] == "Aguardar retorno"
+        assert entry["interview_at"] == interview["jobs"][url]["interview_at"]
+        _call(f"{base}/api/tracking", "PUT", {"url": url, "status": None})
+        status, _ = _call(f"{base}/api/tracking", "PUT", {"url": url, "note": "Não recriar etapa"})
+        assert status == 400
+    finally:
+        server.shutdown(); server.server_close(); thread.join(timeout=2)

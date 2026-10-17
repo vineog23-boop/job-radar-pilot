@@ -105,7 +105,7 @@ def page(radar):
         context = browser.new_context()
         page = context.new_page()
         # Impede o seed age=any do conftest e exercita os defaults de produção.
-        page.add_init_script("sessionStorage.setItem('age-any-seeded', '1')")
+        page.add_init_script("sessionStorage.setItem('age-any-seeded', '1'); localStorage.setItem('radar.workspace.v1', 'all')")
         page.goto(radar[0])
         page.wait_for_function("outputVersion !== ''")
         yield page
@@ -123,9 +123,11 @@ def test_fresh_dashboard_uses_production_age_and_activity_defaults(radar):
             page.goto(radar[0])
             page.wait_for_function("outputVersion !== ''")
             assert page.evaluate("sessionStorage.getItem('age-any-seeded')") is None
-            assert page.locator('#age-filter').input_value() == '30'
-            assert page.locator('#activity-filter').input_value() == 'active'
-            assert page.locator('#jobs-table-body .job-title').all_inner_texts() == ['Java 1']
+            assert page.locator('[data-workspace=opportunities]').get_attribute('aria-pressed') == 'true'
+            assert page.locator('#age-filter').input_value() == ''
+            assert page.locator('#activity-filter').input_value() == 'all'
+            # Nenhum registro da fixture tem confirmação recente da página de detalhes.
+            assert page.locator('#jobs-table-body .job-title').count() == 0
         finally:
             browser.close()
 

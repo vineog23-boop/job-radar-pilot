@@ -28,6 +28,7 @@ def _isolated_user_dirs(tmp_path_factory: pytest.TempPathFactory, monkeypatch: p
 _AGE_ANY_SCRIPT = (
     "if (!sessionStorage.getItem('age-any-seeded')) {"
     "sessionStorage.setItem('age-any-seeded', '1');"
+    "localStorage.setItem('radar.workspace.v1', 'all');"
     "if (!localStorage.getItem('radar.filters')) "
     "localStorage.setItem('radar.filters', JSON.stringify({age: '', activity: 'all'}));}"
 )

@@ -7,7 +7,7 @@ salva/aplicada/descartada nunca são apagadas.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Collection, Iterable, Mapping
 from uuid import uuid4
 
+from job_radar.activity import CLOSED, activity_state
 from job_radar.dates import parse_iso_datetime
 from job_radar.fit import fit_state
 
@@ -23,6 +24,7 @@ REASON_EXCLUDED = "excluded"
 REASON_EXPIRED = "expired"
 REASON_STALE = "stale"
 REASON_USER_DISCARDED = "user_discarded"
+REASON_OTHER_STACK = "other_stack"
 BACKUP_NAME = "vagas.antes-da-limpeza.jsonl"
 # Vagas que a coleta descartou (fora do perfil/da área, vencidas): ficam aqui
 # para voltar à lista se o perfil ficar mais amplo (ver reclassify_output).
@@ -43,6 +45,7 @@ class CleanupRules:
     excluded: bool = True
     expired: bool = True
     max_age_days: int | None = None
+    other_stack: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,10 +53,11 @@ class CleanupRules:
             "excluded": self.excluded,
             "expired": self.expired,
             "max_age_days": self.max_age_days,
+            **({"other_stack": True} if self.other_stack else {}),
         }
 
 
-_RULE_KEYS = {"off_topic", "excluded", "expired", "max_age_days"}
+_RULE_KEYS = {"off_topic", "excluded", "expired", "max_age_days", "other_stack"}
 
 
 def rules_from_dict(payload: Mapping[str, Any]) -> CleanupRules:
@@ -63,7 +67,7 @@ def rules_from_dict(payload: Mapping[str, Any]) -> CleanupRules:
     if unknown:
         raise CleanupError(f"Regras desconhecidas: {sorted(unknown)}.")
     values: dict[str, Any] = {}
-    for key in ("off_topic", "excluded", "expired"):
+    for key in ("off_topic", "excluded", "expired", "other_stack"):
         if key in payload:
             if not isinstance(payload[key], bool):
                 raise CleanupError(f"{key} deve ser verdadeiro ou falso.")
@@ -98,6 +102,7 @@ def save_rules(preferences_path: Path, rules: CleanupRules) -> None:
 
 
 REASON_NAMES = {
+    REASON_OTHER_STACK: "outra stack fora do foco escolhido",
     REASON_OFF_TOPIC: "fora da área de tecnologia",
     REASON_EXCLUDED: "fora do seu perfil (nível, local ou modelo)",
     REASON_EXPIRED: "inscrições encerradas",
@@ -117,17 +122,16 @@ def discard_reason(
 
     active = rules or CleanupRules()
     if max_age_days is not None:
-        active = CleanupRules(
-            active.off_topic, active.excluded, active.expired, max_age_days
-        )
+        active = replace(active, max_age_days=max_age_days)
     max_age_days = active.max_age_days
     labels = job.get("match_labels") or []
     if active.off_topic and "RELEVANCE:OFF_TOPIC" in labels:
         return REASON_OFF_TOPIC
     if active.excluded and fit_state(labels) == "EXCLUDE":
         return REASON_EXCLUDED
-    deadline = parse_iso_datetime(job.get("application_deadline"))
-    if active.expired and deadline is not None and deadline < now:
+    if active.other_stack and fit_state(labels) == "OTHER_STACK":
+        return REASON_OTHER_STACK
+    if active.expired and activity_state(job, now) == CLOSED:
         return REASON_EXPIRED
     if max_age_days is not None:
         published = parse_iso_datetime(job.get("published_at"))

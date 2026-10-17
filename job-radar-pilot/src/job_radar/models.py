@@ -66,6 +66,9 @@ class SearchProfile:
     contract_types: tuple[str, ...] = ()  # CLT, PJ, FREELANCE; vazio = qualquer
     avoid_advanced_english: bool = False
     primary_technologies: tuple[str, ...] = ()
+    # Política opcional: mantém perfis genéricos com o escopo original.
+    development_only: bool = False
+    internship_tracks: tuple[str, ...] = ()
     # Modalidade por região: (("HYBRID", ("sp",)), ("ONSITE", ("sao-carlos-sp",))).
     # Vaga híbrida/presencial fora da região da sua modalidade é excluída; vazio = sem regra.
     workplace_location_scopes: tuple[tuple[str, tuple[str, ...]], ...] = ()

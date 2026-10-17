@@ -409,3 +409,42 @@ details.refine > summary small { flex-basis: 100%; color: var(--muted); font-siz
 
 input[type="checkbox"] { width: 17px; height: 17px; flex: 0 0 17px; accent-color: var(--accent); }
 input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* Áreas de trabalho: decisões sobre vagas primeiro, manutenção em área própria. */
+.workspace-nav { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 18px; }
+.workspace-nav button { min-height:44px; border:1px solid var(--line, #343440); border-radius:10px; padding:10px 16px; background:transparent; color:var(--muted, #b5b5c1); cursor:pointer; font:inherit; }
+.workspace-nav button[aria-pressed="true"] { background:#35271e; color:#ffbd91; border-color:#b46f42; }
+.workspace-nav span { display:inline-block; margin-left:7px; font-size:12px; font-variant-numeric:tabular-nums; }
+.command-bar { padding:18px 0; gap:24px; grid-template-columns:minmax(0, 1fr) auto; }
+.command-bar h1 { font-size:28px; margin-bottom:8px; }
+.focus-copy { color:var(--muted, #b5b5c1); font-size:14px; line-height:1.5; margin:0; }
+.search-action { min-width:240px; }
+.search-action .primary-button { min-height:54px; }
+.summary-grid { grid-template-columns:repeat(3,minmax(0,1fr)); margin:14px 0 22px; }
+.summary-card { min-height:80px; padding:14px 18px; }
+.source-summary { display:none; }
+.summary-card strong { font-size:26px; }
+.result-tools { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; }
+.export-format { display:grid; gap:4px; font-size:12px; color:var(--muted,#b5b5c1); }
+.export-format select { padding:9px; border-radius:8px; background:#202129; color:#efeff3; border:1px solid #474854; }
+#results-workspace > .section-heading { align-items:flex-start; gap:16px; flex-wrap:wrap; }
+#workspace-description { max-width:580px; margin:8px 0 0; font-size:13px; line-height:1.5; }
+.workspace .filters { grid-template-columns:repeat(4,minmax(0,1fr)); position:static; gap:12px; }
+.filters > label { display:grid; gap:6px; min-width:0; color:var(--muted,#b5b5c1); font-size:12px; }
+.filters .search-field { display:grid; align-items:stretch; border:0; background:transparent; padding:0; }
+.filters .search-field input { border:1px solid #474854; background:#202129; border-radius:8px; padding:11px 12px; width:100%; }
+.settings-hub .action-group { margin:20px 0; }
+.settings-hub .secondary-actions { justify-content:flex-start; }
+.settings-hub .action-group-title { display:block; margin-bottom:8px; }
+.focus-policy { border:1px solid #474854; border-radius:10px; padding:16px; }
+.focus-policy .hint { line-height:1.6; }
+.tracking-note { display:grid; gap:8px; margin:16px 0 10px; }
+.tracking-note textarea { width:100%; min-height:85px; resize:vertical; padding:12px; background:#17181e; border:1px solid #555563; border-radius:8px; color:#f1f1f5; font:inherit; }
+.detail-text { white-space:pre-line; max-height:350px; overflow:auto; line-height:1.65; }
+button:focus-visible, a:focus-visible, [role="button"]:focus-visible { outline:2px solid #ffbd91; outline-offset:3px; }
+@media (max-width:900px) { .workspace .filters { grid-template-columns:repeat(2,minmax(0,1fr)); } .command-bar { grid-template-columns:1fr; } .search-action { min-width:0; } }
+@media (max-width:600px) { .workspace-nav { display:grid; grid-template-columns:1fr 1fr; gap:6px; } .workspace-nav button { padding:10px 8px; font-size:13px; } .command-bar h1 { font-size:24px; } .summary-card { padding:12px 10px; min-height:90px; } .summary-card span,.summary-card small { font-size:11px; } .summary-card strong { font-size:23px; } .workspace .filters { grid-template-columns:1fr; } .result-tools { width:100%; } .result-tools .primary-button { flex:1; } }
+
+.filters .search-field > span { position:static; translate:none; font-size:12px; color:var(--muted); }
+
+.topbar { height:76px; }

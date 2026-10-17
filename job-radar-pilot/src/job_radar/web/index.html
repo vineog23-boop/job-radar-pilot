@@ -17,20 +17,17 @@
           <span class="brand-mark" aria-hidden="true">R</span>
           <span>
             <strong>Radar de Vagas</strong>
-            <small>Busca local com Scrapling</small>
+            <small>Encontre, avalie e acompanhe suas vagas</small>
           </span>
         </a>
         <div class="local-badge"><span></span> Rodando neste PC</div>
       </header>
 
+<nav class="workspace-nav" aria-label="Áreas do Radar"><button type="button" data-workspace="opportunities" aria-pressed="true">Oportunidades <span id="count-opportunities">0</span></button><button type="button" data-workspace="review" aria-pressed="false">A conferir <span id="count-review">0</span></button><button type="button" data-workspace="tracking" aria-pressed="false">Candidaturas <span id="count-tracking">0</span></button><button type="button" data-workspace="settings" aria-pressed="false">Configurações</button></nav>
       <section class="hero command-bar">
         <div class="day-flow">
-          <h1>Suas vagas</h1>
-          <ol class="flow-steps" aria-label="Como usar o Radar no dia a dia">
-            <li><strong>1 · Buscar</strong><span>Consulta os portais com o seu perfil (ou deixe a busca agendada fazer isso).</span></li>
-            <li><strong>2 · Revisar</strong><span>Comece pelas "Mais compatíveis"; salve, marque como aplicada ou descarte.</span></li>
-            <li><strong>3 · Exportar</strong><span>A planilha das melhores é salva sozinha após cada busca.</span></li>
-          </ol>
+          <h1 id="workspace-title">Oportunidades para você</h1>
+          <p class="focus-copy">Compatibilidade, disponibilidade e acompanhamento em um só lugar.</p>
           <p id="live-status" class="live-status" aria-live="polite">Carregando resultados locais…</p>
         </div>
         <div class="search-action">
@@ -42,7 +39,19 @@
             <button id="pause-button" class="ghost-button" type="button" title="Congela a busca depois da página atual; retome quando quiser">⏸ Pausar busca</button>
             <button id="stop-button" class="ghost-button danger-button" type="button" title="Encerra a busca e salva o que já foi encontrado">■ Parar e salvar</button>
           </div>
-          <div class="action-group" role="group" aria-labelledby="group-search">
+        </div>
+      </section>
+
+      <p id="verification-status" class="live-status" aria-live="polite"></p>
+
+      <div id="news-banner" class="news-banner" role="status" hidden>
+        <span class="news-dot" aria-hidden="true"></span>
+        <p id="news-text"></p>
+        <button id="news-show" class="ghost-button" type="button">Ver só as novidades</button>
+        <button id="news-dismiss" class="ghost-button" type="button">Marcar como vistas</button>
+      </div>
+
+<section id="settings-hub" class="preferences-panel settings-hub" hidden><h2>Perfil, fontes e manutenção</h2><p class="panel-copy">Ajuste a busca e cuide dos resultados guardados.</p>          <div class="action-group" role="group" aria-labelledby="group-search">
             <span id="group-search" class="action-group-title">Buscar</span>
             <div class="secondary-actions">
               <button id="quick-search-button" class="ghost-button action-button" type="button" title="Consulta só os portais focados em tecnologia (mais rápida)">Busca rápida (TI)</button>
@@ -59,18 +68,7 @@
               <button id="export-button" class="ghost-button action-button export-button" type="button" aria-expanded="false" aria-controls="export-panel">Exportar vagas</button>
             </div>
           </div>
-        </div>
-      </section>
-
-      <p id="verification-status" class="live-status" aria-live="polite"></p>
-
-      <div id="news-banner" class="news-banner" role="status" hidden>
-        <span class="news-dot" aria-hidden="true"></span>
-        <p id="news-text"></p>
-        <button id="news-show" class="ghost-button" type="button">Ver só as novidades</button>
-        <button id="news-dismiss" class="ghost-button" type="button">Marcar como vistas</button>
-      </div>
-
+<button id="explore-all" class="ghost-button" type="button">Ver todos os resultados guardados</button></section>
       <section id="sources-picker" class="preferences-panel" hidden aria-labelledby="sources-picker-title">
         <div class="section-heading">
           <div><p class="eyebrow">PORTAIS</p><h2 id="sources-picker-title">Escolher portais</h2></div>
@@ -183,7 +181,7 @@
             <h4>1. Regras automáticas</h4>
             <small>Valem nas próximas coletas: as vagas descartadas nem são salvas. As que você marcou como salva, aplicada ou descartada são sempre mantidas.</small>
             <label class="check-option"><input id="rule-off-topic" type="checkbox"> Fora de TI</label>
-            <label class="check-option"><input id="rule-excluded" type="checkbox"> Fora do meu perfil (nível, local ou modelo de trabalho)</label>
+            <label class="check-option"><input id="rule-other-stack" type="checkbox"> Fora das tecnologias principais e dos estágios que considero</label><label class="check-option"><input id="rule-excluded" type="checkbox"> Fora do meu perfil (nível, local ou modelo de trabalho)</label>
             <label class="check-option"><input id="rule-expired" type="checkbox"> Inscrições já encerradas</label>
             <label class="inline-field" for="rule-age">Publicadas há mais de
               <select id="rule-age">
@@ -263,7 +261,11 @@
           <button id="profile-save" class="ghost-button" type="button">Salvar como perfil</button>
         </div>
         <form id="preferences-form" class="preferences-form">
-          <p id="profile-summary" class="wide-field profile-summary" aria-live="polite"></p>
+          <p id="profile-summary" class="wide-field profile-summary" aria-live="polite"></p><fieldset class="focus-policy wide-field"><legend>Foco das oportunidades</legend>
+<label class="check-option"><input id="development-only" type="checkbox"> Somente desenvolvimento de software</label>
+<p class="hint">As tecnologias principais definem o foco. As exceções abaixo valem somente para estágio e preservam nível, local e modelo de trabalho.</p>
+<label class="check-option"><input id="internship-ai" type="checkbox"> Estágios em Inteligência Artificial</label>
+<label class="check-option"><input id="internship-full-stack" type="checkbox"> Estágios full stack</label></fieldset>
           <fieldset class="wide-field">
             <legend>1 · Stacks de interesse</legend>
             <small>Marque as áreas que você procura e clique em "Preencher sugestões" para montar as tecnologias e os termos de busca. Não achou a sua? Crie uma stack com as tecnologias que quiser.</small>
@@ -433,32 +435,32 @@
       </section>
 
       <section id="summary-cards" class="summary-grid" aria-label="Resumo da busca">
-        <article class="summary-card accent-card clickable" id="card-all" role="button" tabindex="0" title="Ver todas as vagas de TI"><span>Vagas coletadas</span><strong id="summary-jobs">—</strong><small>registros estruturados</small></article>
-        <article class="summary-card"><span>Portais com resultado</span><strong id="summary-sources">—</strong><small>fontes nesta execução</small></article>
-        <article class="summary-card clickable" id="card-ready" role="button" tabindex="0" title="Ver só as mais compatíveis"><span>Compatíveis</span><strong id="summary-matches">—</strong><small id="summary-review">classificadas como mais compatíveis</small></article>
+        <article class="summary-card accent-card clickable" id="card-all" role="button" tabindex="0" title="Ver oportunidades compatíveis e confirmadas"><span>Prontas para avaliar</span><strong id="summary-jobs">—</strong><small>compatíveis e confirmadas</small></article>
+        <article class="summary-card source-summary"><span>Portais com resultado</span><strong id="summary-sources">—</strong><small>fontes nesta execução</small></article>
+        <article class="summary-card clickable" id="card-ready" role="button" tabindex="0" title="Conferir critérios e disponibilidade"><span>A conferir</span><strong id="summary-matches">—</strong><small id="summary-review">classificadas como mais compatíveis</small></article>
         <article class="summary-card"><span>Última busca</span><strong id="summary-date" class="summary-date">—</strong><small id="summary-time">aguardando dados</small></article>
       </section>
 
-      <section class="workspace">
+      <section id="results-workspace" class="workspace">
         <div class="section-heading">
-          <div><p class="eyebrow">RESULTADOS</p><h2>Vagas encontradas</h2></div>
-          <span class="result-tools">
+          <div><p class="eyebrow">RESULTADOS</p><h2 id="results-title">Prontas para avaliar</h2><p id="workspace-description" class="panel-copy"></p></div>
+          <span class="result-tools"><label class="export-format">Formato<select id="current-export-format"><option value="xlsx">Planilha (.xlsx)</option><option value="csv">CSV</option><option value="markdown">Relatório (.md)</option></select></label><button id="export-current" class="primary-button compact-button" type="button">Exportar resultados</button>
             <button id="clear-filters" class="ghost-button link-button" type="button" hidden>Limpar filtros</button>
             <span id="visible-count" class="result-count">0 vagas</span>
           </span>
         </div>
 
-        <div class="filters" aria-label="Filtros das vagas">
+        <p id="current-export-status" class="preferences-status" aria-live="polite"></p><div class="filters" aria-label="Filtros das vagas">
           <label class="search-field">
-            <span aria-hidden="true">⌕</span>
+            <span>Buscar nas vagas</span>
             <input id="text-filter" type="search" placeholder="Buscar cargo, empresa, tecnologia…  ( / )" autocomplete="off">
           </label>
           <label>
-            <span class="sr-only">Portal</span>
+            <span>Portal</span>
             <select id="source-filter"><option value="">Todos os portais</option></select>
           </label>
           <label>
-            <span class="sr-only">Compatibilidade</span>
+            <span>Compatibilidade</span>
             <select id="match-filter">
               <option value="">Vagas de TI</option>
               <option value="ready">Mais compatíveis</option>
@@ -471,7 +473,7 @@
             </select>
           </label>
           <label>
-            <span class="sr-only">Período de publicação</span>
+            <span>Período de publicação</span>
             <select id="age-filter" title="Filtrar pela data de publicação informada no portal">
               <option value="7">Últimos 7 dias</option>
               <option value="15">Últimos 15 dias</option>
@@ -486,7 +488,7 @@
             <label>até <input id="age-to" type="date"></label>
           </span>
           <label>
-            <span class="sr-only">Situação da vaga</span>
+            <span>Situação da vaga</span>
             <select id="activity-filter">
               <option value="active" selected>Ativas</option>
               <option value="confirmed" title="Página de detalhes verificada nos últimos 7 dias">Disponibilidade confirmada</option>
@@ -496,7 +498,7 @@
             </select>
           </label>
           <label>
-            <span class="sr-only">Ordenar</span>
+            <span>Ordenar</span>
             <select id="sort-order">
               <option value="fit">Melhor aderência</option>
               <option value="recent">Mais recentes</option>
@@ -504,7 +506,7 @@
             </select>
           </label>
           <label>
-            <span class="sr-only">Acompanhamento</span>
+            <span>Acompanhamento</span>
             <select id="tracking-filter">
               <option value="active">Sem descartadas</option>
               <option value="new">Só novas</option>
@@ -547,7 +549,7 @@
         </div>
       </section>
 
-      <section class="sources-panel">
+      <section id="sources-health" class="sources-panel" hidden>
         <div class="section-heading compact">
           <div><p class="eyebrow">COBERTURA</p><h2>Situação dos portais</h2></div>
           <button id="toggle-sources" class="ghost-button" type="button">Ver detalhes</button>

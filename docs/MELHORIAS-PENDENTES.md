@@ -1,6 +1,7 @@
 # Job Radar Pilot — revisões e melhorias pendentes
 
-Backlog para o Claude Code (nuvem ou local). Atualizado em **01/10/2026**, depois das sessões que
+Backlog para o Claude Code (nuvem ou local). A seção de curadoria foi atualizada em
+**17/10/2026**. O retrato histórico de **01/10/2026** abaixo descreve as sessões que
 adicionaram: fontes por API/RSS (Gupy API, Primeira Vaga Tech, Empregos Tech), LinkedIn seguro
 (links + importação), exportação `.xlsx`, menu Limpeza com desfazer, 25 stacks + stacks próprias,
 palavras-chave/empresas/contrato/inglês, reaplicação do perfil às vagas salvas, gerador de termos
@@ -12,6 +13,44 @@ código, teste antes da implementação, um commit por item, branch + PR, README
 o usuário perceber a mudança, e marcar aqui o que foi feito.
 
 ---
+
+### Curadoria fácil — 17/10/2026 — validada e aplicada no macOS
+
+Código validado no checkout isolado e aplicado à instalação local em 17/10/2026.
+Suíte final: **1.325 passaram, 4 ignorados**, Ruff, pip check, sintaxe JavaScript e
+schema da saída aprovados. Não houve nova coleta externa.
+Veja o [guia de implantação](GUIA-IMPLANTACAO-CURADORIA.md).
+
+Implementação aplicada:
+
+- Navegação **Oportunidades / A conferir / Candidaturas / Configurações**;
+  oportunidades exigem detalhe confirmado recente e perfil compatível, enquanto
+  pendências de critério/disponibilidade permanecem em A conferir.
+- Foco opcional em desenvolvimento; tecnologias principais Java/Spring como
+  núcleo, sem transformar SQL ou ferramentas de apoio em outra stack aceita.
+  Exceções explícitas de IA/full stack somente para estágio, preservando as
+  restrições de nível, local, modalidade e exclusões.
+- Limpeza de `OTHER_STACK` somente por opção explícita (`other_stack`, padrão
+  desligado), separada da ocultação dessas vagas na curadoria.
+- Observação no detalhe das vagas acompanhadas e data da candidatura quando
+  registrada; exportação junto à lista preservando área, filtros e ordem.
+- Limpeza de trechos editoriais de descrições e reaplicação pelo botão
+  **Salvar configurações**, sem nova coleta.
+
+Validação e operação:
+
+- [x] Regressões de foco, exceções, limpeza, reclassificação e acompanhamento.
+- [x] Jornada por teclado e navegador, separação entre áreas, notas, download e
+  exportação de 301 resultados mesmo com paginação de 25 linhas.
+- [x] Avaliação da amostra histórica (300 registros) contra 5adbd8f: distribuição
+  preservada com o novo foco desligado (80/40/84/60/36; nenhuma transição).
+- [x] Backup conjunto com hashes, recuperação simulada dos 994 registros da cópia
+  e aplicação real: 1.085 → 630, com 455 arquivados e tracking intacto.
+- [x] Painel reiniciado e pasta de saída compartilhada com Hermes confirmada;
+  busca pessoal ajustada para Java/Spring e estágios IA/full stack.
+- [ ] Confirmar CI no Windows. A execução local foi em macOS.
+- [ ] Calibrar o gabarito humano e monitorar qualidade das descrições de agregadores;
+  compatibilidade automática não valida todas as exigências do anúncio.
 
 ### Qualidade e execução — 16/10/2026
 

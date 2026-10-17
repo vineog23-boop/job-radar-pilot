@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager, nullcontext
+from dataclasses import replace
 import csv
 import io
 import json
@@ -1567,7 +1568,7 @@ def _dashboard_handler(
             self._json(200, self._rules_payload())
 
         def _post_cleanup(self) -> None:
-            from job_radar.cleanup import CleanupRules, clean_output, load_rules
+            from job_radar.cleanup import clean_output, load_rules
 
             try:
                 payload = self._read_json_body()
@@ -1580,9 +1581,7 @@ def _dashboard_handler(
                         or not 1 <= max_age <= 3650
                     ):
                         raise ValueError("max_age_days deve ser um inteiro de 1 a 3650.")
-                    rules = CleanupRules(
-                        rules.off_topic, rules.excluded, rules.expired, max_age
-                    )
+                    rules = replace(rules, max_age_days=max_age)
                 dry_run = bool(payload.get("dry_run", False))
                 if controller.is_running():
                     self._json(409, {"error": "Espere a busca terminar para limpar."})
@@ -1764,13 +1763,16 @@ def _dashboard_handler(
             if path == "/api/tracking":
                 try:
                     payload = self._read_json_body()
-                    entries = tracking_store.set_status(
-                        payload.get("url"),
-                        payload.get("status"),
-                        note=payload.get("note"),
-                        now=datetime.now(timezone.utc),
-                        validate=self._validate_tracking_url,
-                    )
+                    if "note" in payload and "status" not in payload:
+                        entries = tracking_store.set_note(
+                            payload.get("url"), payload["note"],
+                            now=datetime.now(timezone.utc), validate=self._validate_tracking_url,
+                        )
+                    else:
+                        entries = tracking_store.set_status(
+                            payload.get("url"), payload.get("status"), note=payload.get("note"),
+                            now=datetime.now(timezone.utc), validate=self._validate_tracking_url,
+                        )
                 except OutputBusyError as exc:
                     self._json(409, {"error": str(exc)})
                     return

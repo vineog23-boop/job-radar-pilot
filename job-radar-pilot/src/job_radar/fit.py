@@ -55,6 +55,8 @@ def fit_name(job_or_labels: Mapping[str, Any] | Iterable[Any] | None) -> str:
 
 # Motivos em português para a vaga não ser "Mais compatível" (painel, CSV, xlsx).
 REASON_LABELS = (
+    ("ROLE_MISMATCH:", "fora do foco de programação"),
+    ("ROLE:UNKNOWN", "função de programação não confirmada"),
     ("PRIMARY_TECH_MISSING:", "stack principal não confirmada na vaga"),
     ("RELEVANCE:OFF_TOPIC", "fora da área de tecnologia"),
     ("SENIORITY_MISMATCH:", "nível acima do desejado"),

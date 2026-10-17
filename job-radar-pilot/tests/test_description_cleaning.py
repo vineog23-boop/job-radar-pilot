@@ -101,6 +101,53 @@ def test_normal_text_is_untouched() -> None:
 
 
 @pytest.mark.parametrize(
+    "portal_tail",
+    [
+        (
+            "Recursos Premium para Candidatos Curso recomendado: desenvolvimento web. "
+            "Teste recomendado: lógica. Vagas semelhantes para você "
+            "DESENVOLVEDOR(A) JAVA / ANGULAR (SR/ESPE)"
+        ),
+        "Vagas semelhantes para você DESENVOLVEDOR(A) JAVA / ANGULAR (SR/ESPE)",
+    ],
+)
+def test_portal_recommendations_do_not_become_job_requirements(portal_tail: str) -> None:
+    # Sem a fronteira do portal, outra vaga injeta Java nos requisitos de .NET.
+    description = "Desenvolvedor .NET Júnior. Requisitos: C#, ASP.NET e SQL."
+
+    assert clean_description(f"{description} {portal_tail}") == description
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Requisitos: curso recomendado em ADS e conhecimento de Java e Spring.",
+        "Benefícios: cursos e teste recomendado para orientar seu desenvolvimento.",
+        "Você desenvolverá recursos premium para candidatos da plataforma com Java.",
+        "Você criará recomendações de vagas semelhantes para usuários com Spring.",
+    ],
+)
+def test_courses_and_recommendations_in_job_prose_are_preserved(description: str) -> None:
+    assert clean_description(description) == description
+
+
+def test_detail_page_excludes_recommended_jobs_after_premium_section() -> None:
+    description = (
+        "Desenvolvedor .NET Júnior. Responsabilidades: desenvolver APIs com C# e ASP.NET, "
+        "colaborar com o time em revisões de código e manter testes automatizados. "
+        "Requisitos: curso de ADS em andamento, SQL e Git. Benefícios: bolsa de estudos."
+    )
+    page = Adaptor(
+        f"<main><p>{description}</p><h2>Recursos Premium para Candidatos</h2>"
+        "<p>Curso recomendado: web. Teste recomendado: lógica.</p>"
+        "<h2>Vagas semelhantes para você</h2><p>Desenvolvedor Java Sênior</p></main>",
+        url="https://example.com/vaga",
+    )
+
+    assert _main_text(page) == description
+
+
+@pytest.mark.parametrize(
     ("raw", "expected"),
     [
         ("[Job-32006] Junior Java Developer, Brazil", "Junior Java Developer, Brazil"),
@@ -171,3 +218,9 @@ def test_sources_use_description_cleaning() -> None:
     for module in (base, json_api, rss, enrich):
         assert "clean_description" in inspect.getsource(module), module.__name__
     assert SourceKind.GENERIC  # import usado
+
+
+def test_nerdin_premium_promotion_is_not_a_job_requirement():
+    real = "Requisitos: desenvolver APIs com Java e SQL."
+    promo = " Recursos Premium para Candidatos Prepare-se e destaque-se na seleção. Curso recomendado API RESTful Java Spring Boot Teste recomendado .NET/C#"
+    assert clean_description(real + promo) == real

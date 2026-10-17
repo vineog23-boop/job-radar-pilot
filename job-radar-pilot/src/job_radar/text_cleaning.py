@@ -87,6 +87,16 @@ _BACK_LINK = re.compile(r"^(?i:voltar)\s+(?:[A-Z0-9]\s+(?=\S))?")
 # Nenhum dos dois é conteúdo real da vaga; cortar a partir do primeiro sinal.
 _AI_TIPS_SECTION = re.compile(r"\bdicas?\s+importantes\b.*$", re.IGNORECASE | re.DOTALL)
 _CTA_SECTION = re.compile(r"\bpronto para (?:este|esse) desafio\??.*$", re.IGNORECASE | re.DOTALL)
+# Nerdin: cursos, testes e anúncios sugeridos vêm depois da descrição. Exigir
+# o cabeçalho completo e um rótulo de recomendação evita cortar uma frase da
+# própria vaga que fale sobre desenvolver recursos premium para candidatos.
+_PORTAL_RECOMMENDATIONS = re.compile(
+    r"\brecursos\s+premium\s+para\s+candidatos\b"
+    r"(?=.{0,600}?(?:curso\s+recomendado|teste\s+recomendado|"
+    r"vagas\s+semelhantes\s+para\s+voc[eê])\b)"
+    r"|\bvagas\s+semelhantes\s+para\s+voc[eê]\b",
+    re.IGNORECASE,
+)
 
 
 def clean_description(value: str | None) -> str | None:
@@ -103,5 +113,8 @@ def clean_description(value: str | None) -> str | None:
     text = _UI_PHRASES.sub(" ", text)
     text = _AI_TIPS_SECTION.sub("", text)
     text = _CTA_SECTION.sub("", text)
+    recommendations = _PORTAL_RECOMMENDATIONS.search(text)
+    if recommendations is not None:
+        text = text[: recommendations.start()]
     text = " ".join(text.split())
     return text or None

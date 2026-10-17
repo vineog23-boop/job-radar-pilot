@@ -796,18 +796,17 @@ class FetchPolicy:
 
     def fetch(self, url: str, source: SourceConfig) -> FetchResult:
         safe_url = _safe_url(url)
-        # LinkedIn só é acessível pela fonte dedicada (kind: LINKEDIN), que é o
-        # opt-in explícito documentado em sources/linkedin.py. Qualquer outro
-        # caminho continua bloqueado; e mesmo a fonte dedicada respeita
-        # throttle e detecção de bloqueio — só ignora robots.txt/ToS do domínio.
-        linkedin_explicit = source.kind is SourceKind.LINKEDIN
-        if _is_linkedin_domain(url) and not linkedin_explicit:
+        # LinkedIn: sem coleta automatizada em nenhum kind (regras 2 e 3 do
+        # CLAUDE.md). O fluxo seguro é a pesquisa manual + importação colada,
+        # que não passa pelo FetchPolicy. Nenhum kind dispensa robots.txt de
+        # URLs arbitrárias: a verificação vale para todas as fontes.
+        if _is_linkedin_domain(url):
             return FetchResult(
                 status=CollectionStatus.BLOCKED,
                 block_reason=BlockReason.ROBOTS_DENIED,
                 error=f"ROBOTS_DENIED: LinkedIn exige pesquisa manual em {safe_url}",
             )
-        if not linkedin_explicit and not self._is_robots_allowed(url):
+        if not self._is_robots_allowed(url):
             return FetchResult(
                 status=CollectionStatus.BLOCKED,
                 block_reason=BlockReason.ROBOTS_DENIED,

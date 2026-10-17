@@ -138,18 +138,22 @@ def classify_page_text(text: str | None, expected_title: str | None = None) -> s
     return LINK_UNKNOWN
 
 
-def _job_posting_live(html: str, expected_title: str | None) -> bool:
-    def contains_job(value: Any) -> bool:
+def _job_postings(html: str) -> list[dict[str, Any]]:
+    """Todos os JobPosting do ld+json da página (listas e @graph inclusos)."""
+
+    found: list[dict[str, Any]] = []
+
+    def collect(value: Any) -> None:
         if isinstance(value, list):
-            return any(contains_job(item) for item in value)
+            for item in value:
+                collect(item)
+            return
         if not isinstance(value, dict):
-            return False
+            return
         kind = value.get("@type")
         if kind == "JobPosting" or (isinstance(kind, list) and "JobPosting" in kind):
-            return bool(
-                value.get("title") and value.get("description")
-            ) and _identity_matches(str(value["title"]), expected_title)
-        return contains_job(value.get("@graph"))
+            found.append(value)
+        collect(value.get("@graph"))
 
     for body in re.findall(
         r"<script\b[^>]*type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
@@ -157,10 +161,45 @@ def _job_posting_live(html: str, expected_title: str | None) -> bool:
         re.I | re.S,
     ):
         try:
-            if contains_job(json.loads(body)):
-                return True
+            collect(json.loads(body))
         except (ValueError, TypeError):
             continue
+    return found
+
+
+def _job_posting_expired(html: str, expected_title: str | None, now: datetime) -> bool:
+    """JobPosting com ``validThrough`` vencido prova encerramento.
+
+    O prazo estruturado prevalece sobre título, descrição e botão visíveis:
+    portais mantêm o anúncio no ar (e o texto de candidatura) depois do fim.
+    Sem ``validThrough`` não há prova — e nenhuma data é inventada.
+    """
+
+    for posting in _job_postings(html):
+        title = str(posting.get("title") or "")
+        if not _identity_matches(title, expected_title):
+            continue
+        deadline = parse_deadline(
+            posting.get("validThrough") if isinstance(posting.get("validThrough"), str) else None
+        )
+        if deadline and datetime.fromisoformat(deadline) < now:
+            return True
+    return False
+
+
+def _job_posting_live(html: str, expected_title: str | None, now: datetime) -> bool:
+    for posting in _job_postings(html):
+        title = str(posting.get("title") or "")
+        if not (posting.get("title") and posting.get("description")):
+            continue
+        if not _identity_matches(title, expected_title):
+            continue
+        deadline = parse_deadline(
+            posting.get("validThrough") if isinstance(posting.get("validThrough"), str) else None
+        )
+        if deadline and datetime.fromisoformat(deadline) < now:
+            continue  # Prazo vencido nunca confirma vaga no ar.
+        return True
     return False
 
 
@@ -200,8 +239,11 @@ def check_canonical_url(
     source: SourceConfig,
     fetcher: FetchPolicy,
     expected_title: str | None = None,
+    now: datetime | None = None,
 ) -> str:
     """Busca ``url`` agora (sem navegador pesado) e classifica o resultado."""
+
+    moment = now or datetime.now(timezone.utc)
 
     if not source.fetch_details:
         return LINK_UNKNOWN
@@ -244,6 +286,11 @@ def check_canonical_url(
     )
     if original.path.rstrip("/") != final.path.rstrip("/") and listing_destination:
         return LINK_UNKNOWN
+    html = page_html(response)
+    # Prazo/status estruturado encerrado prevalece sobre título, descrição e
+    # botão de candidatura ainda visíveis na página.
+    if _job_posting_expired(html, expected_title, moment):
+        return LINK_DEAD
     text = _visible_response_text(response)
     status = classify_page_text(text, expected_title)
     # Bloqueios e remoções visíveis prevalecem sobre metadados antigos.
@@ -251,12 +298,12 @@ def check_canonical_url(
         return status
     if _blocked_text(text):
         return LINK_UNKNOWN
-    structured = _gupy_job_status(page_html(response), expected_title)
+    structured = _gupy_job_status(html, expected_title)
     if structured is not None:
         return structured
     return (
         LINK_LIVE
-        if _job_posting_live(page_html(response), expected_title)
+        if _job_posting_live(html, expected_title, moment)
         else LINK_UNKNOWN
     )
 
@@ -332,7 +379,7 @@ def verify_records(
                 status = LINK_UNKNOWN
             else:
                 status = check_canonical_url(
-                    record.canonical_url, source, fetcher, expected_title=record.title
+                    record.canonical_url, source, fetcher, expected_title=record.title, now=moment
                 )
             counts[status] += 1
             labels = (

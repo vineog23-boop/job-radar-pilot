@@ -287,7 +287,7 @@ def test_single_api_without_total_and_with_incomplete_items():
     item["application_deadline"] = "2026-11-01"
     result, _ = greenhouse(payload)
     assert result.records[0].description_summary == "Java & Spring"
-    assert result.records[0].application_deadline == "2026-11-01T00:00:00+00:00"
+    assert result.records[0].application_deadline == "2026-11-02T02:59:59+00:00"  # só-data: fim do dia em Brasília
     payload["jobs"].append({})
     payload["meta"]["total"] = 2
     result, _ = greenhouse(payload)

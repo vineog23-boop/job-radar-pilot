@@ -1142,12 +1142,18 @@ def _dashboard_handler(
                 since = query.get("since", [None])[-1]
                 try:
                     entries, version = tracking_store.snapshot()
+                    tracking_error = None
                 except TrackingError as exc:
-                    self._json(500, {"error": str(exc)})
-                    return
+                    # Leitura degradada: as vagas continuam disponíveis e o
+                    # erro fica explícito. O acompanhamento anterior do
+                    # cliente não é substituído por um conjunto vazio.
+                    entries, version = {}, ""
+                    tracking_error = str(exc)
                 state = controller.snapshot(since=since)
                 state["tracking_version"] = version
-                if query.get("tracking_since", [None])[-1] != version:
+                if tracking_error is not None:
+                    state["tracking_error"] = tracking_error
+                elif query.get("tracking_since", [None])[-1] != version:
                     state["tracking"] = entries
                 self._json(200, state)
                 return
@@ -1507,8 +1513,11 @@ def _dashboard_handler(
             settings = load_settings(self._resolved_preferences_path())
             try:
                 tracking = tracking_store.load()
-            except TrackingError:
-                tracking = {}
+            except TrackingError as exc:
+                # Exportação depende de acompanhamento confiável: um arquivo
+                # ilegível nunca vira "ninguém descartou nada".
+                self._json(500, {"error": f"Não foi possível exportar: {exc}"})
+                return
             try:
                 # Botão "Exportar agora": vale mesmo com a automática desligada.
                 files = export_after_collection(

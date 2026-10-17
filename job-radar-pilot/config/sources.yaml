@@ -525,16 +525,16 @@ sources:
         published: first_published
         deadline: application_deadline
         description: content
-  # LinkedIn via API pública de convidado (sem login). OPT-IN explícito: o
-  # robots.txt do LinkedIn não permite /jobs-guest/ e os ToS proíbem coleta
-  # automatizada — uso pessoal de baixo volume, throttling alto, sem detalhe.
-  # O FetchPolicy libera o domínio somente para este kind. Trocar queries por
-  # termos amplos e deixar o classificador filtrar rende mais que muitos
-  # termos específicos (cada termo × localização pagina de novo).
+  # LinkedIn: o robots.txt não permite /jobs-guest/ e os ToS proíbem coleta
+  # automatizada (regras 2 e 3 do CLAUDE.md). A fonte fica DESABILITADA: a
+  # coleta comum do painel não consulta o endpoint guest. O fluxo seguro é a
+  # pesquisa manual no portal + a importação do que a pessoa cola, que não
+  # passa pelo FetchPolicy. O FetchPolicy bloqueia o domínio para qualquer
+  # kind — nenhum kind dispensa robots de URLs arbitrárias.
   - code: linkedin
     kind: linkedin
     start_url: https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search
-    enabled: true
+    enabled: false
     max_pages: 2
     min_interval_seconds: 4
     requires_auth: false

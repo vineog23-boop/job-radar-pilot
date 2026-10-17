@@ -235,7 +235,7 @@ def parse_import(text: str) -> tuple[list[ImportedJob], int]:
 
 
 def _record(job: ImportedJob, profile: SearchProfile, observed_at: str) -> VacancyRecord:
-    title = job.title or f"Vaga do LinkedIn {job.job_id}"
+    title = job.title or f"{_FALLBACK_TITLE_PREFIX} {job.job_id}"
     record = VacancyRecord(
         source=SOURCE_CODE,
         source_job_id=job.job_id,
@@ -249,6 +249,52 @@ def _record(job: ImportedJob, profile: SearchProfile, observed_at: str) -> Vacan
     classified = classify(record, profile, default_country="BR")
     labels = tuple(dict.fromkeys((*classified.match_labels, "IMPORT:MANUAL")))
     return replace(classified, match_labels=labels)
+
+
+_FALLBACK_TITLE_PREFIX = "Vaga do LinkedIn"
+
+
+def _merge_imported_payload(
+    existing: dict[str, Any], new: dict[str, Any]
+) -> dict[str, Any]:
+    """Mescla só informação nova sobre o registro já salvo.
+
+    Um link simples reimportado não pode apagar local, modalidade, publicação,
+    prazo ou enriquecimento anteriores: campos preenchidos do registro atual
+    prevalecem; o que estava vazio recebe o valor novo. Etiquetas são unidas
+    (as independentes, como IMPORT/EXTRACTION, nunca se perdem) e a URL não se
+    duplica porque a mesclagem acontece sobre a mesma chave canônica.
+    """
+
+    def _empty(value: Any) -> bool:
+        return value in (None, "", [], {}, ())
+
+    merged = dict(existing)
+    for key, value in new.items():
+        if key in {"content_hash", "canonical_url", "source", "source_job_id"}:
+            continue
+        if key == "match_labels":
+            merged[key] = list(
+                dict.fromkeys((*existing.get("match_labels", []), *value))
+            )
+            continue
+        if key == "observed_at":
+            merged[key] = value  # visto de novo agora
+            continue
+        if key == "title" and str(merged.get("title") or "").startswith(
+            _FALLBACK_TITLE_PREFIX
+        ):
+            merged["title"] = None  # título sintético não é dado real
+        if _empty(merged.get(key)) or (
+            key == "workplace_model" and merged.get(key) == "UNKNOWN"
+        ):
+            if not _empty(value):
+                merged[key] = value
+    from job_radar.reclassify import record_from_payload
+    from job_radar.output import _record_payload
+
+    merged["content_hash"] = _record_payload(record_from_payload(merged))["content_hash"]
+    return merged
 
 
 def import_into_output(
@@ -274,7 +320,7 @@ def import_into_output(
             by_url[payload["canonical_url"]] = len(payloads) - 1
             added += 1
         elif payloads[index].get("source") == SOURCE_CODE and job.title:
-            payloads[index] = payload
+            payloads[index] = _merge_imported_payload(payloads[index], payload)
             updated += 1
         else:
             skipped += 1

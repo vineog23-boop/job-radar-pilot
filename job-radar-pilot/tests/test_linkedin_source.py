@@ -205,15 +205,17 @@ class TestFetchPolicyLinkedin:
             max_attempts=1,
         )
 
-    def test_fonte_dedicada_passa_apesar_de_robots(self) -> None:
+    def test_fonte_dedicada_tambem_e_bloqueada_por_robots(self) -> None:
+        """Nenhum kind dispensa robots: a coleta automatizada do LinkedIn não
+        acontece nem pela fonte dedicada; o fluxo seguro é importação manual."""
         policy = self._policy(_PAGE_1)
         result = policy.fetch(
             "https://www.linkedin.com/jobs-guest/jobs/api/"
             "seeMoreJobPostings/search?keywords=java&location=Brasil&start=0",
             _source(),
         )
-        assert result.status is CollectionStatus.SUCCESS
-        assert result.response is not None
+        assert result.status is CollectionStatus.BLOCKED
+        assert result.block_reason is BlockReason.ROBOTS_DENIED
 
     def test_outro_kind_continua_bloqueado(self) -> None:
         policy = self._policy(_PAGE_1)
@@ -241,7 +243,8 @@ class TestConfig:
         assert len(linkedin) == 1
         config = linkedin[0]
         assert config.kind is SourceKind.LINKEDIN
-        assert config.enabled
+        # Desabilitada: a coleta comum não consulta o endpoint guest.
+        assert not config.enabled
         assert config.fetch_details is False
         assert config.min_interval_seconds >= 4
         assert config.queries == ()

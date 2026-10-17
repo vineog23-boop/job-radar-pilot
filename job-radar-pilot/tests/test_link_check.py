@@ -331,3 +331,22 @@ def test_gupy_other_job_title_does_not_confirm():
     url = "https://empresa.gupy.io/jobs/4"
     fetcher = _ScriptedFetcher({url: _GUPY % ("published", "null")})
     assert check_canonical_url(url, _source("gupy"), fetcher, expected_title="Analista de Marketing Pleno") == LINK_UNKNOWN
+
+
+def test_expired_validthrough_prevails_over_visible_apply_button():
+    """JobPosting com prazo de 2020 não pode virar LIVE por causa do botão."""
+    from job_radar.link_check import check_canonical_url
+    url = 'https://x.com.br/jobs/2'
+    html = '''<html><body>Vaga Java requisitos responsabilidades candidate-se agora.
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Java Junior","description":"Requisitos Java e Spring Boot","validThrough":"2020-01-01"}</script></body></html>'''
+    fetcher = _ScriptedFetcher({url: html})
+    assert check_canonical_url(url, _source(), fetcher, expected_title='Java Junior') == LINK_DEAD
+
+
+def test_future_validthrough_keeps_live_and_missing_deadline_invents_nothing():
+    from job_radar.link_check import check_canonical_url
+    url = 'https://x.com.br/jobs/3'
+    future = '2999-12-31'
+    live = '''<html><body>Oportunidade<script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Java Junior","description":"Requisitos Java","validThrough":"''' + future + '''"}</script></body></html>'''
+    fetcher = _ScriptedFetcher({url: live})
+    assert check_canonical_url(url, _source(), fetcher, expected_title='Java Junior') == LINK_LIVE

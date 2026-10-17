@@ -316,3 +316,40 @@ def test_automatic_best_excludes_expired_even_without_age_window(tmp_path: Path)
     assert 'Dev Java Júnior' not in (folder / 'ultima-busca.md').read_text(encoding='utf-8-sig')
     # A exportação completa de TI conserva também os registros encerrados.
     assert 'Dev Java Júnior' in (folder / 'todas-de-ti-2026-10-01-0830.csv').read_text(encoding='utf-8-sig')
+
+
+def test_valid_empty_collection_refreshes_latest_files(tmp_path: Path) -> None:
+    """Coleta com vagas seguida de coleta válida vazia: arquivos fixos mostram
+    zero vagas e data nova; históricos anteriores permanecem."""
+    output = tmp_path / "output"
+    _write_output(output)
+    (output / "relatorio-execucao.json").write_text(
+        json.dumps({"sources": []}), encoding="utf-8"
+    )
+    folder = tmp_path / "exports"
+    settings = AutoExportSettings(enabled=True, folder=folder)
+
+    first = export_after_collection(output, settings, dict(TRACKING), now=NOW)
+    assert folder.joinpath("ultima-busca.xlsx") in first
+    stamped = sorted(folder.glob("melhores-vagas-*.xlsx"))
+    assert stamped
+
+    # Segunda coleta: nenhuma vaga de TI elegível, mas o relatório existe.
+    (output / "vagas.jsonl").write_text("", encoding="utf-8")
+    later = NOW.replace(day=2)
+    second = export_after_collection(output, settings, {}, now=later)
+    assert set(second) == {folder / "ultima-busca.xlsx", folder / "ultima-busca.md"}
+    assert _xlsx_titles(folder / "ultima-busca.xlsx") == []
+    assert "02/10/2026" in (folder / "ultima-busca.md").read_text("utf-8-sig")
+    # Históricos da primeira coleta não foram apagados nem recriados vazios.
+    assert sorted(folder.glob("melhores-vagas-*.xlsx")) == stamped
+
+
+def test_no_collection_at_all_does_not_invent_date(tmp_path: Path) -> None:
+    """Sem relatório de execução, a primeira coleta nunca aconteceu: nada muda."""
+    output = tmp_path / "output"
+    output.mkdir()
+    folder = tmp_path / "exports"
+    settings = AutoExportSettings(enabled=True, folder=folder)
+    assert export_after_collection(output, settings, {}, now=NOW) == []
+    assert not (folder / "ultima-busca.xlsx").exists()

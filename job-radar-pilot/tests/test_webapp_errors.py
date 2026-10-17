@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from threading import Event, Thread
 from urllib.error import HTTPError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -78,3 +78,39 @@ def test_control_reports_disk_error_instead_of_crashing(tmp_path: Path, monkeypa
         controller.wait(timeout=5)
 
     assert error is not None and "arquivo de controle travado" in error
+
+
+def test_state_degrades_with_explicit_error_when_tracking_unreadable(server) -> None:
+    """Tracking corrompido não impede a leitura das vagas: 200 com erro explícito."""
+    base, _ = server
+    tracking_file = Path(server[1].output_dir).parent / "prefs" / "tracking.json"
+    tracking_file.parent.mkdir(parents=True, exist_ok=True)
+    tracking_file.write_text("{quebrado", encoding="utf-8")
+
+    status, payload = _get(f"{base}/api/state")
+
+    assert status == 200
+    assert "tracking_error" in payload
+    assert "jobs" in payload
+
+
+def test_auto_export_run_is_blocked_when_tracking_unreadable(server) -> None:
+    base, _ = server
+    tracking_file = Path(server[1].output_dir).parent / "prefs" / "tracking.json"
+    tracking_file.parent.mkdir(parents=True, exist_ok=True)
+    tracking_file.write_text("{quebrado", encoding="utf-8")
+
+    request = Request(
+        f"{base}/api/auto-export/run",
+        data=b"{}",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=3) as response:
+            status, payload = response.status, json.loads(response.read())
+    except HTTPError as error:
+        status, payload = error.code, json.loads(error.read())
+
+    assert status == 500
+    assert "error" in payload

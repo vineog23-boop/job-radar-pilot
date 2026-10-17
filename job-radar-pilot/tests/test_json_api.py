@@ -225,3 +225,43 @@ def test_querovagastech_maps_api_item_to_record() -> None:
     assert record.workplace_model is WorkplaceModel.REMOTE
     assert record.published_at is not None and record.published_at.startswith("2026-09-24T23:13:56")
     assert record.employment_type == "CLT"
+
+
+def test_paginated_api_with_unreadable_item_is_partial_not_success() -> None:
+    """Dois itens, um ilegível: PARTIAL com o registro legível preservado."""
+    broken = _item(99, name="")
+    fetcher = _Fetcher([{"data": [_item(1), broken]}, {"data": []}])
+    result = JsonApiAdapter().collect(_source(), fetcher)  # type: ignore[arg-type]
+    assert result.status is CollectionStatus.PARTIAL
+    assert result.stop_reason == "PARSE_INCOMPLETE"
+    assert [r.source_job_id for r in result.records] == ["1"]
+    assert result.errors
+
+
+def test_legitimate_duplicates_do_not_count_as_extraction_errors() -> None:
+    repeated = _item(1)
+    fetcher = _Fetcher([{"data": [_item(1), repeated]}, {"data": [_item(2)]}])
+    result = JsonApiAdapter().collect(_source(), fetcher)  # type: ignore[arg-type]
+    assert result.status is CollectionStatus.SUCCESS
+    assert [r.source_job_id for r in result.records] == ["1", "2"]
+
+
+def test_date_only_deadline_lasts_until_end_of_day_brasilia() -> None:
+    """17/10 só-data não pode aparecer vencido às 09h de Brasília do dia 17."""
+    record = record_from_item(
+        _item(5, publishedDate="2026-10-15T10:00:00.000Z"),
+        _source(),
+        "2026-10-16T00:00:00+00:00",
+    )
+    assert record is not None
+    fields = dict(FIELDS, deadline="deadline")
+    config = _source()
+    config.api["fields"] = fields  # type: ignore[index]
+    item = _item(5, deadline="2026-10-17")
+    record = record_from_item(item, config, "2026-10-16T00:00:00+00:00")
+    assert record is not None
+    assert record.application_deadline == "2026-10-18T02:59:59+00:00"
+    item_ts = _item(6, deadline="2026-10-17T15:00:00+00:00")
+    record_ts = record_from_item(item_ts, config, "2026-10-16T00:00:00+00:00")
+    assert record_ts is not None
+    assert record_ts.application_deadline == "2026-10-17T15:00:00+00:00"

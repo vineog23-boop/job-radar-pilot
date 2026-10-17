@@ -206,3 +206,74 @@ def test_deduplicate_keeps_generic_titles_and_same_source_positions() -> None:
 
     assert result.unique == (first, second)
     assert result.duplicate_count == 0
+
+
+def test_deduplicate_keeps_same_ats_distinct_requisitions() -> None:
+    """Gupy 101 e 202 com mesmo cargo/empresa/local são vagas distintas."""
+    first = replace(
+        _record(
+            source_job_id="101",
+            url="https://acme.gupy.io/jobs/101",
+            title="Desenvolvedor Java Pleno",
+            company="Acme",
+            location="São Paulo, SP",
+        ),
+        source="gupy",
+    )
+    second = replace(
+        _record(
+            source_job_id="202",
+            url="https://acme.gupy.io/jobs/202",
+            title="Desenvolvedor Java Pleno",
+            company="Acme",
+            location="São Paulo, SP",
+        ),
+        source="gupy",
+    )
+
+    result = deduplicate([first, second])
+
+    assert len(result.unique) == 2
+    assert {record.source_job_id for record in result.unique} == {"101", "202"}
+    assert result.duplicate_count == 0
+
+
+def test_deduplicate_keeps_two_tracked_urls_of_same_position() -> None:
+    """Duas URLs acompanhadas não se fundem: nenhuma candidatura some da base."""
+    first = replace(
+        _record(url="https://nerdin.example.com/vaga/1", title="Dev Java Jr", company="Acme"),
+        source="nerdin",
+    )
+    second = replace(
+        _record(url="https://trampos.example.com/vaga/9", title="Dev Java Jr", company="Acme"),
+        source="trampos",
+    )
+
+    result = deduplicate(
+        [first, second],
+        preferred_urls=(first.canonical_url, second.canonical_url),
+    )
+
+    assert {record.canonical_url for record in result.unique} == {
+        "https://nerdin.example.com/vaga/1",
+        "https://trampos.example.com/vaga/9",
+    }
+    assert result.duplicate_count == 0
+
+
+def test_deduplicate_still_merges_proven_repost_without_distinct_ids() -> None:
+    """Republicação (mesmo portal, sem IDs conflitantes) continua agrupável."""
+    first = replace(
+        _record(url="https://nerdin.example.com/vaga/1", title="Dev Java Jr", company="Acme"),
+        source="nerdin",
+    )
+    second = replace(
+        _record(url="https://nerdin.example.com/vaga/2", title="Dev Java Jr", company="Acme"),
+        source="nerdin",
+    )
+
+    result = deduplicate([first, second])
+
+    assert len(result.unique) == 1
+    assert "REPOSTED:1" in result.unique[0].match_labels
+    assert result.duplicate_count == 1

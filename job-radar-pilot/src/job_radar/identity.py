@@ -254,6 +254,32 @@ def _choose_keeper(records: list[VacancyRecord], cluster: list[int], preferred: 
     return min(candidates)
 
 
+def _must_stay_separate(
+    first: VacancyRecord, second: VacancyRecord, preferred: set[str]
+) -> bool:
+    """Evidência de oportunidades distintas que nunca se fundem.
+
+    Requisição não é sinônimo de cargo: dentro do mesmo ATS, IDs distintos
+    indicam vagas distintas (equipe, contrato ou requisição própria). E duas
+    URLs que a pessoa acompanha precisam continuar acessíveis — fundir uma
+    delas tiraria uma candidatura da base.
+    """
+
+    if (
+        first.source == second.source
+        and first.source_job_id
+        and second.source_job_id
+        and first.source_job_id.strip() != second.source_job_id.strip()
+    ):
+        return True
+    first_url = canonicalize_url(first.canonical_url)
+    second_url = canonicalize_url(second.canonical_url)
+    return bool(
+        first_url and second_url and first_url != second_url
+        and first_url in preferred and second_url in preferred
+    )
+
+
 def _merge_cross_source_semantic_duplicates(
     records: list[VacancyRecord],
     preferred_urls: Collection[str] = (),
@@ -289,7 +315,14 @@ def _merge_cross_source_semantic_duplicates(
                 continue
             keeper = _choose_keeper(records, cluster, preferred)
             kept = records[keeper]
-            others = [index for index in cluster if index != keeper]
+            others = [
+                index
+                for index in cluster
+                if index != keeper
+                and not _must_stay_separate(kept, records[index], preferred)
+            ]
+            if not others:
+                continue
             other_sources = sorted({records[index].source for index in others} - {kept.source})
             reposts = sum(1 for index in others if records[index].source == kept.source)
             extra = [f"ALSO_SEEN_IN:{source}" for source in other_sources]

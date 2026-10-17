@@ -126,7 +126,36 @@ def export_after_collection(
     moment = now or datetime.now().astimezone()
     all_it = filter_jobs_for_export(output["jobs"], match="", tracked="active", tracking=tracked, now=moment)
     if not all_it:
-        return []
+        # Coleta válida sem vagas: os arquivos fixos precisam mostrar zero
+        # vagas e a data nova — caso contrário a planilha anterior continua
+        # parecendo atual. Sem relatório de execução, nunca houve coleta:
+        # não inventar data nem apagar exportações anteriores.
+        report = output["report"] if isinstance(output["report"], dict) else {}
+        if not report:
+            return []
+        folder = settings.resolved_folder
+        folder.mkdir(parents=True, exist_ok=True)
+        empty_workbook = build_jobs_xlsx(
+            [],
+            tracked,
+            filters=describe_export_filters(match="fit", tracked="active"),
+            reasons_for=fit_reasons,
+            now=moment,
+        )
+        report_sources = report.get("sources", [])
+        if not isinstance(report_sources, list):
+            report_sources = []
+        empty_markdown = build_markdown_report(
+            [],
+            generated_at=moment.strftime("%d/%m/%Y %H:%M"),
+            sources=report_sources,
+            applied_filters={"match": "fit", "tracked": "active"},
+        ).encode("utf-8-sig")
+        latest_path = folder / LATEST_NAME
+        latest_markdown_path = folder / LATEST_MD_NAME
+        _write_bytes(latest_path, empty_workbook)
+        _write_bytes(latest_markdown_path, empty_markdown)
+        return [latest_path, latest_markdown_path]
     best = filter_jobs_for_export(all_it, match="fit", tracking=tracked, now=moment)
 
     stamp = moment.strftime("%Y-%m-%d-%H%M")

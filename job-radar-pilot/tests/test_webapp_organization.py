@@ -69,9 +69,11 @@ def test_state_corrupt_tracking_does_not_publish_empty_snapshot(radar):
     base, _, store, _ = radar
     store._path.write_text('{quebrado')
     status, payload = api(base, '/api/state')
-    assert status == 500
-    assert 'error' in payload
-    assert 'tracking_version' not in payload
+    # Leitura degradada: vagas continuam disponíveis, erro explícito e o
+    # acompanhamento conhecido nunca é substituído por um snapshot vazio.
+    assert status == 200
+    assert 'tracking_error' in payload
+    assert 'tracking' not in payload
 
 
 def test_tracking_rejects_url_removed_since_screen(radar):

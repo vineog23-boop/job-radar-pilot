@@ -272,3 +272,28 @@ def test_dashboard_linkedin_panel_links_period_and_import(tmp_path: Path) -> Non
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_reimporting_bare_link_preserves_existing_location_and_model(tmp_path: Path) -> None:
+    """Alerta completo seguido de link simples não pode perder Remoto/REMOTE."""
+    profile = load_profile(PROJECT / "config" / "profile.yaml")
+    full = import_into_output(
+        tmp_path,
+        "Dev Java Pleno\nAcme · Remoto\nhttps://www.linkedin.com/jobs/view/4023456789\n",
+        profile,
+    )
+    assert full["added"] == 1
+    before = json.loads((tmp_path / "vagas.jsonl").read_text("utf-8").splitlines()[0])
+    assert before["location"] == "Remoto"
+    assert before["workplace_model"] == "REMOTE"
+
+    import_into_output(
+        tmp_path, "https://www.linkedin.com/jobs/view/4023456789\n", profile
+    )
+    rows = [json.loads(line) for line in (tmp_path / "vagas.jsonl").read_text("utf-8").splitlines()]
+    assert len(rows) == 1
+    after = rows[0]
+    assert after["location"] == "Remoto"
+    assert after["workplace_model"] == "REMOTE"
+    assert after["title"] == "Dev Java Pleno"
+    assert "IMPORT:MANUAL" in after["match_labels"]

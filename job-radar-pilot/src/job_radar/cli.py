@@ -389,8 +389,11 @@ def _auto_export(output_dir: Path) -> None:
 
     try:
         tracking = TrackingStore().load()
-    except TrackingError:
-        tracking = {}
+    except TrackingError as exc:
+        # Nunca exportar assumindo acompanhamento vazio: descartadas
+        # poderiam voltar à planilha. A coleta já foi salva; só avisar.
+        print(f"WARNING: exportacao automatica bloqueada: {exc}", file=sys.stderr, flush=True)
+        return
     try:
         written = export_after_collection(output_dir, load_settings(preferences_path()), tracking)
     except (OSError, ValueError) as exc:

@@ -343,20 +343,24 @@ def backup_info(output_dir: Path) -> dict[str, Any] | None:
 
 
 def undo_cleanup(output_dir: Path) -> dict[str, Any]:
-    """Devolve à lista as vagas removidas na última limpeza (sem duplicar)."""
+    """Devolve à lista as vagas removidas na última limpeza (sem duplicar).
+
+    Backup total ou parcialmente ilegível é erro acionável: nada é restaurado,
+    a saída atual não é tocada e o backup é preservado byte a byte — nunca se
+    "conserta" corrupção gravando um conjunto vazio sobre o material original.
+    """
 
     from job_radar.output import rewrite_payloads
 
     backup_path = output_dir / BACKUP_NAME
     if not backup_path.exists():
         raise CleanupError("Não há limpeza para desfazer.")
+    backup_jobs = read_jobs_for_rewrite(backup_path)  # leitura estrita
     current_path = output_dir / "vagas.jsonl"
     current = read_jobs_for_rewrite(current_path) if current_path.exists() else []
     present = {str(job.get("canonical_url")) for job in current}
     restored = [
-        job
-        for job in _read_payloads(backup_path)
-        if str(job.get("canonical_url")) not in present
+        job for job in backup_jobs if str(job.get("canonical_url")) not in present
     ]
     if restored:
         output_dir.mkdir(parents=True, exist_ok=True)

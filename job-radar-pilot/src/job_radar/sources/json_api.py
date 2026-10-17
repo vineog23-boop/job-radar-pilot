@@ -17,6 +17,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from job_radar.adaptive import AdaptiveCardLocator
+from job_radar.dates import parse_deadline
 from job_radar.fetching import BlockReason, FetchPolicy
 from job_radar.identity import canonicalize_url
 from job_radar.text_cleaning import clean_description
@@ -49,6 +50,20 @@ _EMPLOYMENT_NAMES = {
     "vacancy_type_talent_pool": "Banco de talentos",
     "vacancy_type_pj": "PJ",
 }
+
+
+def _deadline_iso(value: Any) -> str | None:
+    """Prazo de candidatura: só-data vale até 23:59:59 de Brasília.
+
+    ``to_iso_datetime`` (conversor de publicação) marcaria 00h UTC e a vaga
+    apareceria encerrada na manhã do próprio dia; timestamp explícito mantém
+    seu instante. Formatos fora do ISO caem no conversor legado.
+    """
+
+    text = clean_text(value)
+    if not text:
+        return None
+    return parse_deadline(text) or to_iso_datetime(text)
 
 
 def get_path(data: Any, path: str) -> Any:
@@ -175,7 +190,7 @@ def record_from_item(
         remote_scope=remote_scope,
         published_at=to_iso_datetime(value("published")),
         observed_at=observed_at,
-        application_deadline=to_iso_datetime(value("deadline")),
+        application_deadline=_deadline_iso(value("deadline")),
         evidence_snippets=(title,),
     )
 
@@ -217,6 +232,7 @@ class JsonApiAdapter:
         visited: list[str] = []
         seen_ids: set[str] = set()
         items_observed = 0
+        parse_failures = 0
 
         def result(
             status: CollectionStatus,
@@ -271,14 +287,20 @@ class JsonApiAdapter:
                 )
             items_observed += len(items)
             new_on_page = 0
+            page_duplicates = 0
             for item in items:
                 if not isinstance(item, dict):
+                    parse_failures += 1
                     continue
                 record = record_from_item(item, config, observed_at)
                 if record is None:
+                    # Item ilegível é perda de extração: nunca passa em silêncio.
+                    parse_failures += 1
                     continue
                 key = record.source_job_id or record.canonical_url
                 if key in seen_ids:
+                    # Duplicata legítima tem contador próprio: não é falha.
+                    page_duplicates += 1
                     continue
                 seen_ids.add(key)
                 records.append(record)
@@ -291,13 +313,27 @@ class JsonApiAdapter:
                     or total < 0 or total != len(items)
                 ):
                     return result(CollectionStatus.PARTIAL, "TOTAL_MISMATCH", has_more=True)
-                if items and not records:
+                if items and not records and parse_failures:
                     return result(CollectionStatus.ERROR, "PARSE_ZERO_RECORDS")
-                if len(records) != len(items):
-                    return result(CollectionStatus.PARTIAL, "PARSE_INCOMPLETE", has_more=True)
+                if parse_failures:
+                    return result(
+                        CollectionStatus.PARTIAL,
+                        "PARSE_INCOMPLETE",
+                        has_more=True,
+                        errors=(f"{parse_failures} item(ns) ilegível(is) na extração",),
+                    )
                 break
             if not items:
                 break
+            if new_on_page == 0 and not page_duplicates and parse_failures:
+                # Página inteira ilegível: parar aqui e marcar a fonte como
+                # parcial, preservando o que já foi extraído das anteriores.
+                return result(
+                    CollectionStatus.PARTIAL,
+                    "PARSE_INCOMPLETE",
+                    has_more=True,
+                    errors=(f"{parse_failures} item(ns) ilegível(is) na extração",),
+                )
             if new_on_page == 0:
                 # O servidor ignorou a paginação e repetiu a página.
                 return result(CollectionStatus.PARTIAL, "PAGINATION_LOOP", has_more=True)
@@ -308,4 +344,11 @@ class JsonApiAdapter:
 
         if not records:
             return result(CollectionStatus.EMPTY, "NO_RESULTS")
+        if parse_failures:
+            return result(
+                CollectionStatus.PARTIAL,
+                "PARSE_INCOMPLETE",
+                has_more=True,
+                errors=(f"{parse_failures} item(ns) ilegível(is) na extração",),
+            )
         return result(CollectionStatus.SUCCESS)

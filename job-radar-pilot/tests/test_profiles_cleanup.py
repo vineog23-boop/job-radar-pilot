@@ -805,3 +805,71 @@ def test_preset_suggestions_include_coherent_alternative_primaries():
     assert {'java junior', 'python junior'} <= set(combined['search_terms'])
     frontend = suggest(['frontend'], ['junior'])
     assert frontend['primary_technologies'] == ['react', 'angular', 'vue']
+
+
+def test_undo_cleanup_with_corrupt_backup_keeps_everything(tmp_path: Path) -> None:
+    """Backup ilegível: erro acionável, saída e backup byte a byte intactos."""
+    import json as _json
+
+    from job_radar.cleanup import BACKUP_NAME, CleanupError, undo_cleanup
+
+    job = {"canonical_url": "https://a.example.com/1", "title": "Dev Java"}
+    output_dir = tmp_path
+    (output_dir / "vagas.jsonl").write_text(
+        _json.dumps(job, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    backup_content = (
+        _json.dumps({"canonical_url": "https://a.example.com/2", "title": "Dev"})
+        + "\n{linha quebrada\n"
+    )
+    backup_path = output_dir / BACKUP_NAME
+    backup_path.write_text(backup_content, encoding="utf-8")
+    before_output = (output_dir / "vagas.jsonl").read_bytes()
+
+    with pytest.raises(CleanupError):
+        undo_cleanup(output_dir)
+
+    assert (output_dir / "vagas.jsonl").read_bytes() == before_output
+    assert backup_path.read_bytes() == backup_content.encode("utf-8")
+
+
+def test_undo_cleanup_with_valid_backup_restores_without_duplicates(tmp_path: Path) -> None:
+    import json as _json
+
+    from job_radar.cleanup import BACKUP_NAME, undo_cleanup
+    from job_radar.models import VacancyRecord
+    from job_radar.output import _record_payload
+
+    def _payload(url: str, title: str) -> dict:
+        return _record_payload(
+            VacancyRecord(
+                source="example",
+                source_job_id=None,
+                canonical_url=url,
+                title=title,
+                company="Acme",
+                observed_at="2026-10-16T00:00:00+00:00",
+            )
+        )
+
+    current_job = _payload("https://a.example.com/1", "Dev Java")
+    removed = _payload("https://a.example.com/2", "Dev Python")
+    (tmp_path / "vagas.jsonl").write_text(
+        _json.dumps(current_job, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    backup_path = tmp_path / BACKUP_NAME
+    backup_path.write_text(
+        _json.dumps(current_job, ensure_ascii=False) + "\n"
+        + _json.dumps(removed, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    result = undo_cleanup(tmp_path)
+
+    assert result == {"restored": 1, "total": 2}
+    rows = [_json.loads(line) for line in (tmp_path / "vagas.jsonl").read_text("utf-8").splitlines()]
+    assert [row["canonical_url"] for row in rows] == [
+        "https://a.example.com/1",
+        "https://a.example.com/2",
+    ]
+    assert not backup_path.exists()

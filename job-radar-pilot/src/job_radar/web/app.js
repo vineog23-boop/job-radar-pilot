@@ -867,6 +867,7 @@ function textElement(tag, className, text) {
 const WORKPLACE_LABELS = { REMOTE: "Remoto", HYBRID: "Híbrido", ONSITE: "Presencial" };
 
 function renderTable() {
+  lastTableMinute = Math.floor(Date.now() / 60000);
   const active = document.activeElement;
   const activeRow = active?.closest("[data-job-url]");
   const focus = activeRow && { url: activeRow.dataset.jobUrl,
@@ -1354,6 +1355,9 @@ function render() {
 // Versão do vagas.jsonl já desenhada: o servidor só manda as vagas se ela mudou.
 let outputVersion = "";
 let trackingVersion = "";
+// Minuto do último desenho da tabela: prazo, recência e validade da checagem
+// dependem do relógio, então o polling precisa redesenhar mesmo sem vaga nova.
+let lastTableMinute = Math.floor(Date.now() / 60000);
 
 async function refreshState() {
   window.clearTimeout(refreshTimer);
@@ -1363,11 +1367,24 @@ async function refreshState() {
     if (trackingVersion) params.set("tracking_since", trackingVersion);
     const query = params.size ? `?${params}` : "";
     const response = await fetch(`/api/state${query}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const payload = await response.json();
+        if (payload?.error) detail = payload.error;
+      } catch { /* resposta sem corpo JSON */ }
+      throw new Error(`Não foi possível atualizar o painel: ${detail}`);
+    }
     const fresh = await response.json();
-    const trackingChanged = Object.hasOwn(fresh, "tracking");
+    // Acompanhamento ilegível no servidor: as vagas continuam visíveis, o
+    // erro é explícito e o tracking conhecido não é substituído por vazio.
+    const trackingUnreadable = typeof fresh.tracking_error === "string";
+    if (trackingUnreadable) {
+      elements.liveStatus.textContent = `Acompanhamento indisponível: ${fresh.tracking_error}`;
+    }
+    const trackingChanged = !trackingUnreadable && Object.hasOwn(fresh, "tracking");
     if (trackingChanged) trackingState = fresh.tracking;
-    trackingVersion = fresh.tracking_version || "";
+    trackingVersion = fresh.tracking_version || trackingVersion;
     if (fresh.unchanged) {
       // Mesmas vagas: atualiza progresso e resumo sem recriar a tabela (mantém
       // o foco do teclado e as linhas expandidas).
@@ -1377,7 +1394,9 @@ async function refreshState() {
         report: dashboardState.report,
         read_error: dashboardState.read_error,
       };
-      if (trackingChanged) {
+      if (trackingChanged || Math.floor(Date.now() / 60000) !== lastTableMinute) {
+        // Tracking mudou ou o relógio cruzou prazo/período/validade: a tabela
+        // e os contadores precisam acompanhar mesmo com as mesmas vagas.
         renderTable();
         renderFunnel();
         renderNews();
@@ -1391,7 +1410,10 @@ async function refreshState() {
     }
     outputVersion = fresh.output_version || "";
   } catch (error) {
-    elements.liveStatus.textContent = `Interface sem conexão com o coletor: ${error.message}`;
+    // Falha de rede é "sem conexão"; erro HTTP traz o motivo explícito do servidor.
+    elements.liveStatus.textContent = error instanceof TypeError
+      ? `Interface sem conexão com o coletor: ${error.message}`
+      : error.message;
   }
   const delay = dashboardState.status === "RUNNING" || dashboardState.verification?.status === "RUNNING" ? 900 : 5000;
   refreshTimer = window.setTimeout(refreshState, delay);
@@ -2863,8 +2885,12 @@ document.addEventListener("keydown", (event) => {
     [showExport, showLinkedin, showPreferences, showCleanup].forEach((close) => close(false));
     if (!elements.sourcesPicker.hidden) showSourcesPicker(false);
     if (document.activeElement === elements.textFilter && elements.textFilter.value) {
+      // Escape limpa somente o texto digitado; período, situação e
+      // acompanhamento só mudam pela ação explícita "Limpar todos".
       elements.textFilter.value = "";
-      resetFilters();
+      saveFilters();
+      visibleRows = ROW_PAGE_SIZE;
+      renderTable();
     }
   }
 });

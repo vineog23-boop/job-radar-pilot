@@ -88,3 +88,32 @@ def test_dashboard_details_clear_filters_cards_and_memory(tmp_path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_escape_clears_only_the_search_text(tmp_path) -> None:
+    """Escape no campo de busca não redefine período, situação nem acompanhamento."""
+    from playwright.sync_api import sync_playwright
+
+    server, thread = _serve(tmp_path)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.server_port}/")
+            page.evaluate("localStorage.removeItem('radar.filters')")
+            page.reload()
+            page.wait_for_selector("#jobs-table-body tr")
+
+            page.select_option("#tracking-filter", "applied")
+            page.select_option("#age-filter", "")
+            page.fill("#text-filter", "java")
+            page.keyboard.press("Escape")
+
+            assert page.locator("#text-filter").input_value() == ""
+            assert page.locator("#tracking-filter").input_value() == "applied"
+            assert page.locator("#age-filter").input_value() == ""
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

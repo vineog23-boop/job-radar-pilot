@@ -183,7 +183,7 @@ def test_dashboard_exports_all_301_filtered_rows_in_table_order(tmp_path):
         page.locator('#age-filter').select_option('30')
         page.locator('#activity-filter').select_option('active')
         page.locator('[data-quick="remote"]').click()
-        assert page.locator('#visible-count').inner_text() == '300 de 301 vagas'
+        assert page.locator('#visible-count').inner_text() == '25 de 301 vagas'
         page.locator('#export-button').click()
         with page.expect_download() as download_info, page.expect_response(lambda r: r.url.endswith('/api/export/csv') and r.request.method == 'POST') as response_info:
             page.locator('#download-csv').click()

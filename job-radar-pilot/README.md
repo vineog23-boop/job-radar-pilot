@@ -4,8 +4,8 @@ Ferramenta local para encontrar vagas, conferir requisitos e acompanhar candidat
 com exportação da seleção para planilha, CSV ou relatório. O projeto usa o Scrapling
 `v0.4.15`, instalado a partir do clone oficial fixado em `vendor/Scrapling`.
 
-O fluxo de curadoria descrito abaixo corresponde ao código em desenvolvimento.
-Sua instalação e validação no computador do usuário são etapas separadas. Veja o
+O fluxo de curadoria abaixo foi validado e aplicado no macOS em 17/10/2026.
+Para instalar em outra máquina e conferir os requisitos, veja o
 [guia de implantação e reversão](../docs/GUIA-IMPLANTACAO-CURADORIA.md).
 
 ## Uso rapido

@@ -1,7 +1,7 @@
 # Curadoria do Radar: uso, instalação e recuperação
 
-Este guia acompanha a versão com quatro áreas. O procedimento abaixo não registra
-uma implantação concluída nem substitui o resultado dos testes do código final.
+Este guia explica as quatro áreas, a instalação e a recuperação dos dados.
+O registro da aplicação local e seus resultados estão no fim do documento.
 O manual completo está em [README](../job-radar-pilot/README.md).
 
 ## Usar no dia a dia

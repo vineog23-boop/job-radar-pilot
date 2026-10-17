@@ -34,6 +34,8 @@ class SearchPreferences:
     contract_types: tuple[str, ...] = ()
     avoid_advanced_english: bool = False
     primary_technologies: tuple[str, ...] = ()
+    development_only: bool = False
+    internship_tracks: tuple[str, ...] = ()
     # Modalidade por região (ver SearchProfile.workplace_location_scopes).
     workplace_location_scopes: object = ()
 
@@ -100,6 +102,15 @@ class SearchPreferences:
         object.__setattr__(self, "contract_types", contracts)
         if not isinstance(self.avoid_advanced_english, bool):
             raise PreferencesError("avoid_advanced_english deve ser verdadeiro ou falso.")
+        if not isinstance(self.development_only, bool):
+            raise PreferencesError("development_only deve ser verdadeiro ou falso.")
+        tracks = _validated_texts(
+            self.internship_tracks, field="internship_tracks", minimum=0,
+            maximum=2, item_limit=20, casefold=True,
+        )
+        if not set(tracks) <= {"ai", "full_stack"}:
+            raise PreferencesError("internship_tracks aceita apenas ai e full_stack.")
+        object.__setattr__(self, "internship_tracks", tracks)
         object.__setattr__(
             self,
             "workplace_location_scopes",
@@ -130,6 +141,8 @@ _OPTIONAL_FIELDS = {
     "contract_types",
     "avoid_advanced_english",
     "workplace_location_scopes",
+    "development_only",
+    "internship_tracks",
 }
 _FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
 _MAX_FILTER_TERMS = 40
@@ -272,6 +285,8 @@ def preferences_from_dict(payload: Mapping[str, object]) -> SearchPreferences:
         contract_types=payload.get("contract_types", ()),  # type: ignore[arg-type]
         avoid_advanced_english=payload.get("avoid_advanced_english", False),  # type: ignore[arg-type]
         workplace_location_scopes=payload.get("workplace_location_scopes", {}),
+        development_only=payload.get("development_only", False),  # type: ignore[arg-type]
+        internship_tracks=payload.get("internship_tracks", ()),  # type: ignore[arg-type]
     )
 
 
@@ -295,6 +310,8 @@ def preferences_to_dict(preferences: SearchPreferences) -> dict[str, object]:
         **{name: list(getattr(validated, name)) for name in _REFINE_LIMITS},
         "contract_types": list(validated.contract_types),
         "avoid_advanced_english": validated.avoid_advanced_english,
+        **({"development_only": True} if validated.development_only else {}),
+        **({"internship_tracks": list(validated.internship_tracks)} if validated.internship_tracks else {}),
         # Só aparece quando há regra: arquivos de quem não usa ficam como antes.
         **(
             {"workplace_location_scopes": {
@@ -332,6 +349,8 @@ def load_preferences(
             primary_technologies=default_profile.primary_technologies,
             excluded_terms=tuple(default_profile.excluded_terms[:_MAX_FILTER_TERMS]),
             workplace_location_scopes=default_profile.workplace_location_scopes,
+            development_only=default_profile.development_only,
+            internship_tracks=default_profile.internship_tracks,
         )
     try:
         raw = json.loads(resolved_path.read_text(encoding="utf-8"))
@@ -428,4 +447,6 @@ def apply_preferences(
         contract_types=preferences.contract_types,
         avoid_advanced_english=preferences.avoid_advanced_english,
         workplace_location_scopes=preferences.workplace_location_scopes,
+        development_only=preferences.development_only,
+        internship_tracks=preferences.internship_tracks,
     )

@@ -152,6 +152,32 @@ class TrackingStore:
             self._write(entries)
             return entries
 
+    def set_note(
+        self, url: object, note: object, *, now: datetime,
+        validate: Callable[[str], None] | None = None,
+    ) -> dict[str, dict[str, str]]:
+        """Atualiza só a nota, sem sobrescrever uma etapa alterada por outra aba."""
+        canonical = _validated_url(url)
+        if not isinstance(note, str):
+            raise TrackingError("Nota deve ser texto.")
+        cleaned = " ".join(note.split())
+        if len(cleaned) > _MAX_NOTE_LENGTH:
+            raise TrackingError(f"Nota excede {_MAX_NOTE_LENGTH} caracteres.")
+        with self.transaction():
+            entries = self.load()
+            if validate is not None:
+                validate(canonical)
+            if canonical not in entries:
+                raise TrackingError("O acompanhamento mudou. Recarregue a candidatura antes de editar.")
+            entry = entries[canonical]
+            entry["updated_at"] = now.isoformat()
+            if cleaned:
+                entry["note"] = cleaned
+            else:
+                entry.pop("note", None)
+            self._write(entries)
+            return entries
+
     def _write(self, entries: dict[str, dict[str, str]]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         handle, temp_name = tempfile.mkstemp(

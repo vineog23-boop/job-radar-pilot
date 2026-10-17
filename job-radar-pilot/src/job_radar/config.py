@@ -23,6 +23,8 @@ _PROFILE_KEYS = {
     "search_terms",
     "primary_technologies",
     "workplace_location_scopes",
+    "development_only",
+    "internship_tracks",
 }
 _REQUIRED_SOURCE_KEYS = {
     "code",
@@ -140,7 +142,18 @@ def load_profile(path: Path) -> SearchProfile:
         raise ConfigError(
             f"Perfil invalido; chaves desconhecidas={sorted(unknown)}, ausentes={sorted(missing)}"
         )
+    development_only = raw.get("development_only", False)
+    if not isinstance(development_only, bool):
+        raise ConfigError("development_only deve ser verdadeiro ou falso.")
+    tracks_raw = raw.get("internship_tracks", [])
+    if not isinstance(tracks_raw, list) or any(
+        not isinstance(track, str) or track not in {"ai", "full_stack"}
+        for track in tracks_raw
+    ):
+        raise ConfigError("internship_tracks deve conter apenas ai e full_stack.")
     return SearchProfile(
+        development_only=development_only,
+        internship_tracks=tuple(dict.fromkeys(tracks_raw)),
         positive_keywords=_string_tuple(raw["positive_keywords"], "positive_keywords"),
         seniority_levels=_string_tuple(raw["seniority_levels"], "seniority_levels"),
         location_scopes=_string_tuple(raw["location_scopes"], "location_scopes"),

@@ -823,7 +823,7 @@ def test_undo_cleanup_with_corrupt_backup_keeps_everything(tmp_path: Path) -> No
         + "\n{linha quebrada\n"
     )
     backup_path = output_dir / BACKUP_NAME
-    backup_path.write_text(backup_content, encoding="utf-8")
+    backup_path.write_bytes(backup_content.encode("utf-8"))
     before_output = (output_dir / "vagas.jsonl").read_bytes()
 
     with pytest.raises(CleanupError):
